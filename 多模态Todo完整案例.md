@@ -129,7 +129,7 @@ LLM 只能输出候选意图。真正执行时必须转换成这些业务 action
 
 底层 shadcn 组件仍然会提供 `press`、`check`、`select` 这类 primitive action，但 TodoItem、TodoList 和 TodoPage 聚合完成后，Snapshot 优先暴露 `todo.complete`、`todo.delete`、`todo.filter` 这些业务 action。primitive action 只作为内部执行能力或无聚合对象时的降级能力。
 
-GUI 和多模态不能各写一套状态更新逻辑。这个案例使用同一个 `executeTodoAction`：
+GUI 和多模态不能各写一套状态更新逻辑。这个案例使用同一个 `executeTodoAction`，并通过 action registry 声明每个业务 action 的作用域和目标对象：
 
 ```text
 GUI onClick / onValueChange
@@ -144,6 +144,10 @@ Resolver 转成 TodoAction
   ↓
 executeTodoAction(TodoAction)
 ```
+
+这里的 `entity` 只用于真实业务数据。`todo.item.todo_1` 有 `entity={{ type: "todo", id: todo.id }}`；`todo.composer`、`todo.filters`、`todo.list` 是 UI 区域，只用 `id` / `role` / `label` 作为作用域目标。
+
+因此 `MultimodalPage` 不再重复声明 `actions`。页面级、容器级和对象级动作都由 `useInteractionActions` 中的 `scope` / `target` 推导出来。
 
 ## 5. shadcn 页面代码示例
 
@@ -212,14 +216,44 @@ export function TodoPage() {
   useInteractionActions<TodoAction>({
     namespace: "todo",
     actions: {
-      "todo.add": {},
-      "todo.complete": {},
-      "todo.uncomplete": {},
-      "todo.toggle": {},
-      "todo.delete": { risk: "medium" },
-      "todo.rename": {},
-      "todo.filter": {},
-      "todo.clearCompleted": { risk: "medium" },
+      "todo.add": {
+        scope: "page",
+        target: { id: "todo.composer" },
+      },
+      "todo.complete": {
+        scope: "object",
+        target: { entityType: "todo" },
+        paramsFrom: { todoId: "target.entity.id" },
+      },
+      "todo.uncomplete": {
+        scope: "object",
+        target: { entityType: "todo" },
+        paramsFrom: { todoId: "target.entity.id" },
+      },
+      "todo.toggle": {
+        scope: "object",
+        target: { entityType: "todo" },
+        paramsFrom: { todoId: "target.entity.id" },
+      },
+      "todo.delete": {
+        scope: "object",
+        target: { entityType: "todo" },
+        paramsFrom: { todoId: "target.entity.id" },
+        risk: "medium",
+      },
+      "todo.rename": {
+        scope: "object",
+        target: { entityType: "todo" },
+        paramsFrom: { todoId: "target.entity.id" },
+      },
+      "todo.filter": {
+        scope: "container",
+        target: { id: "todo.filters" },
+      },
+      "todo.clearCompleted": {
+        scope: "page",
+        risk: "medium",
+      },
     },
     execute: executeTodoAction,
   })
@@ -229,11 +263,6 @@ export function TodoPage() {
       id="page.todo"
       title="待办事项"
       route="/todo"
-      actions={[
-        "todo.add",
-        "todo.filter",
-        "todo.clearCompleted",
-      ]}
       state={{
         filter,
         totalCount: todos.length,
@@ -250,7 +279,6 @@ export function TodoPage() {
           id="todo.composer"
           role="composer"
           label="新增待办"
-          entity={{ type: "todo_composer" }}
         >
           <div className="flex gap-2">
             <Input
@@ -280,7 +308,6 @@ export function TodoPage() {
           id="todo.filters"
           role="filter_tabs"
           label="待办过滤"
-          entity={{ type: "todo_filter" }}
         >
           <Tabs
             value={filter}
@@ -303,7 +330,6 @@ export function TodoPage() {
           id="todo.list"
           role="list"
           label="待办列表"
-          entity={{ type: "todo_list" }}
           indexBy="visible_order"
         >
           <ul className="space-y-2">
@@ -334,7 +360,7 @@ export function TodoPage() {
 }
 ```
 
-TodoItem 是一个组合组件，不应该只被抽成 Checkbox + Text + Button，而应该聚合成一个 Todo Item 对象。这里的 `MultimodalGroup` 只声明聚合边界和业务实体 ID；索引别名、业务 action 和 completed 状态都交给 Semantic Aggregator 从父级列表、action registry 和内部控件状态中推导。
+TodoItem 是一个组合组件，不应该只被抽成 Checkbox + Text + Button，而应该聚合成一个 Todo Item 对象。这里的 `MultimodalGroup` 只声明聚合边界和业务实体 ID；索引别名、业务 action 和 completed 状态都交给 Semantic Aggregator 从父级列表、action registry、`entity.id` 和内部控件状态中推导。
 
 ```tsx
 function TodoItem(props: {
@@ -394,6 +420,7 @@ function TodoItem(props: {
 
 - `MultimodalGroup` 不再手写 `aliases`、`actions`、`state`。
 - 删除、清理已完成等风险信息放在 action registry，而不是散落到每个按钮。
+- action registry 通过 `scope`、`target`、`paramsFrom` 决定 action 挂到哪个对象。
 - GUI 点击和多模态执行都调用 `executeTodoAction`，没有平行状态更新路径。
 
 Reducer 示例：
@@ -463,7 +490,9 @@ function createTodo(title: string): Todo {
   "page": {
     "id": "page.todo",
     "title": "待办事项",
-    "route": "/todo"
+    "route": "/todo",
+    "actions": ["todo.clearCompleted"],
+    "actionSource": "registry_scope_page"
   },
   "rawNodes": [
     {
@@ -514,7 +543,7 @@ function createTodo(title: string): Todo {
 
 Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
 
-这里的重点是：底层节点只有 `primitiveActions`，聚合对象才暴露 `todo.*` 业务 action。列表索引别名由 `todo.list` 的 `indexBy="visible_order"` 自动生成，风险信息来自 `useInteractionActions` 注册表。
+这里的重点是：底层节点只有 `primitiveActions`，聚合对象才暴露 `todo.*` 业务 action。列表索引别名由 `todo.list` 的 `indexBy="visible_order"` 自动生成，风险和 action 分配规则来自 `useInteractionActions` 注册表。
 
 ```json
 {
@@ -523,12 +552,8 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
     "type": "page",
     "title": "待办事项",
     "route": "/todo",
-    "actions": [
-      "todo.add",
-      "todo.filter",
-      "todo.clearCompleted"
-    ],
-    "actionSource": "registered_domain_actions",
+    "actions": ["todo.clearCompleted"],
+    "actionSource": "registry_scope_page",
     "state": {
       "filter": "all",
       "totalCount": 2,
@@ -547,7 +572,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
         "node.button.add"
       ],
       "actions": ["todo.add"],
-      "actionSource": "registered_domain_actions",
+      "actionSource": "registry_target_id",
       "state": {
         "draft": ""
       }
@@ -558,7 +583,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "role": "filter_tabs",
       "label": "待办过滤",
       "actions": ["todo.filter"],
-      "actionSource": "registered_domain_actions",
+      "actionSource": "registry_target_id",
       "state": {
         "value": "all"
       },
@@ -608,7 +633,10 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
         "todo.delete",
         "todo.rename"
       ],
-      "actionSource": "registered_domain_actions",
+      "actionSource": "registry_target_entity",
+      "paramsFrom": {
+        "todoId": "entity.id"
+      },
       "state": {
         "todoId": "todo_1",
         "index": 1,
@@ -624,6 +652,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "aliases": ["写周报", "第 2 个", "第 2 项"],
       "aliasSource": "list_index_adapter",
       "parent": "todo.list",
+      "primaryControl": "node.checkbox.todo_2",
       "actions": [
         "todo.complete",
         "todo.uncomplete",
@@ -631,7 +660,10 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
         "todo.delete",
         "todo.rename"
       ],
-      "actionSource": "registered_domain_actions",
+      "actionSource": "registry_target_entity",
+      "paramsFrom": {
+        "todoId": "entity.id"
+      },
       "state": {
         "todoId": "todo_2",
         "index": 2,
@@ -666,7 +698,9 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
   "page": {
     "id": "page.todo",
     "title": "待办事项",
-    "route": "/todo"
+    "route": "/todo",
+    "actions": ["todo.clearCompleted"],
+    "actionSource": "registry_scope_page"
   },
   "visibleObjects": [
     {
@@ -1209,8 +1243,8 @@ Feedback Manager：
 - 底层 shadcn 组件保留原本 API。
 - Button、Input、Checkbox、Tabs 自动提供基础 role / label / state / primitive action。
 - TodoItem 通过轻量 MultimodalGroup 声明聚合边界和业务实体 ID。
-- Semantic Aggregator 根据父级列表自动生成索引别名，并根据 action registry 暴露业务 action。
-- TodoPage 通过 MultimodalPage 暴露页面级 action。
+- Semantic Aggregator 根据父级列表自动生成索引别名，并根据 action registry 的 `scope` / `target` 暴露业务 action。
+- TodoPage 通过 MultimodalPage 提供页面上下文；页面级 action 从 registry 的 `scope: "page"` 推导。
 - Interaction Snapshot 是运行时生成的，不是手写大配置。
 - LLM 只负责理解“第一个”“这个”“只看未完成”等自然表达。
 - ActionExecutor 负责确定性校验，并最终调用和 GUI 共用的 `executeTodoAction`。
@@ -1220,5 +1254,5 @@ Feedback Manager：
 
 ```text
 简单 Todo 不需要给每个控件配置语音命令。
-只需要让控件可被抽取、组合组件声明边界、业务动作集中注册、GUI/VUI 共用执行入口。
+只需要让控件可被抽取、组合组件声明边界、业务动作集中注册并声明作用域、GUI/VUI 共用执行入口。
 ```

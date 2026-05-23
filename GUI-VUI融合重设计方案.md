@@ -432,6 +432,15 @@ Semantic Aggregator 应该把它聚合成：
 
 列表索引、`第 1 个` 这类别名、可执行业务动作，应该由父级 list、业务 action registry 和 Semantic Aggregator 共同推导。
 
+这里的 `entity` 只表示业务实体引用，不表示普通 UI 区域。
+
+```text
+适合使用 entity：todo、order、file、contact、message 这类有业务 ID 的对象。
+不适合使用 entity：composer、filter_tabs、toolbar、dialog 这类 UI 区域。
+```
+
+纯 UI 区域通常只需要 `id`、`role` 和 `label`。如果一个区域需要承载动作作用域，应由 action registry 的 `target` 或页面 / 容器 id 来声明，而不是把它伪装成业务实体。
+
 ### 6.4 页面对象
 
 页面也应该进入 Interaction Snapshot。
@@ -536,6 +545,113 @@ primitive action 作为内部执行能力保留，不直接暴露给 LLM。
 
 而不是同时看到 `checkbox.check`、`button.press` 和 `todo.complete`。底层 `check` / `press` 只用于 Action Dispatcher 把业务动作落到确定性 UI 或状态入口。
 
+### 6.8 action 到对象的分配规则
+
+Action registry 不只是“有哪些 action”的清单，还要说明这些 action 应该挂到哪些对象上。否则 Aggregator 无法判断 `todo.complete` 应该属于 TodoItem，而不是属于 TodoPage 或 TodoList。
+
+推荐 action spec：
+
+```ts
+type DomainActionSpec = {
+  scope: "object" | "container" | "page" | "app" | "system"
+  target?: {
+    id?: string
+    role?: string
+    entityType?: string
+  }
+  paramsFrom?: Record<string, string>
+  risk?: "low" | "medium" | "high"
+  requiresConfirmation?: boolean
+}
+```
+
+分配规则按优先级执行：
+
+```text
+1. target.id 命中具体对象 id 时，只挂到该对象。
+2. target.entityType 命中对象 entity.type 时，挂到对应业务实体对象。
+3. target.role 命中对象 role 时，挂到对应角色对象。
+4. scope 为 page / app / system 且无具体 target 时，挂到对应层级对象。
+5. 没有命中任何对象的 action 不进入 Snapshot，只保留在 registry 中等待显式调用或跨页面任务使用。
+```
+
+例如：
+
+```ts
+useInteractionActions({
+  namespace: "todo",
+  actions: {
+    "todo.add": {
+      scope: "page",
+      target: { id: "todo.composer" },
+    },
+    "todo.complete": {
+      scope: "object",
+      target: { entityType: "todo" },
+      paramsFrom: { todoId: "target.entity.id" },
+    },
+    "todo.delete": {
+      scope: "object",
+      target: { entityType: "todo" },
+      paramsFrom: { todoId: "target.entity.id" },
+      risk: "medium",
+    },
+    "todo.filter": {
+      scope: "container",
+      target: { id: "todo.filters" },
+    },
+    "todo.clearCompleted": {
+      scope: "page",
+    },
+  },
+})
+```
+
+这样 Aggregator 可以确定：
+
+```text
+todo.item.todo_1 暴露 todo.complete / todo.delete / todo.rename。
+todo.composer 暴露 todo.add。
+todo.filters 暴露 todo.filter。
+page.todo 暴露 todo.clearCompleted。
+```
+
+`MultimodalPage.actions` 可以作为页面作用域的轻量声明或兼容旧写法，但如果 action registry 已经提供 `scope` / `target`，页面 action 应优先从 registry 推导，避免重复维护。
+
+### 6.9 state 推导和可选映射
+
+聚合对象的 state 也应该优先推导，但推导规则必须可解释。
+
+常见来源包括：
+
+```text
+entity.id → todoId、orderId、fileId 等业务 ID。
+父级 list 的可见顺序 → index 和“第 N 个”别名。
+group label 或主文本节点 → title / name。
+primary checkbox.checked → completed / selected。
+primary switch.checked → enabled / on。
+slider value / min / max / step → 数值状态。
+selected tab / option → 当前筛选或选择值。
+```
+
+当业务状态复杂，或者自动推导会误判时，可以给 `MultimodalGroup` 增加可选的 `stateMap`，只补充自动推导不了的字段：
+
+```tsx
+<MultimodalGroup
+  role="list_item"
+  entity={{ type: "todo", id: todo.id }}
+  label={todo.title}
+  stateMap={{
+    dueAt: todo.dueAt,
+    priority: todo.priority,
+  }}
+>
+  <TodoItemView todo={todo} />
+</MultimodalGroup>
+```
+
+`stateMap` 不应该重新声明完整对象状态，而是补充业务字段；基础状态仍由控件和聚合规则推导。
+
 ## 7. 人工标注的边界
 
 人工标注应该只用于自动抽取无法可靠解决的场景。
@@ -573,6 +689,17 @@ defineInteractionHint({
 ```
 
 或者：
+
+```tsx
+<IconButton
+  icon="save"
+  interactionHint={{
+    aliases: ["保存草稿", "暂存"],
+  }}
+/>
+```
+
+再比如高风险图标按钮：
 
 ```tsx
 <IconButton
