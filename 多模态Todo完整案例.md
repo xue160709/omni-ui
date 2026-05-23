@@ -125,7 +125,25 @@ type TodoAction =
     }
 ```
 
-LLM 只能输出候选意图。真正执行时必须转换成这些标准 action。
+LLM 只能输出候选意图。真正执行时必须转换成这些业务 action。
+
+底层 shadcn 组件仍然会提供 `press`、`check`、`select` 这类 primitive action，但 TodoItem、TodoList 和 TodoPage 聚合完成后，Snapshot 优先暴露 `todo.complete`、`todo.delete`、`todo.filter` 这些业务 action。primitive action 只作为内部执行能力或无聚合对象时的降级能力。
+
+GUI 和多模态不能各写一套状态更新逻辑。这个案例使用同一个 `executeTodoAction`：
+
+```text
+GUI onClick / onValueChange
+  ↓
+executeTodoAction(TodoAction)
+
+VUI / gaze / gesture
+  ↓
+LLM 输出候选意图
+  ↓
+Resolver 转成 TodoAction
+  ↓
+executeTodoAction(TodoAction)
+```
 
 ## 5. shadcn 页面代码示例
 
@@ -140,7 +158,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   MultimodalPage,
   MultimodalGroup,
-  useInteractionAction,
+  useInteractionActions,
 } from "@/multimodal"
 
 type Todo = {
@@ -179,7 +197,7 @@ export function TodoPage() {
     return true
   })
 
-  useInteractionAction<TodoAction>("todo.dispatch", (action) => {
+  const executeTodoAction = React.useCallback((action: TodoAction) => {
     setTodos((current) => reduceTodos(current, action))
 
     if (action.type === "todo.filter") {
@@ -189,6 +207,21 @@ export function TodoPage() {
     if (action.type === "todo.add") {
       setDraft("")
     }
+  }, [])
+
+  useInteractionActions<TodoAction>({
+    namespace: "todo",
+    actions: {
+      "todo.add": {},
+      "todo.complete": {},
+      "todo.uncomplete": {},
+      "todo.toggle": {},
+      "todo.delete": { risk: "medium" },
+      "todo.rename": {},
+      "todo.filter": {},
+      "todo.clearCompleted": { risk: "medium" },
+    },
+    execute: executeTodoAction,
   })
 
   return (
@@ -217,8 +250,7 @@ export function TodoPage() {
           id="todo.composer"
           role="composer"
           label="新增待办"
-          actions={["todo.add"]}
-          state={{ draft }}
+          entity={{ type: "todo_composer" }}
         >
           <div className="flex gap-2">
             <Input
@@ -227,21 +259,16 @@ export function TodoPage() {
               placeholder="输入新的待办"
               aria-label="新的待办"
               interactionHint={{
-                role: "text_input",
                 aliases: ["待办内容", "新任务", "新的待办"],
               }}
             />
             <Button
               onClick={() => {
                 if (!draft.trim()) return
-                setTodos((current) => [
-                  ...current,
-                  createTodo(draft.trim()),
-                ])
-                setDraft("")
-              }}
-              interactionHint={{
-                aliases: ["添加待办", "新增待办", "加入列表"],
+                executeTodoAction({
+                  type: "todo.add",
+                  title: draft.trim(),
+                })
               }}
             >
               添加
@@ -253,10 +280,17 @@ export function TodoPage() {
           id="todo.filters"
           role="filter_tabs"
           label="待办过滤"
-          actions={["todo.filter"]}
-          state={{ value: filter }}
+          entity={{ type: "todo_filter" }}
         >
-          <Tabs value={filter} onValueChange={(value) => setFilter(value as TodoFilter)}>
+          <Tabs
+            value={filter}
+            onValueChange={(value) =>
+              executeTodoAction({
+                type: "todo.filter",
+                filter: value as TodoFilter,
+              })
+            }
+          >
             <TabsList aria-label="待办过滤">
               <TabsTrigger value="all">全部</TabsTrigger>
               <TabsTrigger value="active">未完成</TabsTrigger>
@@ -269,36 +303,15 @@ export function TodoPage() {
           id="todo.list"
           role="list"
           label="待办列表"
-          actions={[
-            "todo.complete",
-            "todo.uncomplete",
-            "todo.toggle",
-            "todo.delete",
-            "todo.rename",
-          ]}
-          state={{
-            count: visibleTodos.length,
-            filter,
-          }}
+          entity={{ type: "todo_list" }}
+          indexBy="visible_order"
         >
           <ul className="space-y-2">
-            {visibleTodos.map((todo, index) => (
+            {visibleTodos.map((todo) => (
               <TodoItem
                 key={todo.id}
                 todo={todo}
-                index={index + 1}
-                onToggle={() => {
-                  setTodos((current) =>
-                    current.map((item) =>
-                      item.id === todo.id
-                        ? { ...item, completed: !item.completed, updatedAt: Date.now() }
-                        : item
-                    )
-                  )
-                }}
-                onDelete={() => {
-                  setTodos((current) => current.filter((item) => item.id !== todo.id))
-                }}
+                onAction={executeTodoAction}
               />
             ))}
           </ul>
@@ -309,11 +322,7 @@ export function TodoPage() {
           <Button
             variant="ghost"
             onClick={() => {
-              setTodos((current) => current.filter((todo) => !todo.completed))
-            }}
-            interactionHint={{
-              aliases: ["清理已完成", "删除已完成", "清空完成项"],
-              risk: "medium",
+              executeTodoAction({ type: "todo.clearCompleted" })
             }}
           >
             清理已完成
@@ -325,45 +334,31 @@ export function TodoPage() {
 }
 ```
 
-TodoItem 是一个组合组件，不应该只被抽成 Checkbox + Text + Button，而应该聚合成一个 Todo Item 对象。
+TodoItem 是一个组合组件，不应该只被抽成 Checkbox + Text + Button，而应该聚合成一个 Todo Item 对象。这里的 `MultimodalGroup` 只声明聚合边界和业务实体 ID；索引别名、业务 action 和 completed 状态都交给 Semantic Aggregator 从父级列表、action registry 和内部控件状态中推导。
 
 ```tsx
 function TodoItem(props: {
   todo: Todo
-  index: number
-  onToggle: () => void
-  onDelete: () => void
+  onAction: (action: TodoAction) => void
 }) {
-  const { todo, index, onToggle, onDelete } = props
+  const { todo, onAction } = props
 
   return (
     <MultimodalGroup
       id={`todo.item.${todo.id}`}
       role="list_item"
       label={todo.title}
-      aliases={[
-        todo.title,
-        `第 ${index} 个`,
-        `第 ${index} 项`,
-      ]}
-      actions={[
-        "todo.complete",
-        "todo.uncomplete",
-        "todo.toggle",
-        "todo.delete",
-        "todo.rename",
-      ]}
-      state={{
-        id: todo.id,
-        index,
-        title: todo.title,
-        completed: todo.completed,
-      }}
+      entity={{ type: "todo", id: todo.id }}
     >
       <li className="flex items-center gap-3 rounded-md border p-3">
         <Checkbox
           checked={todo.completed}
-          onCheckedChange={onToggle}
+          onCheckedChange={() =>
+            onAction({
+              type: todo.completed ? "todo.uncomplete" : "todo.complete",
+              todoId: todo.id,
+            })
+          }
           aria-label={todo.completed ? `取消完成 ${todo.title}` : `完成 ${todo.title}`}
         />
         <span
@@ -374,20 +369,18 @@ function TodoItem(props: {
         <Button
           variant="ghost"
           size="sm"
-          interactionHint={{
-            aliases: [`编辑 ${todo.title}`, `修改 ${todo.title}`],
-          }}
         >
           编辑
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          onClick={onDelete}
-          interactionHint={{
-            aliases: [`删除 ${todo.title}`, `移除 ${todo.title}`],
-            risk: "medium",
-          }}
+          onClick={() =>
+            onAction({
+              type: "todo.delete",
+              todoId: todo.id,
+            })
+          }
         >
           删除
         </Button>
@@ -396,6 +389,12 @@ function TodoItem(props: {
   )
 }
 ```
+
+这个例子里有三条关键规则：
+
+- `MultimodalGroup` 不再手写 `aliases`、`actions`、`state`。
+- 删除、清理已完成等风险信息放在 action registry，而不是散落到每个按钮。
+- GUI 点击和多模态执行都调用 `executeTodoAction`，没有平行状态更新路径。
 
 Reducer 示例：
 
@@ -473,28 +472,28 @@ function createTodo(title: string): Todo {
       "label": "新的待办",
       "value": "",
       "enabled": true,
-      "actions": ["focus", "setText", "clear"]
+      "primitiveActions": ["focus", "setText", "clear"]
     },
     {
       "id": "node.button.add",
       "role": "button",
       "label": "添加",
       "enabled": true,
-      "actions": ["press"]
+      "primitiveActions": ["press"]
     },
     {
       "id": "node.tab.active",
       "role": "tab",
       "label": "未完成",
       "selected": false,
-      "actions": ["select"]
+      "primitiveActions": ["select"]
     },
     {
       "id": "node.checkbox.todo_1",
       "role": "checkbox",
       "label": "完成 买牛奶",
       "checked": false,
-      "actions": ["check", "uncheck", "toggle"]
+      "primitiveActions": ["check", "uncheck", "toggle"]
     },
     {
       "id": "node.text.todo_1",
@@ -505,7 +504,7 @@ function createTodo(title: string): Todo {
       "id": "node.button.delete.todo_1",
       "role": "button",
       "label": "删除",
-      "actions": ["press"]
+      "primitiveActions": ["press"]
     }
   ]
 }
@@ -514,6 +513,8 @@ function createTodo(title: string): Todo {
 ## 7. Semantic Aggregator 聚合结果
 
 Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
+
+这里的重点是：底层节点只有 `primitiveActions`，聚合对象才暴露 `todo.*` 业务 action。列表索引别名由 `todo.list` 的 `indexBy="visible_order"` 自动生成，风险信息来自 `useInteractionActions` 注册表。
 
 ```json
 {
@@ -527,6 +528,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "todo.filter",
       "todo.clearCompleted"
     ],
+    "actionSource": "registered_domain_actions",
     "state": {
       "filter": "all",
       "totalCount": 2,
@@ -545,6 +547,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
         "node.button.add"
       ],
       "actions": ["todo.add"],
+      "actionSource": "registered_domain_actions",
       "state": {
         "draft": ""
       }
@@ -555,6 +558,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "role": "filter_tabs",
       "label": "待办过滤",
       "actions": ["todo.filter"],
+      "actionSource": "registered_domain_actions",
       "state": {
         "value": "all"
       },
@@ -578,6 +582,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "type": "container",
       "role": "list",
       "label": "待办列表",
+      "indexBy": "visible_order",
       "state": {
         "count": 2,
         "filter": "all"
@@ -593,6 +598,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "role": "list_item",
       "label": "买牛奶",
       "aliases": ["买牛奶", "第 1 个", "第 1 项"],
+      "aliasSource": "list_index_adapter",
       "parent": "todo.list",
       "primaryControl": "node.checkbox.todo_1",
       "actions": [
@@ -602,8 +608,9 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
         "todo.delete",
         "todo.rename"
       ],
+      "actionSource": "registered_domain_actions",
       "state": {
-        "id": "todo_1",
+        "todoId": "todo_1",
         "index": 1,
         "title": "买牛奶",
         "completed": false
@@ -615,6 +622,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "role": "list_item",
       "label": "写周报",
       "aliases": ["写周报", "第 2 个", "第 2 项"],
+      "aliasSource": "list_index_adapter",
       "parent": "todo.list",
       "actions": [
         "todo.complete",
@@ -623,8 +631,9 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
         "todo.delete",
         "todo.rename"
       ],
+      "actionSource": "registered_domain_actions",
       "state": {
-        "id": "todo_2",
+        "todoId": "todo_2",
         "index": 2,
         "title": "写周报",
         "completed": false
@@ -640,6 +649,8 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
 
 ```json
 {
+  "snapshotId": "snapshot_todo_042",
+  "stateVersion": 42,
   "session": {
     "id": "session_todo_001",
     "language": "zh-CN",
@@ -715,6 +726,7 @@ Semantic Aggregator 会把底层节点聚合成更接近用户语言的对象。
       "modality": "gui",
       "type": "tap",
       "target": "todo.item.todo_2",
+      "baseStateVersion": 41,
       "timestamp": 10001
     }
   ]
@@ -744,7 +756,7 @@ LLM 输出候选意图：
 }
 ```
 
-Resolver 转成确定性 action：
+Action Normalizer 转成业务 action：
 
 ```json
 {
@@ -815,11 +827,15 @@ Target Resolver 查找 `todo.list` 的第一个 item：
 {
   "voice": {
     "text": "完成这个",
+    "snapshotId": "snapshot_todo_042",
+    "baseStateVersion": 42,
     "timestamp": 10005
   },
   "gaze": {
     "targetCandidate": "todo.item.todo_2",
     "confidence": 0.76,
+    "snapshotId": "snapshot_todo_042",
+    "baseStateVersion": 42,
     "timestamp": 10004
   }
 }
@@ -1042,7 +1058,7 @@ Policy Validator：
   todo.item.todo_1 支持 todo.complete
   ↓
 Action Dispatcher：
-  dispatch({ type: "todo.complete", todoId: "todo_1" })
+  executeTodoAction({ type: "todo.complete", todoId: "todo_1" })
   ↓
 State Update：
   买牛奶 completed = true
@@ -1191,17 +1207,18 @@ Feedback Manager：
 这个 Todo 案例体现了完整的多模态组件思想：
 
 - 底层 shadcn 组件保留原本 API。
-- Button、Input、Checkbox、Tabs 自动提供基础 role / label / state / action。
-- TodoItem 通过 MultimodalGroup 聚合为一个 list_item。
+- Button、Input、Checkbox、Tabs 自动提供基础 role / label / state / primitive action。
+- TodoItem 通过轻量 MultimodalGroup 声明聚合边界和业务实体 ID。
+- Semantic Aggregator 根据父级列表自动生成索引别名，并根据 action registry 暴露业务 action。
 - TodoPage 通过 MultimodalPage 暴露页面级 action。
 - Interaction Snapshot 是运行时生成的，不是手写大配置。
 - LLM 只负责理解“第一个”“这个”“只看未完成”等自然表达。
-- ActionExecutor 负责确定性校验和执行。
+- ActionExecutor 负责确定性校验，并最终调用和 GUI 共用的 `executeTodoAction`。
 - GUI 和 VUI 共享同一份 Todo 状态。
 
 核心结论：
 
 ```text
 简单 Todo 不需要给每个控件配置语音命令。
-只需要让控件可被抽取、组合组件可被聚合、页面动作可被声明。
+只需要让控件可被抽取、组合组件声明边界、业务动作集中注册、GUI/VUI 共用执行入口。
 ```
