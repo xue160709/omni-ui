@@ -28,7 +28,7 @@ LLM / NLU 基于快照理解用户意图
 自动抽取负责基础事实。
 Semantic Aggregator 负责把基础事实聚合成业务对象。
 MultimodalGroup 只声明聚合边界和少量业务身份，不手写完整对象。
-interactionHint 只补充别名、风险、确认策略和失败原因。
+interactionHint 只补充别名、缺失标签和失败原因；风险、权限、确认策略放在 action registry。
 LLM 面向聚合后的业务 action，不直接面对所有底层控件 action。
 GUI 操作和多模态操作必须共用同一套确定性执行入口。
 ```
@@ -152,7 +152,7 @@ Interaction Snapshot 是当前界面的交互语义快照。
         "enabled": true
       },
       "actions": ["turnOn", "turnOff", "toggle"],
-      "scope": "page"
+      "executeScope": "page"
     },
     {
       "id": "auto.climate.temperature",
@@ -167,7 +167,7 @@ Interaction Snapshot 是当前界面的交互语义快照。
         "enabled": true
       },
       "actions": ["setValue", "increase", "decrease"],
-      "scope": "page"
+      "executeScope": "page"
     }
   ],
   "focus": {
@@ -439,7 +439,7 @@ Semantic Aggregator 应该把它聚合成：
 不适合使用 entity：composer、filter_tabs、toolbar、dialog 这类 UI 区域。
 ```
 
-纯 UI 区域通常只需要 `id`、`role` 和 `label`。如果一个区域需要承载动作作用域，应由 action registry 的 `target` 或页面 / 容器 id 来声明，而不是把它伪装成业务实体。
+纯 UI 区域通常只需要 `id`、`role` 和 `label`。如果一个区域需要承载动作作用域，应由 action registry 的 `attachTo` 或页面 / 容器 id 来声明，而不是把它伪装成业务实体。
 
 ### 6.4 页面对象
 
@@ -545,33 +545,43 @@ primitive action 作为内部执行能力保留，不直接暴露给 LLM。
 
 而不是同时看到 `checkbox.check`、`button.press` 和 `todo.complete`。底层 `check` / `press` 只用于 Action Dispatcher 把业务动作落到确定性 UI 或状态入口。
 
-### 6.8 action 到对象的分配规则
+### 6.8 action 挂载和执行规则
 
-Action registry 不只是“有哪些 action”的清单，还要说明这些 action 应该挂到哪些对象上。否则 Aggregator 无法判断 `todo.complete` 应该属于 TodoItem，而不是属于 TodoPage 或 TodoList。
+Action registry 不只是“有哪些 action”的清单，还要同时说明两件事：
+
+```text
+attachTo：这个 action 应该挂在哪些交互对象上，让 Snapshot 暴露给 LLM。
+executeScope：这个 action 执行时属于哪个作用域，由 Validator 校验当前上下文是否允许。
+```
+
+这两个概念不能混在一起。否则 Aggregator 会分不清 `todo.add` 是页面级能力，还是 Composer 对象上的能力；Validator 也会分不清某个 action 是局部对象操作，还是页面 / 系统级操作。
 
 推荐 action spec：
 
 ```ts
 type DomainActionSpec = {
-  scope: "object" | "container" | "page" | "app" | "system"
-  target?: {
+  attachTo?: {
     id?: string
     role?: string
     entityType?: string
   }
+  executeScope: "object" | "container" | "page" | "app" | "system" | "task"
   paramsFrom?: Record<string, string>
+  availableWhen?: string
   risk?: "low" | "medium" | "high"
   requiresConfirmation?: boolean
 }
 ```
 
+`paramsFrom` 和 `availableWhen` 应该实现成受限的路径 / 谓词 DSL，或由 registry 注册确定性函数。文档里用字符串只是为了表达规则，不应该在运行时直接 `eval`。
+
 分配规则按优先级执行：
 
 ```text
-1. target.id 命中具体对象 id 时，只挂到该对象。
-2. target.entityType 命中对象 entity.type 时，挂到对应业务实体对象。
-3. target.role 命中对象 role 时，挂到对应角色对象。
-4. scope 为 page / app / system 且无具体 target 时，挂到对应层级对象。
+1. attachTo.id 命中具体对象 id 时，只挂到该对象。
+2. attachTo.entityType 命中对象 entity.type 时，挂到对应业务实体对象。
+3. attachTo.role 命中对象 role 时，挂到对应角色对象。
+4. executeScope 为 page / app / system 且没有 attachTo 时，挂到对应层级对象。
 5. 没有命中任何对象的 action 不进入 Snapshot，只保留在 registry 中等待显式调用或跨页面任务使用。
 ```
 
@@ -582,26 +592,38 @@ useInteractionActions({
   namespace: "todo",
   actions: {
     "todo.add": {
-      scope: "page",
-      target: { id: "todo.composer" },
+      attachTo: { id: "todo.composer" },
+      executeScope: "page",
     },
     "todo.complete": {
-      scope: "object",
-      target: { entityType: "todo" },
+      attachTo: { entityType: "todo" },
+      executeScope: "object",
       paramsFrom: { todoId: "target.entity.id" },
+      availableWhen: "target.state.completed === false",
+    },
+    "todo.uncomplete": {
+      attachTo: { entityType: "todo" },
+      executeScope: "object",
+      paramsFrom: { todoId: "target.entity.id" },
+      availableWhen: "target.state.completed === true",
     },
     "todo.delete": {
-      scope: "object",
-      target: { entityType: "todo" },
+      attachTo: { entityType: "todo" },
+      executeScope: "object",
       paramsFrom: { todoId: "target.entity.id" },
       risk: "medium",
     },
+    "todo.rename": {
+      attachTo: { entityType: "todo" },
+      executeScope: "object",
+      paramsFrom: { todoId: "target.entity.id" },
+    },
     "todo.filter": {
-      scope: "container",
-      target: { id: "todo.filters" },
+      attachTo: { id: "todo.filters" },
+      executeScope: "container",
     },
     "todo.clearCompleted": {
-      scope: "page",
+      executeScope: "page",
     },
   },
 })
@@ -610,13 +632,14 @@ useInteractionActions({
 这样 Aggregator 可以确定：
 
 ```text
-todo.item.todo_1 暴露 todo.complete / todo.delete / todo.rename。
+未完成的 todo.item.todo_1 暴露 todo.complete / todo.delete / todo.rename。
+已完成的 todo.item.todo_2 暴露 todo.uncomplete / todo.delete / todo.rename。
 todo.composer 暴露 todo.add。
 todo.filters 暴露 todo.filter。
 page.todo 暴露 todo.clearCompleted。
 ```
 
-`MultimodalPage.actions` 可以作为页面作用域的轻量声明或兼容旧写法，但如果 action registry 已经提供 `scope` / `target`，页面 action 应优先从 registry 推导，避免重复维护。
+`MultimodalPage.actions` 可以作为页面作用域的轻量声明或兼容旧写法，但如果 action registry 已经提供 `attachTo` / `executeScope`，页面 action 应优先从 registry 推导，避免重复维护。
 
 ### 6.9 state 推导和可选映射
 
@@ -671,7 +694,9 @@ selected tab / option → 当前筛选或选择值。
 `interactionHint` 的职责要保持很窄：
 
 ```text
-可以补充：aliases、risk、requiresConfirmation、failureReason、permission。
+可以补充：aliases、fallbackLabel、failureReason、disambiguationHint。
+风险、权限、确认策略：默认放在 action registry。
+只有没有 domain action 的纯 primitive 操作，才允许 hint 临时声明 risk / requiresConfirmation。
 谨慎补充：label，只有 GUI 文案和业务含义明显不一致时使用。
 不应承担：完整 role、actions、state、children、执行逻辑。
 ```
@@ -682,9 +707,23 @@ selected tab / option → 当前筛选或选择值。
 defineInteractionHint({
   target: "button.restoreDefault",
   aliases: ["恢复默认", "重置设置"],
-  risk: "high",
-  requiresConfirmation: true,
   failureReason: "当前账号无权恢复默认设置"
+})
+```
+
+对应的风险和确认策略应该放在 action registry：
+
+```ts
+useInteractionActions({
+  namespace: "settings",
+  actions: {
+    "settings.restoreDefault": {
+      attachTo: { id: "button.restoreDefault" },
+      executeScope: "page",
+      risk: "high",
+      requiresConfirmation: true,
+    },
+  },
 })
 ```
 
@@ -706,18 +745,19 @@ defineInteractionHint({
   icon="trash"
   aria-label="删除"
   interactionHint={{
-    risk: "high",
-    requiresConfirmation: true
+    aliases: ["删除这一项", "移除这一项"]
   }}
 />
 ```
+
+如果这个删除按钮已经映射到 `todo.delete`、`file.delete` 这类 domain action，风险级别仍然以 action registry 为准。
 
 也就是说：
 
 ```text
 能自动抽取的，不配置。
 自动抽不准的，少量补充。
-危险和全局任务，明确声明。
+危险和全局任务，在 action registry 里明确声明。
 ```
 
 ## 8. 多模态输入统一事件
@@ -776,6 +816,31 @@ defineInteractionHint({
 ```
 
 这些事件都不直接改业务状态，而是进入 Interaction Manager。
+
+### 8.1 融合窗口和事件关联
+
+多模态融合不能只看“最近一次事件”，必须有明确的事件关联规则。
+
+推荐做法：
+
+```text
+1. 每个 snapshotId 维护一个短时 event buffer。
+2. gaze / gesture / keyboard focus 这类 target_hint 默认只在 800ms 到 1500ms 内有效。
+3. voice intent 到达后，只能关联同一 snapshotId 或可验证兼容的 target_hint。
+4. 如果 stateVersion 已变化，必须重新解析目标或要求确认，不能直接沿用旧目标。
+5. 多个 target_hint 冲突时，按 confidence、时间距离和上下文优先级打分；低于阈值则澄清。
+6. 高风险 action 即使命中目标，也要经过确认策略和最新状态校验。
+```
+
+例如“看着第二个说完成这个”：
+
+```text
+gaze target_hint(todo.item.todo_2, t=10004)
+voice intent("完成这个", t=10005)
+时间差 1000ms 内，snapshotId 一致，target_hint 可作为指代消解证据。
+```
+
+如果语音结果延迟到达，而用户已经点击了别的对象或页面弹出了 Dialog，Interaction Manager 必须丢弃旧绑定或重新校验。这样可以避免“用户刚改变界面，迟到的语音又操作旧对象”的问题。
 
 ## 9. LLM 的作用
 
@@ -1005,6 +1070,80 @@ task：跨页面任务流
 - 关键节点语音播报。
 - 主界面按需跳转或同步展示。
 
+### 13.4 语音激活控件的视觉反馈
+
+语音操作可见控件时，应该有一套区别于鼠标点击的远程激活反馈。
+
+语音没有真实的 pointer down / pointer up，用户也可能离屏幕更远，所以不应该只复用浏览器或组件库的 `:active` 状态。更合理的反馈分三段：
+
+```text
+target highlight：表示系统理解用户说的是哪个对象。
+voice press：表示系统正在替用户执行点击、切换、选择或调节。
+result feedback：表示操作已经成功、失败或需要确认。
+```
+
+例如用户说“点击添加”：
+
+```text
+1. 添加按钮出现短暂目标高亮。
+2. 按钮执行一次 voice press 动效。
+3. 待办新增成功后，新列表项或按钮区域给出结果反馈。
+```
+
+不同对象的反馈粒度应该不同：
+
+- Button：可以有短暂按下和外扩波纹。
+- Switch / Checkbox：优先表现目标高亮和状态变化，不要制造重复切换感。
+- Tabs / Select Item：高亮目标选项，然后切换选中态。
+- Slider：高亮整个值控件，并在数值变化处给出反馈。
+- ListItem / Card：高亮聚合对象整体，而不是只闪内部某个底层按钮。
+- Dialog / AlertDialog：高亮当前模态容器内被命中的确认或取消动作。
+
+实现上，这套效果应该由 `FeedbackManager` 统一调度，而不是散落到每个控件的业务参数里。`FeedbackManager` 根据目标对象 id 找到对应 DOM ref 或聚合对象边界，临时写入反馈状态：
+
+```ts
+feedbackManager.activate(targetId, {
+  source: "voice",
+  phase: "press",
+})
+```
+
+DOM 可以使用统一 attribute 承载反馈状态：
+
+```html
+<button data-mm-feedback="voice-press">添加</button>
+```
+
+基础样式可以作为 runtime 默认层提供，组件库可以按主题覆盖：
+
+```css
+[data-mm-feedback="voice-target"] {
+  outline: 2px solid hsl(210 90% 55%);
+  outline-offset: 3px;
+}
+
+[data-mm-feedback="voice-press"] {
+  animation: mm-voice-press 220ms ease-out;
+}
+
+@keyframes mm-voice-press {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 hsl(210 90% 55% / 0.45);
+  }
+  45% {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 6px hsl(210 90% 55% / 0.18);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 hsl(210 90% 55% / 0);
+  }
+}
+```
+
+这套反馈只表达“语音命中了并触发了这个 GUI 对象”，不替代 action 校验、权限确认和业务结果反馈。高风险动作在 voice press 前仍然必须先走确认策略。
+
 ## 14. 文案与可说性
 
 GUI 文案不应该被强迫等于语音命令。
@@ -1072,7 +1211,7 @@ available domain actions
 
 ### 16.1 第一阶段：运行时快照和最小聚合
 
-接入 DOM / ARIA / 组件注册信息，生成最小 Interaction Snapshot，并同时引入最小 Semantic Aggregator。
+接入 DOM / ARIA / 组件注册信息，生成最小 Interaction Snapshot，并同时引入最小 Semantic Aggregator。第一阶段只做稳定、低歧义的聚合，不追求覆盖所有复杂组件。
 
 至少抽取：
 
@@ -1090,7 +1229,15 @@ available domain actions
 - Page / Route。
 - FormField。
 - Dialog / AlertDialog。
-- ListItem。
+- 可见列表中的 ListItem。
+
+暂不处理：
+
+- 跨区域组合。
+- 复杂 Table / DataTable。
+- 虚拟列表的全量离屏项。
+- Wizard / Task Flow。
+- 跨页面任务对象。
 
 这一阶段不要求人工标注大量对象。
 
@@ -1136,21 +1283,19 @@ available domain actions
 
 ### 16.6 第六阶段：高级聚合和任务对象
 
-扩展 Semantic Aggregator，把散控件聚合成更复杂的组合组件、容器和任务对象。
+扩展 Semantic Aggregator，把第一阶段没有覆盖的散控件聚合成更复杂的组合组件、容器和任务对象。
 
 重点处理：
 
-- FormField。
 - Card。
-- Dialog。
 - Command。
 - Select。
 - Table / DataTable。
-- ListItem。
-- Page / Route。
+- 虚拟列表和分组列表。
+- 跨区域组合对象。
 - Wizard / Task Flow。
 
-基础聚合必须在第一阶段进入；这一阶段解决的是复杂表格、跨区域组合和多步骤任务。
+基础聚合必须在第一阶段进入；这一阶段解决的是复杂表格、跨区域组合、离屏数据和多步骤任务。
 
 ## 17. shadcn 组件库升级方案
 
@@ -1218,10 +1363,12 @@ shadcn / Radix / Base UI 负责基础 UI、role、focus、keyboard、aria。
 如果需要人工补充，也应该保留 shadcn 原有 API，只增加可选的 interaction hint：
 
 ```tsx
-<Button interactionHint={{ aliases: ["提交订单", "下单"], risk: "medium" }}>
+<Button interactionHint={{ aliases: ["提交订单", "下单"] }}>
   提交
 </Button>
 ```
+
+如果“提交”是中高风险业务动作，风险和确认策略应该挂在 `order.submit` 这类 domain action 上，而不是塞进 Button 参数里。
 
 大部分情况下不需要写 interaction hint。系统可以从按钮文本、aria-label、role、disabled 状态和页面上下文自动抽取。
 
