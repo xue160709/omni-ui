@@ -1,0 +1,53 @@
+[data-mm-feedback="voice-target"] {
+  outline: 2px solid hsl(var(--ring, 210 90% 55%));
+  outline-offset: 3px;
+}
+
+[data-mm-feedback="voice-press"] {
+  animation: mm-voice-press 220ms ease-out;
+}
+
+[data-mm-feedback="success"] {
+  animation: mm-success 520ms ease-out;
+}
+
+[data-mm-feedback="error"] {
+  animation: mm-error 420ms ease-out;
+}
+
+@keyframes mm-voice-press {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 hsl(var(--ring, 210 90% 55%) / 0.45);
+  }
+  45% {
+    transform: scale(0.98);
+    box-shadow: 0 0 0 6px hsl(var(--ring, 210 90% 55%) / 0.18);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 hsl(var(--ring, 210 90% 55%) / 0);
+  }
+}
+
+@keyframes mm-success {
+  0% {
+    box-shadow: 0 0 0 0 hsl(142 70% 45% / 0.36);
+  }
+  100% {
+    box-shadow: 0 0 0 8px hsl(142 70% 45% / 0);
+  }
+}
+
+@keyframes mm-error {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}

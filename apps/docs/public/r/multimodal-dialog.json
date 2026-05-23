@@ -1,0 +1,20 @@
+{
+  "name": "multimodal-dialog",
+  "type": "registry:component",
+  "title": "Multimodal Dialog",
+  "description": "shadcn Dialog wrappers that register modal context semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/dialog.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/dialog.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Dialog,\n  DialogContent,\n  DialogDescription,\n  DialogFooter,\n  DialogHeader,\n  DialogTitle,\n  DialogTrigger,\n} from \"@/components/ui/dialog\"\nimport { MultimodalGroup } from \"@multimodal-ui/react\"\n\ntype MultimodalDialogContentProps = React.ComponentProps<typeof DialogContent> & {\n  interactionId: string\n  interactionLabel?: string\n}\n\nexport function MultimodalDialogContent({\n  interactionId,\n  interactionLabel = \"对话框\",\n  children,\n  ...props\n}: MultimodalDialogContentProps) {\n  return (\n    <MultimodalGroup id={interactionId} role=\"dialog\" label={interactionLabel}>\n      <DialogContent {...props}>{children}</DialogContent>\n    </MultimodalGroup>\n  )\n}\n\nexport {\n  Dialog,\n  DialogDescription,\n  DialogFooter,\n  DialogHeader,\n  DialogTitle,\n  DialogTrigger,\n}\n"
+    }
+  ]
+}

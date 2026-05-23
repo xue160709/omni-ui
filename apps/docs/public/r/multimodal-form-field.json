@@ -1,0 +1,20 @@
+{
+  "name": "multimodal-form-field",
+  "type": "registry:component",
+  "title": "Multimodal Form Field",
+  "description": "Semantic FormField group for label + control + message.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/form-field.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/form-field.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { MultimodalGroup, type EntityRef } from \"@multimodal-ui/react\"\n\ntype MultimodalFormFieldProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  label: string\n  entity?: EntityRef\n}\n\nexport function MultimodalFormField({\n  interactionId,\n  label,\n  entity,\n  children,\n  ...props\n}: MultimodalFormFieldProps) {\n  return (\n    <MultimodalGroup id={interactionId} role=\"form_field\" label={label} entity={entity} {...props}>\n      {children}\n    </MultimodalGroup>\n  )\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "multimodal-button",
+  "type": "registry:component",
+  "title": "Multimodal Button",
+  "description": "shadcn Button wrapper that registers button semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/button.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/button.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Button as ShadcnButton } from \"@/components/ui/button\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\n\ntype MultimodalButtonProps = React.ComponentProps<typeof ShadcnButton> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalButton = React.forwardRef<\n  React.ElementRef<typeof ShadcnButton>,\n  MultimodalButtonProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnButton>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnButton ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalButton.displayName = \"MultimodalButton\"\n\nfunction composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {\n  return (node) => {\n    refs.forEach((ref) => {\n      if (typeof ref === \"function\") ref(node)\n      else if (ref) ref.current = node\n    })\n  }\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "paths": {
+      "@multimodal-ui/core": ["../core/dist/index.d.ts"]
+    }
+  },
+  "include": ["src"]
+}

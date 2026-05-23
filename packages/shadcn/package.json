@@ -1,0 +1,16 @@
+{
+  "name": "@multimodal-ui/shadcn",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "private": false,
+  "files": ["registry"],
+  "scripts": {
+    "build": "node ../../apps/docs/scripts/build-registry.mjs",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@multimodal-ui/react": "0.1.0",
+    "react": ">=18.2.0"
+  }
+}

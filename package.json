@@ -1,0 +1,28 @@
+{
+  "name": "multimodal-ui-monorepo",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npm --workspace apps/docs run dev",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm --workspace @multimodal-ui/core run build && npm run typecheck --workspaces --if-present",
+    "registry:build": "node apps/docs/scripts/build-registry.mjs"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.15.21",
+    "@types/react": "^19.1.5",
+    "@types/react-dom": "^19.1.5",
+    "@vitejs/plugin-react": "^4.5.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  }
+}

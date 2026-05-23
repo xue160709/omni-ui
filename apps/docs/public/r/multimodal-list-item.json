@@ -1,0 +1,20 @@
+{
+  "name": "multimodal-list-item",
+  "type": "registry:component",
+  "title": "Multimodal List Item",
+  "description": "Semantic list and list item groups with visible-order aliases.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/list-item.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/list-item.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { MultimodalGroup, type EntityRef } from \"@multimodal-ui/react\"\n\ntype MultimodalListProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  label: string\n}\n\nexport function MultimodalList({ interactionId, label, children, ...props }: MultimodalListProps) {\n  return (\n    <MultimodalGroup id={interactionId} role=\"list\" label={label} indexBy=\"visible_order\" {...props}>\n      {children}\n    </MultimodalGroup>\n  )\n}\n\ntype MultimodalListItemProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  label: string\n  entity?: EntityRef\n}\n\nexport function MultimodalListItem({\n  interactionId,\n  label,\n  entity,\n  children,\n  ...props\n}: MultimodalListItemProps) {\n  return (\n    <MultimodalGroup id={interactionId} role=\"list_item\" label={label} entity={entity} {...props}>\n      {children}\n    </MultimodalGroup>\n  )\n}\n"
+    }
+  ]
+}

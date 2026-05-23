@@ -1,0 +1,20 @@
+{
+  "name": "multimodal-checkbox",
+  "type": "registry:component",
+  "title": "Multimodal Checkbox",
+  "description": "shadcn Checkbox wrapper that registers check/uncheck semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/checkbox.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/checkbox.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Checkbox as ShadcnCheckbox } from \"@/components/ui/checkbox\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\n\ntype MultimodalCheckboxProps = React.ComponentProps<typeof ShadcnCheckbox> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalCheckbox = React.forwardRef<\n  React.ElementRef<typeof ShadcnCheckbox>,\n  MultimodalCheckboxProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnCheckbox>>({\n    id: interactionId,\n    role: \"checkbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"check\", \"uncheck\", \"toggle\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnCheckbox ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalCheckbox.displayName = \"MultimodalCheckbox\"\n\nfunction composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {\n  return (node) => {\n    refs.forEach((ref) => {\n      if (typeof ref === \"function\") ref(node)\n      else if (ref) ref.current = node\n    })\n  }\n}\n"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-registry.mjs && vite build",
+    "dev": "vite --host 127.0.0.1",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@multimodal-ui/core": "0.1.0",
+    "@multimodal-ui/react": "0.1.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "vite": "^6.3.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

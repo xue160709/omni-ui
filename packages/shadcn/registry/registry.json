@@ -1,0 +1,156 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "multimodal-ui",
+  "homepage": "https://multimodal-ui.local",
+  "items": [
+    {
+      "name": "multimodal-provider",
+      "type": "registry:component",
+      "title": "Multimodal Provider",
+      "description": "Runtime provider, utterance submission, and snapshot hooks.",
+      "dependencies": ["@multimodal-ui/react"],
+      "files": [
+        {
+          "path": "registry/new-york/provider.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/provider.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-button",
+      "type": "registry:component",
+      "title": "Multimodal Button",
+      "description": "shadcn Button wrapper that registers button semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/button.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/button.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-input",
+      "type": "registry:component",
+      "title": "Multimodal Input",
+      "description": "shadcn Input wrapper that registers textbox semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/input.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/input.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-checkbox",
+      "type": "registry:component",
+      "title": "Multimodal Checkbox",
+      "description": "shadcn Checkbox wrapper that registers check/uncheck semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/checkbox.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/checkbox.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-switch",
+      "type": "registry:component",
+      "title": "Multimodal Switch",
+      "description": "shadcn Switch wrapper that registers turnOn/turnOff semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/switch.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/switch.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-slider",
+      "type": "registry:component",
+      "title": "Multimodal Slider",
+      "description": "shadcn Slider wrapper that registers value control semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/slider.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/slider.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-tabs",
+      "type": "registry:component",
+      "title": "Multimodal Tabs",
+      "description": "shadcn Tabs wrappers that register tab list and trigger semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/tabs.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/tabs.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-dialog",
+      "type": "registry:component",
+      "title": "Multimodal Dialog",
+      "description": "shadcn Dialog wrappers that register modal context semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/dialog.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/dialog.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-form-field",
+      "type": "registry:component",
+      "title": "Multimodal Form Field",
+      "description": "Semantic FormField group for label + control + message.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/form-field.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/form-field.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-list-item",
+      "type": "registry:component",
+      "title": "Multimodal List Item",
+      "description": "Semantic list and list item groups with visible-order aliases.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider"],
+      "files": [
+        {
+          "path": "registry/new-york/list-item.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/list-item.tsx"
+        }
+      ]
+    }
+  ]
+}

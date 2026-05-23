@@ -1,0 +1,17 @@
+{
+  "name": "multimodal-provider",
+  "type": "registry:component",
+  "title": "Multimodal Provider",
+  "description": "Runtime provider, utterance submission, and snapshot hooks.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/provider.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/provider.tsx",
+      "content": "\"use client\"\n\nexport {\n  MultimodalProvider,\n  useInteractionActions,\n  useInteractionHint,\n  useInteractionSnapshot,\n  useSubmitUtterance,\n  type InteractionHint,\n} from \"@multimodal-ui/react\"\nimport \"@multimodal-ui/react/styles.css\"\n"
+    }
+  ]
+}

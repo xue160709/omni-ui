@@ -1,0 +1,20 @@
+{
+  "name": "multimodal-input",
+  "type": "registry:component",
+  "title": "Multimodal Input",
+  "description": "shadcn Input wrapper that registers textbox semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/input.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/input.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Input as ShadcnInput } from \"@/components/ui/input\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\n\ntype MultimodalInputProps = React.ComponentProps<typeof ShadcnInput> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalInput = React.forwardRef<\n  React.ElementRef<typeof ShadcnInput>,\n  MultimodalInputProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnInput>>({\n    id: interactionId,\n    role: \"textbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"setText\", \"appendText\", \"clear\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnInput ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalInput.displayName = \"MultimodalInput\"\n\nfunction composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {\n  return (node) => {\n    refs.forEach((ref) => {\n      if (typeof ref === \"function\") ref(node)\n      else if (ref) ref.current = node\n    })\n  }\n}\n"
+    }
+  ]
+}
