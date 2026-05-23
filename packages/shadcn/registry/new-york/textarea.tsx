@@ -1,21 +1,21 @@
 "use client"
 
 import * as React from "react"
-import { Input as ShadcnInput } from "@/components/ui/input"
+import { Textarea as ShadcnTextarea } from "@/components/ui/textarea"
 import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
 import { composeRefs } from "./utils"
 
-type MultimodalInputProps = React.ComponentProps<typeof ShadcnInput> & {
+type MultimodalTextareaProps = React.ComponentProps<typeof ShadcnTextarea> & {
   interactionId?: string
   interactionLabel?: string
   interactionHint?: InteractionHint
 }
 
-export const MultimodalInput = React.forwardRef<
-  React.ElementRef<typeof ShadcnInput>,
-  MultimodalInputProps
+export const MultimodalTextarea = React.forwardRef<
+  React.ElementRef<typeof ShadcnTextarea>,
+  MultimodalTextareaProps
 >(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {
-  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnInput>>({
+  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnTextarea>>({
     id: interactionId,
     role: "textbox",
     label: interactionLabel,
@@ -24,6 +24,6 @@ export const MultimodalInput = React.forwardRef<
     hint: interactionHint,
   })
 
-  return <ShadcnInput ref={composeRefs(ref, mmRef)} {...props} />
+  return <ShadcnTextarea ref={composeRefs(ref, mmRef)} {...props} />
 })
-MultimodalInput.displayName = "MultimodalInput"
+MultimodalTextarea.displayName = "MultimodalTextarea"

@@ -13,6 +13,12 @@
       ]
     },
     {
+      "name": "multimodal-utils",
+      "type": "registry:component",
+      "title": "Multimodal Utils",
+      "description": "Shared utilities for multimodal shadcn wrappers."
+    },
+    {
       "name": "multimodal-button",
       "type": "registry:component",
       "title": "Multimodal Button",
@@ -21,7 +27,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -33,7 +40,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -45,7 +53,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -57,7 +66,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -69,7 +79,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -81,7 +92,86 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
+      ]
+    },
+    {
+      "name": "multimodal-textarea",
+      "type": "registry:component",
+      "title": "Multimodal Textarea",
+      "description": "shadcn Textarea wrapper that registers textbox semantics.",
+      "dependencies": [
+        "@multimodal-ui/react"
+      ],
+      "registryDependencies": [
+        "multimodal-provider",
+        "multimodal-utils"
+      ]
+    },
+    {
+      "name": "multimodal-select",
+      "type": "registry:component",
+      "title": "Multimodal Select",
+      "description": "shadcn Select wrappers that register combobox and option semantics.",
+      "dependencies": [
+        "@multimodal-ui/react"
+      ],
+      "registryDependencies": [
+        "multimodal-provider",
+        "multimodal-utils"
+      ]
+    },
+    {
+      "name": "multimodal-command",
+      "type": "registry:component",
+      "title": "Multimodal Command",
+      "description": "shadcn Command wrappers that register search and command item semantics.",
+      "dependencies": [
+        "@multimodal-ui/react"
+      ],
+      "registryDependencies": [
+        "multimodal-provider",
+        "multimodal-utils"
+      ]
+    },
+    {
+      "name": "multimodal-dropdown-menu",
+      "type": "registry:component",
+      "title": "Multimodal Dropdown Menu",
+      "description": "shadcn DropdownMenu wrappers that register trigger and menu item semantics.",
+      "dependencies": [
+        "@multimodal-ui/react"
+      ],
+      "registryDependencies": [
+        "multimodal-provider",
+        "multimodal-utils"
+      ]
+    },
+    {
+      "name": "multimodal-sonner",
+      "type": "registry:component",
+      "title": "Multimodal Sonner",
+      "description": "shadcn Sonner wrapper that registers a toast region.",
+      "dependencies": [
+        "@multimodal-ui/react"
+      ],
+      "registryDependencies": [
+        "multimodal-provider",
+        "multimodal-utils"
+      ]
+    },
+    {
+      "name": "multimodal-card",
+      "type": "registry:component",
+      "title": "Multimodal Card",
+      "description": "shadcn Card wrapper that registers a whole-card interaction group.",
+      "dependencies": [
+        "@multimodal-ui/react"
+      ],
+      "registryDependencies": [
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -93,7 +183,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -105,7 +196,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     },
     {
@@ -117,7 +209,8 @@
         "@multimodal-ui/react"
       ],
       "registryDependencies": [
-        "multimodal-provider"
+        "multimodal-provider",
+        "multimodal-utils"
       ]
     }
   ]

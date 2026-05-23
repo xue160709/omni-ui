@@ -12,7 +12,8 @@
     "dev": "npm --workspace apps/docs run dev",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm --workspace @multimodal-ui/core run build && npm run typecheck --workspaces --if-present",
-    "registry:build": "node apps/docs/scripts/build-registry.mjs"
+    "registry:build": "node apps/docs/scripts/build-registry.mjs",
+    "verify": "npm run typecheck && npm test && npm run build"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",

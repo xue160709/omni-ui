@@ -1,5 +1,6 @@
 export * from "./action-registry"
 export * from "./feedback"
+export * from "./llm-resolver"
 export * from "./resolver"
 export * from "./snapshot"
 export * from "./types"

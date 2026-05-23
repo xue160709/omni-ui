@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Switch as ShadcnSwitch } from "@/components/ui/switch"
 import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { composeRefs } from "./utils"
 
 type MultimodalSwitchProps = React.ComponentProps<typeof ShadcnSwitch> & {
   interactionId?: string
@@ -26,12 +27,3 @@ export const MultimodalSwitch = React.forwardRef<
   return <ShadcnSwitch ref={composeRefs(ref, mmRef)} {...props} />
 })
 MultimodalSwitch.displayName = "MultimodalSwitch"
-
-function composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {
-  return (node) => {
-    refs.forEach((ref) => {
-      if (typeof ref === "function") ref(node)
-      else if (ref) ref.current = node
-    })
-  }
-}

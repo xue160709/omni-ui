@@ -7,14 +7,15 @@
     "@multimodal-ui/react"
   ],
   "registryDependencies": [
-    "multimodal-provider"
+    "multimodal-provider",
+    "multimodal-utils"
   ],
   "files": [
     {
       "path": "registry/new-york/switch.tsx",
       "type": "registry:component",
       "target": "components/multimodal/switch.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Switch as ShadcnSwitch } from \"@/components/ui/switch\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\n\ntype MultimodalSwitchProps = React.ComponentProps<typeof ShadcnSwitch> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalSwitch = React.forwardRef<\n  React.ElementRef<typeof ShadcnSwitch>,\n  MultimodalSwitchProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnSwitch>>({\n    id: interactionId,\n    role: \"switch\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"turnOn\", \"turnOff\", \"toggle\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnSwitch ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalSwitch.displayName = \"MultimodalSwitch\"\n\nfunction composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {\n  return (node) => {\n    refs.forEach((ref) => {\n      if (typeof ref === \"function\") ref(node)\n      else if (ref) ref.current = node\n    })\n  }\n}\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Switch as ShadcnSwitch } from \"@/components/ui/switch\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalSwitchProps = React.ComponentProps<typeof ShadcnSwitch> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalSwitch = React.forwardRef<\n  React.ElementRef<typeof ShadcnSwitch>,\n  MultimodalSwitchProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnSwitch>>({\n    id: interactionId,\n    role: \"switch\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"turnOn\", \"turnOff\", \"toggle\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnSwitch ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalSwitch.displayName = \"MultimodalSwitch\"\n"
     }
   ]
 }

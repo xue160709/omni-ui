@@ -18,12 +18,25 @@
       ]
     },
     {
+      "name": "multimodal-utils",
+      "type": "registry:component",
+      "title": "Multimodal Utils",
+      "description": "Shared utilities for multimodal shadcn wrappers.",
+      "files": [
+        {
+          "path": "registry/new-york/utils.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/utils.tsx"
+        }
+      ]
+    },
+    {
       "name": "multimodal-button",
       "type": "registry:component",
       "title": "Multimodal Button",
       "description": "shadcn Button wrapper that registers button semantics.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/button.tsx",
@@ -38,7 +51,7 @@
       "title": "Multimodal Input",
       "description": "shadcn Input wrapper that registers textbox semantics.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/input.tsx",
@@ -53,7 +66,7 @@
       "title": "Multimodal Checkbox",
       "description": "shadcn Checkbox wrapper that registers check/uncheck semantics.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/checkbox.tsx",
@@ -68,7 +81,7 @@
       "title": "Multimodal Switch",
       "description": "shadcn Switch wrapper that registers turnOn/turnOff semantics.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/switch.tsx",
@@ -83,7 +96,7 @@
       "title": "Multimodal Slider",
       "description": "shadcn Slider wrapper that registers value control semantics.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/slider.tsx",
@@ -98,7 +111,7 @@
       "title": "Multimodal Tabs",
       "description": "shadcn Tabs wrappers that register tab list and trigger semantics.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/tabs.tsx",
@@ -108,12 +121,102 @@
       ]
     },
     {
+      "name": "multimodal-textarea",
+      "type": "registry:component",
+      "title": "Multimodal Textarea",
+      "description": "shadcn Textarea wrapper that registers textbox semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
+      "files": [
+        {
+          "path": "registry/new-york/textarea.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/textarea.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-select",
+      "type": "registry:component",
+      "title": "Multimodal Select",
+      "description": "shadcn Select wrappers that register combobox and option semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
+      "files": [
+        {
+          "path": "registry/new-york/select.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/select.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-command",
+      "type": "registry:component",
+      "title": "Multimodal Command",
+      "description": "shadcn Command wrappers that register search and command item semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
+      "files": [
+        {
+          "path": "registry/new-york/command.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/command.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-dropdown-menu",
+      "type": "registry:component",
+      "title": "Multimodal Dropdown Menu",
+      "description": "shadcn DropdownMenu wrappers that register trigger and menu item semantics.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
+      "files": [
+        {
+          "path": "registry/new-york/dropdown-menu.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/dropdown-menu.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-sonner",
+      "type": "registry:component",
+      "title": "Multimodal Sonner",
+      "description": "shadcn Sonner wrapper that registers a toast region.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
+      "files": [
+        {
+          "path": "registry/new-york/sonner.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/sonner.tsx"
+        }
+      ]
+    },
+    {
+      "name": "multimodal-card",
+      "type": "registry:component",
+      "title": "Multimodal Card",
+      "description": "shadcn Card wrapper that registers a whole-card interaction group.",
+      "dependencies": ["@multimodal-ui/react"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
+      "files": [
+        {
+          "path": "registry/new-york/card.tsx",
+          "type": "registry:component",
+          "target": "components/multimodal/card.tsx"
+        }
+      ]
+    },
+    {
       "name": "multimodal-dialog",
       "type": "registry:component",
       "title": "Multimodal Dialog",
       "description": "shadcn Dialog wrappers that register modal context semantics.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/dialog.tsx",
@@ -128,7 +231,7 @@
       "title": "Multimodal Form Field",
       "description": "Semantic FormField group for label + control + message.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/form-field.tsx",
@@ -143,7 +246,7 @@
       "title": "Multimodal List Item",
       "description": "Semantic list and list item groups with visible-order aliases.",
       "dependencies": ["@multimodal-ui/react"],
-      "registryDependencies": ["multimodal-provider"],
+      "registryDependencies": ["multimodal-provider", "multimodal-utils"],
       "files": [
         {
           "path": "registry/new-york/list-item.tsx",

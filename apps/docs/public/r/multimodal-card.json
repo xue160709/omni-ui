@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-card",
+  "type": "registry:component",
+  "title": "Multimodal Card",
+  "description": "shadcn Card wrapper that registers a whole-card interaction group.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/card.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/card.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Card as ShadcnCard,\n  CardAction,\n  CardContent,\n  CardDescription,\n  CardFooter,\n  CardHeader,\n  CardTitle,\n} from \"@/components/ui/card\"\nimport { MultimodalGroup, type EntityRef, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalCardProps = React.ComponentProps<typeof ShadcnCard> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n  interactionAliases?: string[]\n  entity?: EntityRef\n}\n\nexport function MultimodalCard({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  interactionAliases,\n  entity,\n  children,\n  ...props\n}: MultimodalCardProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"card\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint)}\n      aliases={interactionAliases ?? resolveInteractionAliases(interactionHint)}\n      entity={entity}\n    >\n      <ShadcnCard {...props}>{children}</ShadcnCard>\n    </MultimodalGroup>\n  )\n}\n\nexport {\n  CardAction,\n  CardContent,\n  CardDescription,\n  CardFooter,\n  CardHeader,\n  CardTitle,\n}\n"
+    }
+  ]
+}

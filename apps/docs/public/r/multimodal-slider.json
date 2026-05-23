@@ -7,14 +7,15 @@
     "@multimodal-ui/react"
   ],
   "registryDependencies": [
-    "multimodal-provider"
+    "multimodal-provider",
+    "multimodal-utils"
   ],
   "files": [
     {
       "path": "registry/new-york/slider.tsx",
       "type": "registry:component",
       "target": "components/multimodal/slider.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Slider as ShadcnSlider } from \"@/components/ui/slider\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\n\ntype MultimodalSliderProps = React.ComponentProps<typeof ShadcnSlider> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalSlider = React.forwardRef<\n  React.ElementRef<typeof ShadcnSlider>,\n  MultimodalSliderProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnSlider>>({\n    id: interactionId,\n    role: \"slider\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"setValue\", \"increase\", \"decrease\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnSlider ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalSlider.displayName = \"MultimodalSlider\"\n\nfunction composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {\n  return (node) => {\n    refs.forEach((ref) => {\n      if (typeof ref === \"function\") ref(node)\n      else if (ref) ref.current = node\n    })\n  }\n}\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Slider as ShadcnSlider } from \"@/components/ui/slider\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalSliderProps = React.ComponentProps<typeof ShadcnSlider> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalSlider = React.forwardRef<\n  React.ElementRef<typeof ShadcnSlider>,\n  MultimodalSliderProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnSlider>>({\n    id: interactionId,\n    role: \"slider\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"setValue\", \"increase\", \"decrease\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnSlider ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalSlider.displayName = \"MultimodalSlider\"\n"
     }
   ]
 }

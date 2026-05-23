@@ -8,20 +8,28 @@ import {
   TabsTrigger as ShadcnTabsTrigger,
 } from "@/components/ui/tabs"
 import { MultimodalGroup, useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalTabsListProps = React.ComponentProps<typeof ShadcnTabsList> & {
   interactionId: string
   interactionLabel?: string
+  interactionHint?: InteractionHint
 }
 
 export function MultimodalTabsList({
   interactionId,
-  interactionLabel = "选项卡",
+  interactionLabel,
+  interactionHint,
   children,
   ...props
 }: MultimodalTabsListProps) {
   return (
-    <MultimodalGroup id={interactionId} role="filter_tabs" label={interactionLabel}>
+    <MultimodalGroup
+      id={interactionId}
+      role="filter_tabs"
+      label={resolveInteractionLabel(interactionLabel, interactionHint, "选项卡")}
+      aliases={resolveInteractionAliases(interactionHint)}
+    >
       <ShadcnTabsList {...props}>{children}</ShadcnTabsList>
     </MultimodalGroup>
   )
@@ -51,12 +59,3 @@ export const MultimodalTabsTrigger = React.forwardRef<
 MultimodalTabsTrigger.displayName = "MultimodalTabsTrigger"
 
 export { Tabs, TabsContent }
-
-function composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {
-  return (node) => {
-    refs.forEach((ref) => {
-      if (typeof ref === "function") ref(node)
-      else if (ref) ref.current = node
-    })
-  }
-}

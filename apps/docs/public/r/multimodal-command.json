@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-command",
+  "type": "registry:component",
+  "title": "Multimodal Command",
+  "description": "shadcn Command wrappers that register search and command item semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/command.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/command.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Command,\n  CommandEmpty,\n  CommandGroup,\n  CommandInput as ShadcnCommandInput,\n  CommandItem as ShadcnCommandItem,\n  CommandList,\n  CommandSeparator,\n  CommandShortcut,\n} from \"@/components/ui/command\"\nimport { MultimodalGroup, useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalCommandProps = React.ComponentProps<typeof Command> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport function MultimodalCommand({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalCommandProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"command\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"命令菜单\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <Command {...props}>{children}</Command>\n    </MultimodalGroup>\n  )\n}\n\ntype MultimodalCommandInputProps = React.ComponentProps<typeof ShadcnCommandInput> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalCommandInput = React.forwardRef<\n  React.ElementRef<typeof ShadcnCommandInput>,\n  MultimodalCommandInputProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnCommandInput>>({\n    id: interactionId,\n    role: \"textbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"search\", \"clear\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnCommandInput ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalCommandInput.displayName = \"MultimodalCommandInput\"\n\ntype MultimodalCommandItemProps = React.ComponentProps<typeof ShadcnCommandItem> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalCommandItem = React.forwardRef<\n  React.ElementRef<typeof ShadcnCommandItem>,\n  MultimodalCommandItemProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnCommandItem>>({\n    id: interactionId,\n    role: \"command_item\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"selectResult\", \"select\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnCommandItem ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalCommandItem.displayName = \"MultimodalCommandItem\"\n\nexport {\n  CommandEmpty,\n  CommandGroup,\n  CommandList,\n  CommandSeparator,\n  CommandShortcut,\n}\n"
+    }
+  ]
+}

@@ -22,6 +22,7 @@ export function extractDomNodes(root: HTMLElement): ExtractedDomNode[] {
   const elements = Array.from(root.querySelectorAll<HTMLElement>(interactiveSelector))
     .filter((element) => !element.closest("[data-mm-ignore='true']"))
     .filter((element) => !element.dataset.mmNodeId)
+    .filter((element) => isElementVisible(element))
 
   return elements.map((element) => {
     const role = inferRole(element)
@@ -77,6 +78,8 @@ export function inferPrimitiveActions(role: string, element?: HTMLElement): Prim
   if (role === "slider") return ["setValue", "increase", "decrease"]
   if (role === "textbox") return ["focus", "setText", "appendText", "clear"]
   if (role === "tab") return ["switchTo", "select"]
+  if (role === "select" || role === "combobox") return ["open", "selectByLabel", "selectByIndex"]
+  if (role === "command" || role === "command_item") return ["search", "selectResult", "select"]
   if (role === "option" || role === "menuitem") return ["select", "press"]
   if (element instanceof HTMLSelectElement) return ["selectByLabel", "selectByIndex"]
   return []
@@ -113,6 +116,15 @@ export function getElementState(element: HTMLElement): Record<string, unknown> {
 
   if (element.getAttribute("aria-valuemax") != null) {
     state.max = Number(element.getAttribute("aria-valuemax"))
+  }
+
+  if (element instanceof HTMLSelectElement) {
+    state.value = element.value
+    state.options = Array.from(element.options).map((option) => ({
+      label: option.label,
+      value: option.value,
+      selected: option.selected,
+    }))
   }
 
   return state
@@ -158,6 +170,28 @@ export function applyPrimitiveAction(
     return
   }
 
+  if (element instanceof HTMLSelectElement && action === "selectByLabel") {
+    const label = String(params?.label ?? params?.value ?? "")
+    const option = Array.from(element.options).find(
+      (item) => item.label === label || item.textContent?.trim() === label || item.value === label
+    )
+    if (option) {
+      element.value = option.value
+      element.dispatchEvent(new Event("change", { bubbles: true }))
+    }
+    return
+  }
+
+  if (element instanceof HTMLSelectElement && action === "selectByIndex") {
+    const index = Number(params?.index ?? 1) - 1
+    const option = element.options.item(index)
+    if (option) {
+      element.value = option.value
+      element.dispatchEvent(new Event("change", { bubbles: true }))
+    }
+    return
+  }
+
   if (action === "check" && element instanceof HTMLInputElement && !element.checked) {
     element.click()
     return
@@ -181,6 +215,23 @@ export function applyPrimitiveAction(
   if (["press", "toggle", "open", "close", "confirm", "cancel", "select", "switchTo"].includes(action)) {
     element.click()
   }
+}
+
+export function isElementVisible(element: HTMLElement): boolean {
+  if (element.hidden || element.getAttribute("aria-hidden") === "true") return false
+  if (element.closest("[hidden], [aria-hidden='true']")) return false
+
+  const closedDetails = element.closest("details:not([open])")
+  if (closedDetails) {
+    const visibleSummary = element.closest("summary")
+    if (!visibleSummary || visibleSummary.parentElement !== closedDetails) return false
+  }
+
+  const view = element.ownerDocument.defaultView
+  const style = view?.getComputedStyle(element)
+  if (style?.display === "none" || style?.visibility === "hidden") return false
+
+  return true
 }
 
 export function hintToAliases(hint?: InteractionHint): string[] | undefined {

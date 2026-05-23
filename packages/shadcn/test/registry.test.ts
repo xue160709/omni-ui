@@ -12,12 +12,19 @@ describe("shadcn registry source", () => {
 
     expect(registry.items.map((item) => item.name)).toEqual([
       "multimodal-provider",
+      "multimodal-utils",
       "multimodal-button",
       "multimodal-input",
       "multimodal-checkbox",
       "multimodal-switch",
       "multimodal-slider",
       "multimodal-tabs",
+      "multimodal-textarea",
+      "multimodal-select",
+      "multimodal-command",
+      "multimodal-dropdown-menu",
+      "multimodal-sonner",
+      "multimodal-card",
       "multimodal-dialog",
       "multimodal-form-field",
       "multimodal-list-item",
@@ -25,9 +32,13 @@ describe("shadcn registry source", () => {
 
     for (const item of registry.items) {
       expect(item.files[0].target).toMatch(/^components\/multimodal\//)
-      await expect(readFile(path.resolve(item.files[0].path), "utf8")).resolves.toContain(
-        "@multimodal-ui/react"
-      )
+      const content = await readFile(path.resolve(item.files[0].path), "utf8")
+      if (item.name !== "multimodal-utils") {
+        expect(content).toContain("@multimodal-ui/react")
+      }
+      if (item.name !== "multimodal-provider" && item.name !== "multimodal-utils") {
+        expect(item.files[0].target).not.toMatch(/^components\/ui\//)
+      }
     }
   })
 })

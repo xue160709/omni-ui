@@ -1,0 +1,14 @@
+{
+  "name": "multimodal-utils",
+  "type": "registry:component",
+  "title": "Multimodal Utils",
+  "description": "Shared utilities for multimodal shadcn wrappers.",
+  "files": [
+    {
+      "path": "registry/new-york/utils.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/utils.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport type { InteractionHint } from \"@multimodal-ui/react\"\n\nexport function composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {\n  return (node) => {\n    refs.forEach((ref) => {\n      if (typeof ref === \"function\") ref(node)\n      else if (ref) ref.current = node\n    })\n  }\n}\n\nexport type InteractionProps = {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport function resolveInteractionLabel(\n  interactionLabel?: string,\n  interactionHint?: InteractionHint,\n  fallbackLabel?: string\n): string | undefined {\n  return interactionLabel ?? interactionHint?.fallbackLabel ?? fallbackLabel\n}\n\nexport function resolveInteractionAliases(interactionHint?: InteractionHint): string[] | undefined {\n  return interactionHint?.aliases?.length ? interactionHint.aliases : undefined\n}\n"
+    }
+  ]
+}

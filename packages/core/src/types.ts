@@ -59,6 +59,7 @@ export type InteractionObject = {
   source?: string
   parent?: string
   children?: string[]
+  primaryControl?: string
   entity?: EntityRef
   state?: InteractionState
   actions?: string[]
@@ -182,17 +183,31 @@ export type InteractionSnapshot = {
 }
 
 export type ResolvedInteraction = {
-  status: "resolved" | "needs_clarification" | "not_found"
+  status: "resolved" | "needs_clarification" | "not_found" | "unsupported"
   utterance: string
   intent?: string
   targetId?: string
+  targetCandidates?: Array<{ id: string; confidence: number; reason?: string }>
   actionId?: string
   primitiveAction?: PrimitiveAction
   params?: Record<string, unknown>
   confidence: number
   reason?: string
   candidates?: string[]
+  resolverId?: string
 }
+
+export type IntentResolverContext = {
+  utterance: string
+  snapshot: InteractionSnapshot
+}
+
+export type IntentResolver = {
+  id: string
+  resolve: (context: IntentResolverContext) => ResolvedInteraction | ResolvedInteraction[] | Promise<ResolvedInteraction | ResolvedInteraction[]>
+}
+
+export type ResolverMode = "rule-only" | "rule-first" | "llm-first"
 
 export type DispatchContext = {
   actionId: string
@@ -201,6 +216,28 @@ export type DispatchContext = {
   confirmedActionId?: string
   candidate?: ResolvedInteraction
   utterance?: string
+}
+
+export type InteractionResolutionResult = {
+  snapshot: InteractionSnapshot
+  resolution: ResolvedInteraction
+}
+
+export type InteractionExecutionKind = "domain-action" | "primitive-action"
+
+export type InteractionSubmitOptions = {
+  confirmedActionId?: string
+  baseStateVersion?: number
+}
+
+export type InteractionSubmitResult = InteractionResolutionResult & {
+  ok: boolean
+  executed?: boolean
+  execution?: InteractionExecutionKind
+  target?: InteractionObject
+  action?: ActionPayload
+  validation?: ValidationResult
+  error?: string
 }
 
 export type FeedbackPhase = "voice-target" | "voice-press" | "success" | "error"

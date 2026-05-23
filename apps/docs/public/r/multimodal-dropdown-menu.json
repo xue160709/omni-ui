@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-dropdown-menu",
+  "type": "registry:component",
+  "title": "Multimodal Dropdown Menu",
+  "description": "shadcn DropdownMenu wrappers that register trigger and menu item semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/dropdown-menu.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/dropdown-menu.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  DropdownMenu,\n  DropdownMenuCheckboxItem,\n  DropdownMenuContent,\n  DropdownMenuGroup,\n  DropdownMenuItem as ShadcnDropdownMenuItem,\n  DropdownMenuLabel,\n  DropdownMenuRadioGroup,\n  DropdownMenuRadioItem,\n  DropdownMenuSeparator,\n  DropdownMenuShortcut,\n  DropdownMenuSub,\n  DropdownMenuSubContent,\n  DropdownMenuSubTrigger,\n  DropdownMenuTrigger as ShadcnDropdownMenuTrigger,\n} from \"@/components/ui/dropdown-menu\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalDropdownMenuTriggerProps = React.ComponentProps<typeof ShadcnDropdownMenuTrigger> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalDropdownMenuTrigger = React.forwardRef<\n  React.ElementRef<typeof ShadcnDropdownMenuTrigger>,\n  MultimodalDropdownMenuTriggerProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnDropdownMenuTrigger>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"open\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnDropdownMenuTrigger ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalDropdownMenuTrigger.displayName = \"MultimodalDropdownMenuTrigger\"\n\ntype MultimodalDropdownMenuItemProps = React.ComponentProps<typeof ShadcnDropdownMenuItem> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalDropdownMenuItem = React.forwardRef<\n  React.ElementRef<typeof ShadcnDropdownMenuItem>,\n  MultimodalDropdownMenuItemProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnDropdownMenuItem>>({\n    id: interactionId,\n    role: \"menuitem\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"select\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnDropdownMenuItem ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalDropdownMenuItem.displayName = \"MultimodalDropdownMenuItem\"\n\nexport {\n  DropdownMenu,\n  DropdownMenuCheckboxItem,\n  DropdownMenuContent,\n  DropdownMenuGroup,\n  DropdownMenuLabel,\n  DropdownMenuRadioGroup,\n  DropdownMenuRadioItem,\n  DropdownMenuSeparator,\n  DropdownMenuShortcut,\n  DropdownMenuSub,\n  DropdownMenuSubContent,\n  DropdownMenuSubTrigger,\n}\n"
+    }
+  ]
+}

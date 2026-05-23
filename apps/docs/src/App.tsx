@@ -2,7 +2,9 @@ import {
   MultimodalGroup,
   MultimodalPage,
   MultimodalProvider,
+  createLlmResolver,
   useInteractionActions,
+  useLastResolution,
   useInteractionSnapshot,
   useSubmitUtterance,
   type ActionPayload,
@@ -31,16 +33,76 @@ type SettingsAction =
   | { type: "settings.wifi.turnOff" }
   | { type: "settings.bluetooth.turnOn" }
   | { type: "settings.bluetooth.turnOff" }
+  | { type: "settings.temperature.increase" }
+  | { type: "settings.temperature.decrease" }
 
 export function App() {
+  const [llmEnabled, setLlmEnabled] = React.useState(false)
+  const demoLlmResolver = React.useMemo(
+    () =>
+      createLlmResolver({
+        id: "demo-llm",
+        complete: ({ utterance, snapshot }) => {
+          if (/买牛奶.*完成|完成.*买牛奶/.test(utterance)) {
+            const target = snapshot.visibleObjects.find((object) => object.label === "买牛奶")
+            return {
+              status: target ? "resolved" : "not_found",
+              utterance,
+              intent: "complete_todo",
+              targetId: target?.id,
+              actionId: "todo.complete",
+              confidence: target ? 0.91 : 0,
+              reason: "demo LLM matched the todo title in a natural expression",
+            }
+          }
+
+          if (/还没做完|没做完|未做完/.test(utterance)) {
+            return {
+              status: "resolved",
+              utterance,
+              intent: "filter_todos",
+              targetId: "todo.filters",
+              actionId: "todo.filter",
+              params: { filter: "active" },
+              confidence: 0.9,
+              reason: "demo LLM mapped colloquial unfinished wording to active filter",
+            }
+          }
+
+          if (/温度.*(调高|高一点|升高)|调高.*温度/.test(utterance)) {
+            return {
+              status: "resolved",
+              utterance,
+              intent: "increase_temperature",
+              targetId: "settings.temperature",
+              actionId: "settings.temperature.increase",
+              confidence: 0.88,
+              reason: "demo LLM mapped vague temperature wording to a domain action",
+            }
+          }
+
+          return {
+            status: "not_found",
+            utterance,
+            confidence: 0,
+            reason: "demo LLM has no scripted match",
+          }
+        },
+      }),
+    []
+  )
+
   return (
-    <MultimodalProvider>
-      <Shell />
+    <MultimodalProvider resolverMode="rule-first" resolvers={llmEnabled ? [demoLlmResolver] : []}>
+      <Shell llmEnabled={llmEnabled} onLlmEnabledChange={setLlmEnabled} />
     </MultimodalProvider>
   )
 }
 
-function Shell() {
+function Shell(props: {
+  llmEnabled: boolean
+  onLlmEnabledChange: (enabled: boolean) => void
+}) {
   return (
     <MultimodalPage id="page.demo" title="Multimodal UI Demo" route="/">
       <main className="app-shell">
@@ -54,7 +116,10 @@ function Shell() {
           </a>
         </header>
 
-        <VoiceConsole />
+        <VoiceConsole
+          llmEnabled={props.llmEnabled}
+          onLlmEnabledChange={props.onLlmEnabledChange}
+        />
 
         <div className="demo-grid">
           <TodoDemo />
@@ -67,13 +132,26 @@ function Shell() {
   )
 }
 
-function VoiceConsole() {
+function VoiceConsole(props: {
+  llmEnabled: boolean
+  onLlmEnabledChange: (enabled: boolean) => void
+}) {
   const submitUtterance = useSubmitUtterance()
   const [text, setText] = React.useState("完成第一个")
-  const samples = ["点击添加", "添加一个待办：准备发布文档", "完成第一个", "只看未完成", "打开蓝牙", "关闭 Wi-Fi"]
+  const samples = [
+    "点击添加",
+    "添加一个待办：准备发布文档",
+    "完成第一个",
+    "只看未完成",
+    "打开蓝牙",
+    "关闭 Wi-Fi",
+    "把买牛奶那个完成",
+    "只显示还没做完的",
+    "把温度稍微调高一点",
+  ]
 
   return (
-    <section className="voice-console">
+    <section className="voice-console" data-mm-ignore="true">
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -92,6 +170,14 @@ function VoiceConsole() {
         </div>
       </form>
       <div className="sample-row">
+        <label className="llm-toggle">
+          <input
+            type="checkbox"
+            checked={props.llmEnabled}
+            onChange={(event) => props.onLlmEnabledChange(event.target.checked)}
+          />
+          <span>LLM resolver demo</span>
+        </label>
         {samples.map((sample) => (
           <button
             key={sample}
@@ -313,12 +399,19 @@ function SettingsDemo() {
   const [wifi, setWifi] = React.useState(true)
   const [bluetooth, setBluetooth] = React.useState(false)
   const [temperature, setTemperature] = React.useState(24)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
 
   const executeSettingsAction = React.useCallback((action: ActionPayload) => {
     if (action.type === "settings.wifi.turnOn") setWifi(true)
     if (action.type === "settings.wifi.turnOff") setWifi(false)
     if (action.type === "settings.bluetooth.turnOn") setBluetooth(true)
     if (action.type === "settings.bluetooth.turnOff") setBluetooth(false)
+    if (action.type === "settings.temperature.increase") {
+      setTemperature((current) => Math.min(30, current + 1))
+    }
+    if (action.type === "settings.temperature.decrease") {
+      setTemperature((current) => Math.max(16, current - 1))
+    }
   }, [])
 
   const settingsActions = React.useMemo(
@@ -343,8 +436,18 @@ function SettingsDemo() {
         executeScope: "object" as const,
         availableWhen: () => bluetooth,
       },
+      "settings.temperature.increase": {
+        attachTo: { id: "settings.temperature" },
+        executeScope: "object" as const,
+        availableWhen: () => temperature < 30,
+      },
+      "settings.temperature.decrease": {
+        attachTo: { id: "settings.temperature" },
+        executeScope: "object" as const,
+        availableWhen: () => temperature > 16,
+      },
     }),
-    [bluetooth, wifi]
+    [bluetooth, temperature, wifi]
   )
 
   useInteractionActions({
@@ -410,16 +513,33 @@ function SettingsDemo() {
           </label>
         </MultimodalGroup>
 
-        <MultimodalGroup id="settings.confirm" role="dialog" label="恢复默认确认">
-          <details className="dialog-demo">
-            <summary>打开确认弹窗</summary>
-            <div>
+        <button type="button" className="dialog-trigger" onClick={() => setConfirmOpen(true)}>
+          打开确认弹窗
+        </button>
+
+        {confirmOpen ? (
+          <MultimodalGroup id="settings.confirm" role="dialog" label="恢复默认确认" state={{ open: true }}>
+            <div className="dialog-demo" role="dialog" aria-modal="true" aria-label="恢复默认确认">
               <p>要恢复默认设置吗？</p>
-              <button type="button">取消</button>
-              <button type="button">确认</button>
+              <div className="dialog-actions">
+                <button type="button" className="ghost-button" onClick={() => setConfirmOpen(false)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWifi(true)
+                    setBluetooth(false)
+                    setTemperature(24)
+                    setConfirmOpen(false)
+                  }}
+                >
+                  确认
+                </button>
+              </div>
             </div>
-          </details>
-        </MultimodalGroup>
+          </MultimodalGroup>
+        ) : null}
       </div>
     </section>
   )
@@ -427,14 +547,47 @@ function SettingsDemo() {
 
 function SnapshotDevTools() {
   const snapshot = useInteractionSnapshot()
+  const lastResolution = useLastResolution()
+  const [filter, setFilter] = React.useState<"all" | "page" | "group" | "raw" | "actions">("all")
+  const visibleObjects = snapshot.visibleObjects.filter((object) => {
+    if (filter === "all") return true
+    if (filter === "page") return object.type === "page"
+    if (filter === "group") return object.type === "composite" || object.type === "container"
+    if (filter === "raw") return object.type === "raw"
+    if (filter === "actions") return Boolean(object.actions?.length || object.primitiveActions?.length)
+    return true
+  })
+  const displaySnapshot = {
+    ...snapshot,
+    visibleObjects,
+    lastResolution,
+  }
 
   return (
-    <section className="devtools">
+    <section className="devtools" data-mm-ignore="true">
       <div className="panel-header">
         <h2>Interaction Snapshot</h2>
         <span>stateVersion {snapshot.stateVersion}</span>
       </div>
-      <pre>{JSON.stringify(snapshot, null, 2)}</pre>
+      <div className="devtools-filters" role="tablist" aria-label="Snapshot filters">
+        {[
+          ["all", "All"],
+          ["page", "Page"],
+          ["group", "Groups"],
+          ["raw", "Raw"],
+          ["actions", "Actions"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-selected={filter === value}
+            onClick={() => setFilter(value as typeof filter)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <pre>{JSON.stringify(displaySnapshot, null, 2)}</pre>
     </section>
   )
 }

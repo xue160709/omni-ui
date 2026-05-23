@@ -1,7 +1,10 @@
 import {
   buildActionPayload,
+  compactSnapshotForIntent,
   createInteractionSnapshot,
   resolveUtterance,
+  resolveWithResolvers,
+  ruleResolver,
   validateActionRequest,
   type ActionContext,
   type ActionExecutor,
@@ -10,9 +13,15 @@ import {
   type EntityRef,
   type InteractionHint,
   type InteractionObject,
+  type InteractionResolutionResult,
   type InteractionSnapshot,
+  type InteractionSubmitOptions,
+  type InteractionSubmitResult,
   type PageObject,
   type RegisteredActionSpec,
+  type ResolverMode,
+  type IntentResolver,
+  type ResolvedInteraction,
 } from "@multimodal-ui/core"
 import * as React from "react"
 import {
@@ -22,6 +31,7 @@ import {
   getElementState,
   hintToAliases,
   inferPrimitiveActions,
+  isElementVisible,
 } from "./dom"
 
 type RegisteredNode = {
@@ -61,12 +71,24 @@ type ActionRegistration = {
 
 type RuntimeContextValue = {
   snapshot: InteractionSnapshot
-  submitUtterance: (text: string) => Promise<void>
+  lastResolution?: ResolvedInteraction
+  getSnapshot: () => InteractionSnapshot
+  resolveText: (text: string) => Promise<InteractionResolutionResult>
+  dispatchResolution: (
+    resolution: ResolvedInteraction,
+    options?: InteractionSubmitOptions
+  ) => Promise<InteractionSubmitResult>
+  submitUtterance: (text: string, options?: InteractionSubmitOptions) => Promise<InteractionSubmitResult>
   registerNode: (node: RegisteredNode) => () => void
   registerGroup: (group: RegisteredGroup) => () => void
   registerPage: (page: RegisteredPage) => () => void
   registerActions: (registration: ActionRegistration) => () => void
 }
+
+export type InteractionApi = Pick<
+  RuntimeContextValue,
+  "snapshot" | "lastResolution" | "getSnapshot" | "resolveText" | "dispatchResolution" | "submitUtterance"
+>
 
 const emptySnapshot: InteractionSnapshot = createInteractionSnapshot({
   stateVersion: 0,
@@ -79,9 +101,22 @@ export type MultimodalProviderProps = {
   children: React.ReactNode
   language?: string
   device?: string
+  resolvers?: IntentResolver[]
+  resolverMode?: ResolverMode
+  onResolution?: (resolution: ResolvedInteraction) => void
+  onClarification?: (resolution: ResolvedInteraction) => void
 }
 
 export function MultimodalProvider(props: MultimodalProviderProps) {
+  const {
+    children,
+    device,
+    language,
+    onClarification,
+    onResolution,
+    resolverMode = "rule-first",
+    resolvers,
+  } = props
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const elementByObjectId = React.useRef(new Map<string, HTMLElement>())
   const snapshotRef = React.useRef<InteractionSnapshot>(emptySnapshot)
@@ -90,6 +125,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const [groups, setGroups] = React.useState(() => new Map<string, RegisteredGroup>())
   const [page, setPage] = React.useState<RegisteredPage | undefined>()
   const [actions, setActions] = React.useState(() => new Map<string, ActionRegistration>())
+  const [lastResolution, setLastResolution] = React.useState<ResolvedInteraction | undefined>()
 
   const bumpVersion = React.useCallback(() => setVersion((current) => current + 1), [])
 
@@ -101,7 +137,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     const root = rootRef.current
     if (!root) return
 
-    const observer = new MutationObserver(() => bumpVersion())
+    const observer = new MutationObserver((mutations) => {
+      if (mutations.some(shouldObserveMutation)) bumpVersion()
+    })
     observer.observe(root, {
       childList: true,
       subtree: true,
@@ -111,23 +149,32 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         "aria-checked",
         "aria-selected",
         "aria-disabled",
+        "aria-hidden",
         "disabled",
+        "hidden",
+        "open",
+        "data-state",
         "data-mm-label",
         "data-mm-role",
       ],
     })
 
-    root.addEventListener("focusin", bumpVersion)
-    root.addEventListener("focusout", bumpVersion)
-    root.addEventListener("input", bumpVersion)
-    root.addEventListener("change", bumpVersion)
+    const handleRuntimeEvent = (event: Event) => {
+      if (isIgnoredRuntimeTarget(event.target)) return
+      bumpVersion()
+    }
+
+    root.addEventListener("focusin", handleRuntimeEvent)
+    root.addEventListener("focusout", handleRuntimeEvent)
+    root.addEventListener("input", handleRuntimeEvent)
+    root.addEventListener("change", handleRuntimeEvent)
 
     return () => {
       observer.disconnect()
-      root.removeEventListener("focusin", bumpVersion)
-      root.removeEventListener("focusout", bumpVersion)
-      root.removeEventListener("input", bumpVersion)
-      root.removeEventListener("change", bumpVersion)
+      root.removeEventListener("focusin", handleRuntimeEvent)
+      root.removeEventListener("focusout", handleRuntimeEvent)
+      root.removeEventListener("input", handleRuntimeEvent)
+      root.removeEventListener("change", handleRuntimeEvent)
     }
   }, [bumpVersion])
 
@@ -152,6 +199,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     const rawObjects: InteractionObject[] = []
 
     nodes.forEach((node) => {
+      if (!isElementVisible(node.element)) return
       elementMap.set(node.id, node.element)
       rawObjects.push({
         id: node.id,
@@ -199,9 +247,34 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       activeElement &&
       [...elementMap.entries()].find(([, element]) => element === activeElement || element.contains(activeElement))
 
+    const modalContexts = groupObjects
+      .filter(
+        (object) =>
+          (object.role === "dialog" || object.role === "alertdialog") &&
+          isModalGroupActive(object, groups)
+      )
+      .map((object) => ({
+        type: "modal" as const,
+        id: object.id,
+        title: object.label,
+        scopePolicy: "modal_first" as const,
+        blocksGlobalActions: true,
+      }))
+
+    const pageContext = pageObject
+      ? [
+          {
+            type: "page" as const,
+            id: pageObject.id,
+            title: pageObject.title,
+          },
+        ]
+      : []
+
     const builtSnapshot = createInteractionSnapshot({
       stateVersion: version,
       page: pageObject,
+      contextStack: [...pageContext, ...modalContexts],
       visibleObjects: [...groupObjects, ...rawObjects],
       focus: focusedNode
         ? {
@@ -212,87 +285,207 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         : undefined,
       actionSpecs,
       session: {
-        language: props.language ?? "zh-CN",
-        device: props.device ?? "desktop",
+        language: language ?? "zh-CN",
+        device: device ?? "desktop",
       },
     })
 
     elementByObjectId.current = elementMap
     snapshotRef.current = builtSnapshot
     return builtSnapshot
-  }, [actionSpecs, groups, nodes, page, props.device, props.language, version])
+  }, [actionSpecs, device, groups, language, nodes, page, version])
 
   const applyFeedback = React.useCallback((targetId: string, phase: string) => {
     const element = elementByObjectId.current.get(targetId)
     if (!element) return
 
+    const view = element.ownerDocument.defaultView
+    if (!view) return
+
     element.dataset.mmFeedback = phase
-    window.setTimeout(() => {
+    view.setTimeout(() => {
       if (element.dataset.mmFeedback === phase) {
         delete element.dataset.mmFeedback
       }
     }, phase === "voice-target" ? 380 : 520)
   }, [])
 
-  const submitUtterance = React.useCallback(
-    async (text: string) => {
+  const getSnapshot = React.useCallback(() => snapshotRef.current, [])
+
+  const resolveText = React.useCallback(
+    async (text: string): Promise<InteractionResolutionResult> => {
       const currentSnapshot = snapshotRef.current
-      const candidate = resolveUtterance(text, currentSnapshot)
-      if (candidate.status !== "resolved" || !candidate.targetId) {
-        return
+      const resolution = await resolveCandidate(text, currentSnapshot, {
+        resolvers,
+        resolverMode,
+      })
+      setLastResolution(resolution)
+      onResolution?.(resolution)
+
+      if (resolution.status === "needs_clarification") {
+        onClarification?.(resolution)
       }
 
-      applyFeedback(candidate.targetId, "voice-target")
-      window.setTimeout(() => applyFeedback(candidate.targetId!, "voice-press"), 80)
+      return {
+        snapshot: currentSnapshot,
+        resolution,
+      }
+    },
+    [onClarification, onResolution, resolverMode, resolvers]
+  )
 
-      if (candidate.actionId) {
+  const dispatchResolution = React.useCallback(
+    async (
+      resolution: ResolvedInteraction,
+      options: InteractionSubmitOptions = {}
+    ): Promise<InteractionSubmitResult> => {
+      const currentSnapshot = snapshotRef.current
+      const baseResult = {
+        snapshot: currentSnapshot,
+        resolution,
+      }
+
+      if (resolution.status !== "resolved" || !resolution.targetId) {
+        return {
+          ...baseResult,
+          ok: false,
+          executed: false,
+          error: resolution.reason ?? "No resolved interaction target.",
+        }
+      }
+
+      applyFeedback(resolution.targetId, "voice-target")
+      elementByObjectId.current
+        .get(resolution.targetId)
+        ?.ownerDocument.defaultView
+        ?.setTimeout(() => applyFeedback(resolution.targetId!, "voice-press"), 80)
+
+      if (resolution.actionId) {
         const validation = validateActionRequest(currentSnapshot, {
-          actionId: candidate.actionId,
-          targetId: candidate.targetId,
-          baseStateVersion: currentSnapshot.stateVersion,
-          candidate,
-          utterance: text,
+          actionId: resolution.actionId,
+          targetId: resolution.targetId,
+          baseStateVersion: options.baseStateVersion ?? currentSnapshot.stateVersion,
+          confirmedActionId: options.confirmedActionId,
+          candidate: resolution,
+          utterance: resolution.utterance,
         })
 
         if (!validation.ok) {
-          applyFeedback(candidate.targetId, "error")
-          return
+          applyFeedback(resolution.targetId, "error")
+          return {
+            ...baseResult,
+            ok: false,
+            executed: false,
+            validation,
+            error: validation.reason,
+          }
         }
 
         const action = buildActionPayload(currentSnapshot, {
-          actionId: candidate.actionId,
-          targetId: candidate.targetId,
-          baseStateVersion: currentSnapshot.stateVersion,
-          candidate,
-          utterance: text,
+          actionId: resolution.actionId,
+          targetId: resolution.targetId,
+          baseStateVersion: options.baseStateVersion ?? currentSnapshot.stateVersion,
+          confirmedActionId: options.confirmedActionId,
+          candidate: resolution,
+          utterance: resolution.utterance,
         })
-        const spec = currentSnapshot.actionSpecs[candidate.actionId]
-        const target = currentSnapshot.visibleObjects.find((object) => object.id === candidate.targetId)
+        const spec = currentSnapshot.actionSpecs[resolution.actionId]
+        const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
 
-        if (spec?.execute && target) {
+        if (!spec?.execute || !target) {
+          applyFeedback(resolution.targetId, "error")
+          return {
+            ...baseResult,
+            ok: false,
+            executed: false,
+            target,
+            action,
+            error: "No executor is registered for the resolved action.",
+          }
+        }
+
+        try {
           await spec.execute(action as ActionPayload, {
-            actionId: candidate.actionId,
+            actionId: resolution.actionId,
             target,
             snapshot: currentSnapshot,
-            candidate,
-            utterance: text,
+            candidate: resolution,
+            utterance: resolution.utterance,
           } satisfies ActionContext)
-          applyFeedback(candidate.targetId, "success")
+          applyFeedback(resolution.targetId, "success")
           bumpVersion()
+          return {
+            ...baseResult,
+            ok: true,
+            executed: true,
+            execution: "domain-action",
+            target,
+            action,
+          }
+        } catch (error) {
+          applyFeedback(resolution.targetId, "error")
+          return {
+            ...baseResult,
+            ok: false,
+            executed: false,
+            target,
+            action,
+            error: error instanceof Error ? error.message : "Action execution failed.",
+          }
         }
-        return
       }
 
-      if (candidate.primitiveAction) {
-        const element = elementByObjectId.current.get(candidate.targetId)
+      if (resolution.primitiveAction) {
+        const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
+        const element = elementByObjectId.current.get(resolution.targetId)
         if (element) {
-          applyPrimitiveAction(element, candidate.primitiveAction, candidate.params)
-          applyFeedback(candidate.targetId, "success")
+          applyPrimitiveAction(element, resolution.primitiveAction, resolution.params)
+          applyFeedback(resolution.targetId, "success")
           bumpVersion()
+          return {
+            ...baseResult,
+            ok: true,
+            executed: true,
+            execution: "primitive-action",
+            target,
+          }
         }
+      }
+
+      applyFeedback(resolution.targetId, "error")
+      return {
+        ...baseResult,
+        ok: false,
+        executed: false,
+        error: "Resolved interaction has no executable action.",
       }
     },
     [applyFeedback, bumpVersion]
+  )
+
+  const submitUtterance = React.useCallback(
+    async (
+      text: string,
+      options: InteractionSubmitOptions = {}
+    ): Promise<InteractionSubmitResult> => {
+      const { snapshot: resolvedSnapshot, resolution } = await resolveText(text)
+
+      if (resolution.status === "needs_clarification") {
+        return {
+          snapshot: resolvedSnapshot,
+          resolution,
+          ok: false,
+          executed: false,
+          error: resolution.reason ?? "The interaction needs clarification.",
+        }
+      }
+
+      return dispatchResolution(resolution, {
+        ...options,
+        baseStateVersion: options.baseStateVersion ?? resolvedSnapshot.stateVersion,
+      })
+    },
+    [dispatchResolution, resolveText]
   )
 
   const registerNode = React.useCallback(
@@ -358,19 +551,34 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const value = React.useMemo<RuntimeContextValue>(
     () => ({
       snapshot,
+      lastResolution,
+      getSnapshot,
+      resolveText,
+      dispatchResolution,
       submitUtterance,
       registerNode,
       registerGroup,
       registerPage,
       registerActions,
     }),
-    [registerActions, registerGroup, registerNode, registerPage, snapshot, submitUtterance]
+    [
+      dispatchResolution,
+      getSnapshot,
+      lastResolution,
+      registerActions,
+      registerGroup,
+      registerNode,
+      registerPage,
+      resolveText,
+      snapshot,
+      submitUtterance,
+    ]
   )
 
   return (
     <RuntimeContext.Provider value={value}>
       <div ref={rootRef} data-mm-root="">
-        {props.children}
+        {children}
       </div>
     </RuntimeContext.Provider>
   )
@@ -555,7 +763,37 @@ export function useInteractionSnapshot(): InteractionSnapshot {
   return useMultimodalRuntime().snapshot
 }
 
-export function useSubmitUtterance(): (text: string) => Promise<void> {
+export function useLastResolution(): ResolvedInteraction | undefined {
+  return useMultimodalRuntime().lastResolution
+}
+
+export function useInteractionApi(): InteractionApi {
+  const {
+    snapshot,
+    lastResolution,
+    getSnapshot,
+    resolveText,
+    dispatchResolution,
+    submitUtterance,
+  } = useMultimodalRuntime()
+
+  return React.useMemo(
+    () => ({
+      snapshot,
+      lastResolution,
+      getSnapshot,
+      resolveText,
+      dispatchResolution,
+      submitUtterance,
+    }),
+    [dispatchResolution, getSnapshot, lastResolution, resolveText, snapshot, submitUtterance]
+  )
+}
+
+export function useSubmitUtterance(): (
+  text: string,
+  options?: InteractionSubmitOptions
+) => Promise<InteractionSubmitResult> {
   return useMultimodalRuntime().submitUtterance
 }
 
@@ -573,7 +811,7 @@ function buildGroupObjects(
 ): InteractionObject[] {
   const listGroups = Array.from(groups.values()).filter((group) => group.role === "list")
 
-  return Array.from(groups.values()).map((group) => {
+  return Array.from(groups.values()).filter((group) => isElementVisible(group.element)).map((group) => {
     const children = rawObjects
       .filter((object) => {
         const element = elementMap.get(object.id)
@@ -594,6 +832,7 @@ function buildGroupObjects(
       : []
     const index = parentList?.indexBy === "visible_order" ? siblings.findIndex((item) => item.id === group.id) + 1 : undefined
     const inferredState = inferGroupState(group, children, elementMap)
+    const primaryControl = inferPrimaryControl(children, elementMap)
     const aliases = [...(group.aliases ?? [])]
 
     if (index) {
@@ -609,6 +848,7 @@ function buildGroupObjects(
       entity: group.entity,
       parent: parentList?.id,
       children,
+      primaryControl,
       indexBy: group.indexBy,
       source: "registered_group",
       state: {
@@ -618,6 +858,34 @@ function buildGroupObjects(
       },
     }
   })
+}
+
+function isModalGroupActive(
+  object: InteractionObject,
+  groups: Map<string, RegisteredGroup>
+): boolean {
+  if (object.state?.open === true || object.state?.active === true) return true
+  if (object.state?.open === false || object.state?.active === false) return false
+
+  const group = groups.get(object.id)
+  if (!group) return false
+
+  const details = group.element.matches("details")
+    ? group.element
+    : group.element.querySelector("details")
+  if (details instanceof HTMLDetailsElement) return details.open
+
+  const dialog = group.element.matches("dialog")
+    ? group.element
+    : group.element.querySelector("dialog")
+  if (dialog instanceof HTMLDialogElement) return dialog.open
+
+  const roleDialog = group.element.matches("[role='dialog'], [role='alertdialog']")
+    ? group.element
+    : group.element.querySelector<HTMLElement>("[role='dialog'], [role='alertdialog']")
+  if (roleDialog) return isElementVisible(roleDialog)
+
+  return isElementVisible(group.element)
 }
 
 function inferGroupState(
@@ -641,7 +909,109 @@ function inferGroupState(
     state[`${group.entity.type}Id`] = group.entity.id
   }
 
+  if (group.role === "form_field") {
+    const control = children
+      .map((childId) => elementMap.get(childId))
+      .find((element): element is HTMLElement => Boolean(element && isFormControl(element)))
+    const message = children
+      .map((childId) => elementMap.get(childId))
+      .map((element) => element?.textContent?.replace(/\s+/g, " ").trim())
+      .find((text) => text && text !== group.label)
+
+    if (control) state.controlRole = control.dataset.mmRole ?? control.getAttribute("role") ?? control.tagName.toLowerCase()
+    if (message) state.message = message
+  }
+
   return state
+}
+
+function inferPrimaryControl(
+  children: string[],
+  elementMap: Map<string, HTMLElement>
+): string | undefined {
+  return children.find((childId) => {
+    const element = elementMap.get(childId)
+    return element ? isFormControl(element) || isActionControl(element) : false
+  })
+}
+
+function isFormControl(element: HTMLElement): boolean {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement ||
+    element.getAttribute("role") === "textbox" ||
+    element.getAttribute("role") === "combobox" ||
+    element.getAttribute("role") === "slider"
+  )
+}
+
+function isActionControl(element: HTMLElement): boolean {
+  const role = element.dataset.mmRole ?? element.getAttribute("role")
+  return element instanceof HTMLButtonElement || ["button", "switch", "checkbox", "tab", "option", "menuitem"].includes(role ?? "")
+}
+
+function shouldObserveMutation(mutation: MutationRecord): boolean {
+  if (isIgnoredRuntimeTarget(mutation.target)) return false
+
+  if (mutation.type !== "childList") return true
+
+  const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes]
+  if (!changedNodes.length) return true
+
+  return changedNodes.some((node) => !isIgnoredRuntimeTarget(node))
+}
+
+function isIgnoredRuntimeTarget(target: EventTarget | Node | null): boolean {
+  if (!target) return false
+  const node = target instanceof Node ? target : undefined
+  const element =
+    node instanceof Element
+      ? node
+      : node?.parentElement
+
+  return Boolean(element?.closest("[data-mm-ignore='true']"))
+}
+
+async function resolveCandidate(
+  utterance: string,
+  snapshot: InteractionSnapshot,
+  options: {
+    resolvers?: IntentResolver[]
+    resolverMode: ResolverMode
+  }
+): Promise<ResolvedInteraction> {
+  const ruleResult = resolveUtterance(utterance, snapshot)
+  if (options.resolverMode === "rule-only" || !options.resolvers?.length) {
+    return ruleResult
+  }
+
+  const compactSnapshot = compactSnapshotForIntent(snapshot)
+  const externalResolvers = options.resolvers
+
+  if (options.resolverMode === "llm-first") {
+    return resolveWithResolvers(
+      { utterance, snapshot: compactSnapshot },
+      [...externalResolvers, ruleResolver],
+      0.7
+    )
+  }
+
+  if (ruleResult.status === "resolved" && ruleResult.confidence >= 0.8) {
+    return ruleResult
+  }
+
+  const resolverResult = await resolveWithResolvers(
+    { utterance, snapshot: compactSnapshot },
+    externalResolvers,
+    0.7
+  )
+
+  if (resolverResult.status === "resolved" || resolverResult.status === "needs_clarification") {
+    return resolverResult
+  }
+
+  return ruleResult
 }
 
 function stableStringify(value: unknown): string {

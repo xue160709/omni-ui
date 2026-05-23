@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Slider as ShadcnSlider } from "@/components/ui/slider"
 import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { composeRefs } from "./utils"
 
 type MultimodalSliderProps = React.ComponentProps<typeof ShadcnSlider> & {
   interactionId?: string
@@ -26,12 +27,3 @@ export const MultimodalSlider = React.forwardRef<
   return <ShadcnSlider ref={composeRefs(ref, mmRef)} {...props} />
 })
 MultimodalSlider.displayName = "MultimodalSlider"
-
-function composeRefs<T>(...refs: Array<React.Ref<T> | undefined>): React.RefCallback<T> {
-  return (node) => {
-    refs.forEach((ref) => {
-      if (typeof ref === "function") ref(node)
-      else if (ref) ref.current = node
-    })
-  }
-}

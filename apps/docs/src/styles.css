@@ -124,6 +124,21 @@ input {
   margin-top: 12px;
 }
 
+.llm-toggle {
+  align-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.llm-toggle input {
+  min-height: auto;
+  width: auto;
+}
+
 .ghost-button {
   background: white;
   color: hsl(var(--foreground));
@@ -199,6 +214,10 @@ input {
   color: hsl(var(--foreground));
 }
 
+.dialog-trigger {
+  width: 100%;
+}
+
 .slider-row {
   flex-direction: column;
   align-items: stretch;
@@ -207,28 +226,40 @@ input {
 .dialog-demo {
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
+  display: grid;
+  gap: 12px;
   padding: 12px;
 }
 
-.dialog-demo summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.dialog-demo div {
+.dialog-actions {
   display: flex;
-  align-items: center;
   gap: 10px;
-  margin-top: 12px;
+  justify-content: flex-end;
 }
 
 .dialog-demo p {
-  flex: 1;
   margin: 0;
 }
 
 .devtools {
   margin-top: 18px;
+}
+
+.devtools-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.devtools-filters button {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+}
+
+.devtools-filters button[aria-selected="true"] {
+  background: hsl(var(--foreground));
+  color: white;
 }
 
 .devtools pre {

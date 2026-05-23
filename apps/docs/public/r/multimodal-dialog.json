@@ -7,14 +7,15 @@
     "@multimodal-ui/react"
   ],
   "registryDependencies": [
-    "multimodal-provider"
+    "multimodal-provider",
+    "multimodal-utils"
   ],
   "files": [
     {
       "path": "registry/new-york/dialog.tsx",
       "type": "registry:component",
       "target": "components/multimodal/dialog.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Dialog,\n  DialogContent,\n  DialogDescription,\n  DialogFooter,\n  DialogHeader,\n  DialogTitle,\n  DialogTrigger,\n} from \"@/components/ui/dialog\"\nimport { MultimodalGroup } from \"@multimodal-ui/react\"\n\ntype MultimodalDialogContentProps = React.ComponentProps<typeof DialogContent> & {\n  interactionId: string\n  interactionLabel?: string\n}\n\nexport function MultimodalDialogContent({\n  interactionId,\n  interactionLabel = \"对话框\",\n  children,\n  ...props\n}: MultimodalDialogContentProps) {\n  return (\n    <MultimodalGroup id={interactionId} role=\"dialog\" label={interactionLabel}>\n      <DialogContent {...props}>{children}</DialogContent>\n    </MultimodalGroup>\n  )\n}\n\nexport {\n  Dialog,\n  DialogDescription,\n  DialogFooter,\n  DialogHeader,\n  DialogTitle,\n  DialogTrigger,\n}\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Dialog,\n  DialogContent,\n  DialogDescription,\n  DialogFooter,\n  DialogHeader,\n  DialogTitle,\n  DialogTrigger,\n} from \"@/components/ui/dialog\"\nimport { MultimodalGroup, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalDialogContentProps = React.ComponentProps<typeof DialogContent> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport function MultimodalDialogContent({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalDialogContentProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"dialog\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"对话框\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <DialogContent {...props}>{children}</DialogContent>\n    </MultimodalGroup>\n  )\n}\n\nexport {\n  Dialog,\n  DialogDescription,\n  DialogFooter,\n  DialogHeader,\n  DialogTitle,\n  DialogTrigger,\n}\n"
     }
   ]
 }

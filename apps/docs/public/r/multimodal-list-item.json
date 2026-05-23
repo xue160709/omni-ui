@@ -7,14 +7,15 @@
     "@multimodal-ui/react"
   ],
   "registryDependencies": [
-    "multimodal-provider"
+    "multimodal-provider",
+    "multimodal-utils"
   ],
   "files": [
     {
       "path": "registry/new-york/list-item.tsx",
       "type": "registry:component",
       "target": "components/multimodal/list-item.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { MultimodalGroup, type EntityRef } from \"@multimodal-ui/react\"\n\ntype MultimodalListProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  label: string\n}\n\nexport function MultimodalList({ interactionId, label, children, ...props }: MultimodalListProps) {\n  return (\n    <MultimodalGroup id={interactionId} role=\"list\" label={label} indexBy=\"visible_order\" {...props}>\n      {children}\n    </MultimodalGroup>\n  )\n}\n\ntype MultimodalListItemProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  label: string\n  entity?: EntityRef\n}\n\nexport function MultimodalListItem({\n  interactionId,\n  label,\n  entity,\n  children,\n  ...props\n}: MultimodalListItemProps) {\n  return (\n    <MultimodalGroup id={interactionId} role=\"list_item\" label={label} entity={entity} {...props}>\n      {children}\n    </MultimodalGroup>\n  )\n}\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { MultimodalGroup, type EntityRef, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalListProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n  label?: string\n}\n\nexport function MultimodalList({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  label,\n  children,\n  ...props\n}: MultimodalListProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"list\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, label)}\n      aliases={resolveInteractionAliases(interactionHint)}\n      indexBy=\"visible_order\"\n      {...props}\n    >\n      {children}\n    </MultimodalGroup>\n  )\n}\n\ntype MultimodalListItemProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n  label?: string\n  entity?: EntityRef\n}\n\nexport function MultimodalListItem({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  label,\n  entity,\n  children,\n  ...props\n}: MultimodalListItemProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"list_item\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, label)}\n      aliases={resolveInteractionAliases(interactionHint)}\n      entity={entity}\n      {...props}\n    >\n      {children}\n    </MultimodalGroup>\n  )\n}\n"
     }
   ]
 }

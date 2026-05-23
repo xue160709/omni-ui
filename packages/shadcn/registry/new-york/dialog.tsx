@@ -10,21 +10,29 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { MultimodalGroup } from "@multimodal-ui/react"
+import { MultimodalGroup, type InteractionHint } from "@multimodal-ui/react"
+import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalDialogContentProps = React.ComponentProps<typeof DialogContent> & {
   interactionId: string
   interactionLabel?: string
+  interactionHint?: InteractionHint
 }
 
 export function MultimodalDialogContent({
   interactionId,
-  interactionLabel = "对话框",
+  interactionLabel,
+  interactionHint,
   children,
   ...props
 }: MultimodalDialogContentProps) {
   return (
-    <MultimodalGroup id={interactionId} role="dialog" label={interactionLabel}>
+    <MultimodalGroup
+      id={interactionId}
+      role="dialog"
+      label={resolveInteractionLabel(interactionLabel, interactionHint, "对话框")}
+      aliases={resolveInteractionAliases(interactionHint)}
+    >
       <DialogContent {...props}>{children}</DialogContent>
     </MultimodalGroup>
   )
