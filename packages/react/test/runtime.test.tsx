@@ -250,6 +250,26 @@ function IgnoredMutationHarness() {
   )
 }
 
+function ControlledInputHarness() {
+  const snapshot = useInteractionSnapshot()
+  const [value, setValue] = React.useState("")
+  const snapshotValue =
+    snapshot.visibleObjects.find((object) => object.label === "Task title")?.state?.value ?? ""
+
+  return (
+    <>
+      <label htmlFor="controlled-title">Task title</label>
+      <input
+        id="controlled-title"
+        value={value}
+        onChange={(event) => setValue(event.currentTarget.value)}
+      />
+      <div data-testid="controlled-value">{value}</div>
+      <div data-testid="snapshot-value">{String(snapshotValue)}</div>
+    </>
+  )
+}
+
 function ApiHarness() {
   const api = useInteractionApi()
   const [result, setResult] = React.useState("")
@@ -496,6 +516,23 @@ describe("MultimodalProvider", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(screen.getByTestId("version").textContent).toBe(version)
+  })
+
+  it("does not reset controlled text inputs while refreshing snapshots", async () => {
+    render(
+      <MultimodalProvider>
+        <ControlledInputHarness />
+      </MultimodalProvider>
+    )
+
+    const input = screen.getByRole("textbox", { name: "Task title" }) as HTMLInputElement
+    fireEvent.input(input, { target: { value: "abc123" } })
+
+    expect(input.value).toBe("abc123")
+    expect(screen.getByTestId("controlled-value").textContent).toBe("abc123")
+    await waitFor(() => {
+      expect(screen.getByTestId("snapshot-value").textContent).toBe("abc123")
+    })
   })
 
   it("exposes low-level snapshot, resolve, and submit APIs", async () => {

@@ -135,10 +135,10 @@ function resolveWithRules({
 
 export function inferIntent(text: string): string {
   if (/确认|确定|好的|好/.test(text)) return "confirm"
+  if (/取消完成|取消勾选/.test(text)) return "uncomplete"
   if (/取消|算了|关闭弹窗/.test(text)) return "cancel"
   if (/删除|移除|删掉/.test(text)) return "delete"
   if (/完成|勾选|标记完成/.test(text)) return "complete"
-  if (/取消完成|取消勾选/.test(text)) return "uncomplete"
   if (/关闭|关掉/.test(text)) return "close"
   if (/打开|开启|开/.test(text)) return "open"
   if (/选择|切到|切换|只看|显示/.test(text)) return "select"
@@ -331,11 +331,41 @@ function extractTargetText(text: string, intent: string): string {
   }
 
   if (intent === "complete") {
-    const match = text.match(commandWords.complete)
-    return match?.[2]?.replace(/^把/, "").trim() ?? text
+    return (
+      extractTargetFromCompletionText(text, [
+        /^(?:帮我|请|麻烦)?(?:把|将)?(.+?)(?:标记为?完成|改成完成|改为完成|设为完成|置为完成|完成|勾选)$/,
+        /^(?:完成|勾选)(.+)$/,
+      ]) ?? text
+    )
+  }
+
+  if (intent === "uncomplete") {
+    return (
+      extractTargetFromCompletionText(text, [
+        /^(?:帮我|请|麻烦)?(?:把|将)?(.+?)(?:取消完成|取消勾选|标记为?未完成|改成未完成|改为未完成|设为未完成|恢复未完成)$/,
+        /^(?:取消完成|取消勾选|恢复)(.+)$/,
+      ]) ?? text.replace(commandWords.uncomplete, "").trim()
+    )
   }
 
   return text.replace(commandWords[intent] ?? /$^/, "").trim()
+}
+
+function extractTargetFromCompletionText(text: string, patterns: RegExp[]): string | undefined {
+  for (const pattern of patterns) {
+    const match = text.match(pattern)
+    const target = cleanupTargetText(match?.[1])
+    if (target) return target
+  }
+  return undefined
+}
+
+function cleanupTargetText(value: string | undefined): string | undefined {
+  const cleaned = value
+    ?.replace(/^(帮我|请|麻烦|把|将|给我)+/, "")
+    .replace(/(这个|那个|这项|那项|任务|待办|事项)$/g, "")
+    .trim()
+  return cleaned || undefined
 }
 
 function chooseAction(
@@ -347,7 +377,13 @@ function chooseAction(
   const primitiveActions = object.primitiveActions ?? []
 
   const domain = (suffixes: string[]) =>
-    actions.find((action) => suffixes.some((suffix) => action.endsWith(suffix) || action.includes(suffix)))
+    actions.find((action) =>
+      suffixes.some((suffix) =>
+        suffix.startsWith(".")
+          ? action.endsWith(suffix)
+          : action === suffix || action.endsWith(`.${suffix}`)
+      )
+    )
   const primitive = (candidates: PrimitiveAction[]) =>
     primitiveActions.find((action) => candidates.includes(action))
 

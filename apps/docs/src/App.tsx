@@ -1,10 +1,13 @@
 import {
+  createLlmSnapshotContext,
   MultimodalGroup,
   MultimodalPage,
   MultimodalProvider,
   useInteractionActions,
+  useInteractionApi,
   type ActionContext,
   type ActionPayload,
+  type InteractionSubmitResult,
 } from "@multimodal-ui/react"
 import * as React from "react"
 
@@ -71,7 +74,7 @@ type SpeechRecognitionEventLike = {
   results: ArrayLike<ArrayLike<{ transcript: string }>>
 }
 
-const chatModel = "deepseek-ai/DeepSeek-V4-Flash"
+const chatModel = "MiniMaxAI/MiniMax-M2.5"
 
 const initialTodos: Todo[] = [
   {
@@ -139,6 +142,12 @@ function AppRuntime() {
   const [filter, setFilter] = React.useState<TodoFilter>("all")
   const [apiKey, setApiKey] = useLocalStorage("siliconflow_api_key", "")
   const [isChatOpen, setIsChatOpen] = React.useState(() => window.location.pathname === "/chat")
+
+  React.useEffect(() => {
+    const onPopState = () => setIsChatOpen(window.location.pathname === "/chat")
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
 
   const executeTodoAction = React.useCallback(
     (action: ActionPayload) => {
@@ -300,9 +309,13 @@ function MobileApp(props: {
   onChatOpenChange: (open: boolean) => void
 }) {
   const pageMeta = getPageMeta(props.route, props.todos)
+  const pageState = React.useMemo(
+    () => createTodoPageState(props.route, props.todos, props.filter),
+    [props.filter, props.route, props.todos]
+  )
 
   return (
-    <MultimodalPage id={pageMeta.id} title={pageMeta.title} route={pageMeta.path}>
+    <MultimodalPage id={pageMeta.id} title={pageMeta.title} route={pageMeta.path} state={pageState}>
       <main className="mobile-shell">
         <header className="mobile-header">
           <p className="eyebrow">{pageMeta.eyebrow}</p>
@@ -341,6 +354,7 @@ function MobileApp(props: {
         <FloatingChatbot
           apiKey={props.apiKey}
           open={props.isChatOpen}
+          onNavigate={props.onNavigate}
           onOpenChange={props.onChatOpenChange}
         />
 
@@ -423,12 +437,7 @@ function TodosScreen(props: {
   onTodoAction: (action: TodoAction) => void
 }) {
   const [draft, setDraft] = React.useState("")
-  const visibleTodos = props.todos.filter((todo) => {
-    if (props.filter === "today") return todo.due === "今天"
-    if (props.filter === "active") return !todo.completed
-    if (props.filter === "completed") return todo.completed
-    return true
-  })
+  const visibleTodos = getVisibleTodos(props.todos, props.filter)
 
   return (
     <div className="page-flow">
@@ -733,8 +742,10 @@ function SettingsScreen(props: {
 function FloatingChatbot(props: {
   apiKey: string
   open: boolean
+  onNavigate: (route: AppRoute) => void
   onOpenChange: (open: boolean) => void
 }) {
+  const interactionApi = useInteractionApi()
   const [draft, setDraft] = React.useState("你好，请介绍一下你自己")
   const [status, setStatus] = React.useState<ChatStatus>("ready")
   const [isListening, setIsListening] = React.useState(false)
@@ -759,9 +770,55 @@ function FloatingChatbot(props: {
       const trimmed = message.trim()
       if (!trimmed || status === "sending") return
 
+      const userMessage: ChatMessage = {
+        id: `user_${nextMessageId.current++}`,
+        role: "user",
+        content: trimmed,
+        state: "ready",
+      }
+      const navigation = resolveNavigationCommand(trimmed)
+
+      if (navigation) {
+        props.onNavigate(navigation.route)
+        setMessages((current) => [
+          ...current,
+          userMessage,
+          {
+            id: `assistant_${nextMessageId.current++}`,
+            role: "assistant",
+            content: navigation.reply,
+            state: "ready",
+          },
+        ])
+        setDraft("")
+        setStatus("ready")
+        return
+      }
+
+      if (shouldHandleLocally(trimmed)) {
+        const localResult = await interactionApi.submitUtterance(trimmed)
+        const localReply = createLocalInteractionReply(localResult)
+        if (localReply) {
+          setMessages((current) => [
+            ...current,
+            userMessage,
+            {
+              id: `assistant_${nextMessageId.current++}`,
+              role: "assistant",
+              content: localReply.content,
+              state: localReply.state,
+            },
+          ])
+          setDraft("")
+          setStatus(localReply.state === "error" ? "error" : "ready")
+          return
+        }
+      }
+
       if (!props.apiKey.trim()) {
         setMessages((current) => [
           ...current,
+          userMessage,
           {
             id: `assistant_${nextMessageId.current++}`,
             role: "assistant",
@@ -773,15 +830,12 @@ function FloatingChatbot(props: {
         return
       }
 
-      const userMessage: ChatMessage = {
-        id: `user_${nextMessageId.current++}`,
-        role: "user",
-        content: trimmed,
-        state: "ready",
-      }
       const pendingId = `assistant_${nextMessageId.current++}`
+      const snapshotContext = createLlmSnapshotContext(interactionApi.getSnapshot(), {
+        maxObjects: 100,
+      })
       const apiMessages = [
-        { role: "system", content: "你是一个有用的助手，回答要简洁、具体、可执行。" },
+        { role: "system", content: createChatSystemPrompt(snapshotContext) },
         ...messages
           .filter((item) => item.state !== "sending" && item.state !== "error")
           .map((item) => ({ role: item.role, content: item.content })),
@@ -829,7 +883,7 @@ function FloatingChatbot(props: {
         setStatus("error")
       }
     },
-    [messages, props.apiKey, status]
+    [interactionApi, messages, props.apiKey, props.onNavigate, status]
   )
 
   function startSpeechInput() {
@@ -874,11 +928,11 @@ function FloatingChatbot(props: {
   if (!props.open) return null
 
   return (
-    <section className="chat-sheet" aria-labelledby="floating-chat-heading">
+    <section className="chat-sheet" aria-labelledby="floating-chat-heading" data-mm-ignore="true">
       <div className="sheet-handle" />
       <div className="sheet-header">
         <div>
-          <p className="section-kicker">DeepSeek-V4-Flash</p>
+          <p className="section-kicker">{chatModel}</p>
           <h2 id="floating-chat-heading">Chatbot</h2>
         </div>
         <button
@@ -957,7 +1011,6 @@ function BottomTabs(props: {
               return
             }
             if (tab.target) {
-              props.onChatOpenChange(false)
               props.onNavigate(tab.target)
             }
           }}
@@ -999,6 +1052,129 @@ function TabIcon(props: {
       {paths[props.name]}
     </svg>
   )
+}
+
+function getVisibleTodos(todos: Todo[], filter: TodoFilter): Todo[] {
+  return todos.filter((todo) => {
+    if (filter === "today") return todo.due === "今天"
+    if (filter === "active") return !todo.completed
+    if (filter === "completed") return todo.completed
+    return true
+  })
+}
+
+function createTodoPageState(route: AppRoute, todos: Todo[], filter: TodoFilter) {
+  const activeTodos = todos.filter((todo) => !todo.completed)
+  const visibleTodos = getVisibleTodos(todos, filter)
+  const selectedTodo = route.todoId ? todos.find((todo) => todo.id === route.todoId) : undefined
+
+  return {
+    currentScreen: route.screen,
+    filter,
+    summary: {
+      totalCount: todos.length,
+      activeCount: activeTodos.length,
+      completedCount: todos.length - activeTodos.length,
+      todayCount: todos.filter((todo) => todo.due === "今天").length,
+      visibleCount: visibleTodos.length,
+    },
+    selectedTodoId: selectedTodo?.id,
+    visibleTodoIds: visibleTodos.map((todo) => todo.id),
+    todos: todos.map((todo) => ({
+      id: todo.id,
+      title: todo.title,
+      completed: todo.completed,
+      due: todo.due,
+      priority: todo.priority,
+      priorityLabel: priorityLabels[todo.priority],
+      description: todo.description,
+    })),
+  }
+}
+
+function createChatSystemPrompt(snapshotContext: ReturnType<typeof createLlmSnapshotContext>) {
+  return [
+    "你是一个有用的待办应用助手，回答要简洁、具体、可执行。",
+    "你可以读取下方 Interaction Snapshot 中暴露的当前页面、可见对象和业务状态。用户询问页面、待办、筛选、数量或当前状态时，优先依据 snapshot.page.state 和 visibleObjects 回答。",
+    "不要声称无法访问当前应用页面；如果用户询问的信息没有出现在快照里，就明确说明当前上下文没有提供该信息。",
+    "如果用户要求修改待办或执行页面操作，在没有执行结果前不要假装已经完成，只说明可执行的操作或建议。",
+    `Interaction Snapshot:\n${JSON.stringify(snapshotContext, null, 2)}`,
+  ].join("\n\n")
+}
+
+function resolveNavigationCommand(text: string): { route: AppRoute; reply: string } | undefined {
+  const normalized = text.replace(/[\s。！？!?,，.]+/g, "")
+
+  if (/^(回到|返回|去|打开|进入|切到|切换到)?(首页|主页)(页面|页)?$/.test(normalized)) {
+    return { route: { screen: "home" }, reply: "已回到首页。" }
+  }
+
+  if (/^(回到|返回|去|打开|进入|切到|切换到)?(待办|任务|任务列表|清单)(页面|页|列表)?$/.test(normalized)) {
+    return { route: { screen: "todos" }, reply: "已打开待办列表。" }
+  }
+
+  if (/^(回到|返回|去|打开|进入|切到|切换到)?(设置|配置)(页面|页)?$/.test(normalized)) {
+    return { route: { screen: "settings" }, reply: "已打开设置。" }
+  }
+
+  return undefined
+}
+
+function shouldHandleLocally(text: string): boolean {
+  return /添加|新增|创建|删除|移除|删掉|完成|勾选|取消完成|取消勾选|只看|筛选|过滤|切到|切换|显示/.test(
+    text
+  )
+}
+
+function createLocalInteractionReply(
+  result: InteractionSubmitResult
+): { content: string; state: ChatStatus } | undefined {
+  if (result.ok && result.executed) {
+    const label = result.target?.label ? `「${result.target.label}」` : "目标"
+    const action = result.action
+
+    if (action?.type === "todo.complete") {
+      return { content: `已将${label}标记为完成。`, state: "ready" }
+    }
+    if (action?.type === "todo.uncomplete") {
+      return { content: `已将${label}恢复为未完成。`, state: "ready" }
+    }
+    if (action?.type === "todo.delete") {
+      return { content: `已删除${label}。`, state: "ready" }
+    }
+    if (action?.type === "todo.add") {
+      return { content: `已添加待办：${String(action.title ?? "") || "新事项"}。`, state: "ready" }
+    }
+    if (action?.type === "todo.filter") {
+      const filter = action.filter as TodoFilter | undefined
+      return {
+        content: `已切换到${filter ? `「${filterLabels[filter]}」` : "指定"}筛选。`,
+        state: "ready",
+      }
+    }
+    if (action?.type === "todo.clearCompleted") {
+      return { content: "已清除已完成待办。", state: "ready" }
+    }
+
+    return { content: `已执行：${String(action?.type ?? result.resolution.actionId ?? "操作")}。`, state: "ready" }
+  }
+
+  if (result.resolution.status === "needs_clarification") {
+    return {
+      content: result.resolution.reason ?? "我需要你再明确一下要操作哪一项。",
+      state: "error",
+    }
+  }
+
+  if (result.validation && !result.validation.ok && result.validation.code === "confirmation_required") {
+    return { content: result.validation.reason, state: "error" }
+  }
+
+  if (result.validation && !result.validation.ok && result.validation.code === "state_changed") {
+    return { content: result.validation.reason, state: "error" }
+  }
+
+  return undefined
 }
 
 function getPageMeta(route: AppRoute, todos: Todo[]) {

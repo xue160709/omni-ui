@@ -69,6 +69,7 @@ describe("mobile todo app", () => {
 
     expect(window.localStorage.getItem("siliconflow_api_key")).toBe("test-key")
     expect(screen.getByText("已保存到本机")).not.toBeNull()
+    expect(screen.getByText("MiniMaxAI/MiniMax-M2.5")).not.toBeNull()
   })
 
   it("opens the floating chatbot from the bottom tab", () => {
@@ -86,6 +87,17 @@ describe("mobile todo app", () => {
     render(<App />)
 
     expect(screen.getByRole("heading", { level: 1, name: "首页" })).not.toBeNull()
+    expect(screen.getByRole("heading", { level: 2, name: "Chatbot" })).not.toBeNull()
+  })
+
+  it("keeps the floating chatbot open while switching pages", () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.click(screen.getByRole("button", { name: "设置" }))
+
+    expect(window.location.pathname).toBe("/settings")
+    expect(screen.getByRole("heading", { level: 1, name: "设置" })).not.toBeNull()
     expect(screen.getByRole("heading", { level: 2, name: "Chatbot" })).not.toBeNull()
   })
 
@@ -121,6 +133,84 @@ describe("mobile todo app", () => {
     expect((calls[0][1].headers as Record<string, string>)["x-siliconflow-api-key"]).toBe(
       "test-key"
     )
+
+    const body = JSON.parse(String(calls[0][1].body)) as {
+      messages: Array<{ role: string; content: string }>
+    }
+    expect(body.messages[0].role).toBe("system")
+    expect(body.messages[0].content).toContain("Interaction Snapshot")
+    expect(body.messages[0].content).toContain("买牛奶")
+    expect(body.messages[0].content).toContain("写周报")
+    expect(body.messages[0].content).toContain("visibleObjects")
+  })
+
+  it("executes todo commands locally from chatbot messages", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "帮我将买牛奶改成完成" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
+    })
+    expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("navigates locally from chatbot messages", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "回到首页" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/")
+      expect(screen.getByRole("heading", { level: 1, name: "首页" })).not.toBeNull()
+      expect(screen.getByText("已回到首页。")).not.toBeNull()
+    })
+
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "打开待办页面" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/todos")
+      expect(screen.getByRole("heading", { level: 1, name: "待办" })).not.toBeNull()
+      expect(screen.getByText("已打开待办列表。")).not.toBeNull()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("asks for an API key before sending chatbot messages", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "帮我拆任务" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("请先在设置页填写 API Key。")).not.toBeNull()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("uses Web Speech API transcripts as chatbot input", async () => {

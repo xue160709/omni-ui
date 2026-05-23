@@ -4,7 +4,7 @@ import path from "node:path"
 import { defineConfig, loadEnv, type Plugin } from "vite"
 
 const siliconFlowUrl = "https://api.siliconflow.cn/v1/chat/completions"
-const defaultModel = "deepseek-ai/DeepSeek-V4-Flash"
+const defaultModel = "MiniMaxAI/MiniMax-M2.5"
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, "")

@@ -147,4 +147,57 @@ describe("resolver", () => {
       actionId: "settings.temperature.decrease",
     })
   })
+
+  it("resolves conversational todo completion phrasing", () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "todo.item.todo_1",
+          type: "composite",
+          role: "list_item",
+          label: "买牛奶",
+          entity: { type: "todo", id: "todo_1" },
+          actions: ["todo.complete", "todo.uncomplete"],
+          state: { completed: false, index: 1 },
+        },
+      ],
+    })
+
+    expect(resolveUtterance("帮我将买牛奶改成完成", snapshot)).toMatchObject({
+      status: "resolved",
+      intent: "complete",
+      targetId: "todo.item.todo_1",
+      actionId: "todo.complete",
+    })
+
+    expect(resolveUtterance("取消完成买牛奶", snapshot)).toMatchObject({
+      status: "resolved",
+      intent: "uncomplete",
+      targetId: "todo.item.todo_1",
+      actionId: "todo.uncomplete",
+    })
+  })
+
+  it("does not treat uncomplete as a complete action", () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "todo.item.todo_1",
+          type: "composite",
+          role: "list_item",
+          label: "买牛奶",
+          entity: { type: "todo", id: "todo_1" },
+          actions: ["todo.uncomplete"],
+          state: { completed: true, index: 1 },
+        },
+      ],
+    })
+
+    expect(resolveUtterance("完成买牛奶", snapshot)).toMatchObject({
+      status: "not_found",
+      targetId: "todo.item.todo_1",
+    })
+  })
 })

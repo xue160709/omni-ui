@@ -3,6 +3,7 @@ import type {
   InteractionSnapshot,
   ResolvedInteraction,
 } from "./types"
+import { createLlmSnapshotContext } from "./snapshot"
 
 export type LlmResolverInput = {
   utterance: string
@@ -194,7 +195,7 @@ export function createLlmResolverPrompt(input: LlmResolverInput): string {
   return JSON.stringify(
     {
       utterance: input.utterance,
-      snapshot: input.snapshot,
+      snapshot: createLlmSnapshotContext(input.snapshot),
       schema: input.schema,
     },
     null,

@@ -159,9 +159,27 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       ],
     })
 
+    let queuedRuntimeBump = false
+    let runtimeBumpTimer: number | undefined
+    const scheduleRuntimeBump = () => {
+      if (queuedRuntimeBump) return
+      queuedRuntimeBump = true
+      const view = root.ownerDocument.defaultView
+      if (!view) {
+        queuedRuntimeBump = false
+        bumpVersion()
+        return
+      }
+      runtimeBumpTimer = view.setTimeout(() => {
+        queuedRuntimeBump = false
+        runtimeBumpTimer = undefined
+        bumpVersion()
+      }, 0)
+    }
+
     const handleRuntimeEvent = (event: Event) => {
       if (isIgnoredRuntimeTarget(event.target)) return
-      bumpVersion()
+      scheduleRuntimeBump()
     }
 
     root.addEventListener("focusin", handleRuntimeEvent)
@@ -175,6 +193,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       root.removeEventListener("focusout", handleRuntimeEvent)
       root.removeEventListener("input", handleRuntimeEvent)
       root.removeEventListener("change", handleRuntimeEvent)
+      if (runtimeBumpTimer !== undefined) {
+        root.ownerDocument.defaultView?.clearTimeout(runtimeBumpTimer)
+      }
     }
   }, [bumpVersion])
 
