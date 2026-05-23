@@ -66,6 +66,72 @@ function TodoHarness() {
   )
 }
 
+function DynamicTodoHarness() {
+  const [todos, setTodos] = React.useState([{ id: "todo_1", title: "买牛奶", completed: false }])
+  const submitUtterance = useSubmitUtterance()
+
+  const actions = React.useMemo(
+    () => ({
+      "todo.complete": {
+        attachTo: { entityType: "todo" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ todoId: target.entity?.id }),
+        availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
+      },
+    }),
+    []
+  )
+
+  useInteractionActions({
+    namespace: "todo",
+    actions,
+    execute: (action: ActionPayload) => {
+      if (action.type !== "todo.complete") return
+      setTodos((current) =>
+        current.map((todo) =>
+          todo.id === action.todoId ? { ...todo, completed: true } : todo
+        )
+      )
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          setTodos((current) => [
+            { id: "todo_2", title: "写方案", completed: false },
+            ...current,
+          ])
+        }
+      >
+        add first
+      </button>
+      <button type="button" onClick={() => void submitUtterance("完成第一个")}>
+        voice
+      </button>
+      <MultimodalGroup id="todo.list" role="list" label="待办列表" indexBy="visible_order">
+        {todos.map((todo) => (
+          <MultimodalGroup
+            key={todo.id}
+            id={`todo.item.${todo.id}`}
+            role="list_item"
+            label={todo.title}
+            entity={{ type: "todo", id: todo.id }}
+            state={{ completed: todo.completed }}
+          >
+            <label>
+              <input type="checkbox" checked={todo.completed} onChange={() => {}} />
+              {todo.title}
+            </label>
+          </MultimodalGroup>
+        ))}
+      </MultimodalGroup>
+    </>
+  )
+}
+
 function LlmTodoHarness() {
   const [completed, setCompleted] = React.useState(false)
   const submitUtterance = useSubmitUtterance()
@@ -249,6 +315,27 @@ describe("MultimodalProvider", () => {
 
     await waitFor(() => {
       expect((screen.getByRole("checkbox", { name: "买牛奶" }) as HTMLInputElement).checked).toBe(true)
+    })
+  })
+
+  it("indexes dynamic list items by their visible DOM order", async () => {
+    render(
+      <MultimodalProvider>
+        <DynamicTodoHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "add first" }))
+
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: "写方案" })).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "voice" }))
+
+    await waitFor(() => {
+      expect((screen.getByRole("checkbox", { name: "写方案" }) as HTMLInputElement).checked).toBe(true)
+      expect((screen.getByRole("checkbox", { name: "买牛奶" }) as HTMLInputElement).checked).toBe(false)
     })
   })
 

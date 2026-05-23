@@ -30,6 +30,7 @@ Semantic Aggregator 负责把基础事实聚合成业务对象。
 MultimodalGroup 只声明聚合边界和少量业务身份，不手写完整对象。
 interactionHint 只补充别名、缺失标签和失败原因；风险、权限、确认策略放在 action registry。
 LLM 面向聚合后的业务 action，不直接面对所有底层控件 action。
+统一焦点模型负责对齐 GUI / VUI / 手势 / 眼动中的目标指代。
 GUI 操作和多模态操作必须共用同一套确定性执行入口。
 ```
 
@@ -43,6 +44,7 @@ GUI 操作和多模态操作必须共用同一套确定性执行入口。
 - VUI 负责表达意图、输入内容和跨界面调度。
 - 手势、眼动、实体按键、触控笔等通道也可以表达目标、方向、幅度或确认。
 - 系统把所有通道转换成统一的交互事件。
+- 系统用统一焦点模型对齐“用户正在指什么、看什么、编辑什么、想操作什么”。
 - 最终由同一套状态、权限、作用域和反馈机制执行。
 
 一句话：
@@ -81,6 +83,7 @@ Intent Understanding
   └─ Context Resolver
           ↓
 Interaction Manager
+  ├─ Unified Focus State
   ├─ Scope Validator
   ├─ Permission Validator
   ├─ Conflict Arbiter
@@ -117,7 +120,7 @@ Interaction Snapshot 是当前界面的交互语义快照。
 - 当前页面。
 - 当前容器和弹窗。
 - 当前可见对象。
-- 当前焦点对象。
+- 当前统一焦点对象。
 - 当前输入对象。
 - 最近 GUI / VUI / 手势事件。
 - 每个对象的 role、label、value、enabled、actions。
@@ -841,6 +844,158 @@ voice intent("完成这个", t=10005)
 ```
 
 如果语音结果延迟到达，而用户已经点击了别的对象或页面弹出了 Dialog，Interaction Manager 必须丢弃旧绑定或重新校验。这样可以避免“用户刚改变界面，迟到的语音又操作旧对象”的问题。
+
+### 8.2 统一焦点与意图状态机
+
+多模态系统里的焦点不应该等同于浏览器或原生控件的 keyboard focus。
+
+真正需要统一的是用户当前的操作指向：
+
+- 他正在编辑什么。
+- 他刚刚点击或选择了什么。
+- 他正在看向或指向什么。
+- 他说“这个”“那里”“调高一点”时，语义上最可能指什么。
+- 当前弹窗、页面、任务流或输入场景是否改变了指代范围。
+
+因此系统应该维护一个统一焦点模型，而不是让 GUI focus、VUI 上下文、gaze target、gesture target 各自独立生效。
+
+示例结构：
+
+```ts
+type UnifiedFocus = {
+  activeContext: {
+    type: "page" | "dialog" | "region" | "form" | "list" | "task";
+    id: string;
+  };
+  primaryTarget?: string;
+  inputFocus?: string;
+  visualFocus?: string;
+  semanticFocus?: string;
+  selectedObjects?: string[];
+  recentTargets: string[];
+  source: "keyboard" | "mouse" | "touch" | "gaze" | "gesture" | "voice" | "system";
+  confidence: number;
+  expiresAt?: number;
+  stateVersion: number;
+};
+```
+
+其中：
+
+- `inputFocus` 表示真实输入焦点，例如正在编辑的输入框。
+- `visualFocus` 表示眼动、指向、hover、屏幕区域等视觉注意力。
+- `semanticFocus` 表示语义焦点，例如用户连续操作的业务对象或任务对象。
+- `primaryTarget` 是当前可用于解析“这个”“那里”“继续”“调高一点”的主目标。
+- `activeContext` 约束焦点的作用域，例如 Dialog 打开后，Dialog 应该成为最高优先级上下文。
+
+统一焦点不是一个永久事实，而是带时效、置信度和版本约束的状态。
+
+推荐的意图状态机：
+
+```text
+Observing
+  ↓
+AttentionHinted
+  ↓
+IntentHypothesized
+  ↓
+TargetResolved
+  ↓
+InfoComplete ──────────────→ Executing → Committed
+  ↓
+InfoIncomplete
+  ↓
+Clarifying → Observing
+
+TargetResolved
+  ↓
+NeedsConfirmation
+  ↓
+Confirmed → Executing → Committed
+  ↓
+Rejected → Observing
+```
+
+各状态含义：
+
+- `Observing`：系统只观察 GUI、事件和上下文，不假设用户意图。
+- `AttentionHinted`：出现 gaze、gesture、hover、keyboard focus、selection、recent tap 等目标线索，但还没有完整意图。
+- `IntentHypothesized`：VUI / 手势 / 快捷键等输入形成候选意图，例如 `increase_value`、`open_item`、`submit_form`。
+- `TargetResolved`：候选意图已经对齐到一个或多个目标对象，并经过焦点、上下文和置信度排序。
+- `InfoIncomplete`：目标或参数不足，例如用户说“调一下”但没有方向和幅度。
+- `Clarifying`：系统向用户询问缺失信息，例如“你想调高温度还是风量？”
+- `NeedsConfirmation`：目标和参数足够，但动作高风险或不可逆，需要确认。
+- `Executing`：通过确定性 action executor 执行。
+- `Committed`：执行完成，更新 GUI 状态、统一焦点、recent events 和反馈。
+- `Rejected`：用户取消、校验失败、上下文过期或冲突仲裁拒绝。
+
+这个状态机的核心不是把语音命令变成 GUI 点击，而是持续回答三个问题：
+
+```text
+1. 用户现在指向哪个上下文或对象？
+2. 当前输入传递的信息量是否足够形成确定动作？
+3. 执行后如何把结果反馈回 GUI / VUI / 焦点状态？
+```
+
+当信息量不足时，系统不应该猜测执行，而应该保留当前焦点和候选意图，进入澄清。
+
+例如：
+
+```text
+用户看向温度滑块，说“调高一点”
+```
+
+系统可以得到：
+
+```json
+{
+  "state": "TargetResolved",
+  "intent": "increase_value",
+  "targetId": "auto.climate.temperature",
+  "params": {
+    "delta": 1
+  },
+  "focusEvidence": ["visualFocus", "recentTarget", "pageContext"],
+  "infoCompleteness": "complete"
+}
+```
+
+而如果用户只说：
+
+```text
+调一下
+```
+
+且当前页面里温度、风量、亮度都可调，则应该得到：
+
+```json
+{
+  "state": "InfoIncomplete",
+  "intent": "adjust_value",
+  "targetCandidates": [
+    "auto.climate.temperature",
+    "auto.climate.fan_speed",
+    "auto.display.brightness"
+  ],
+  "missing": ["target", "direction"],
+  "next": "clarify"
+}
+```
+
+执行完成后，焦点也需要被更新。
+
+例如温度从 24 调到 25 后，`primaryTarget` 应继续指向温度控件一段时间，这样用户接着说“再高一点”时，可以复用刚才的语义焦点。但如果用户点击了其他区域、Dialog 弹出、页面跳转或 stateVersion 变化，旧焦点必须降权或失效。
+
+统一焦点模型应该遵循：
+
+```text
+显式输入优先于隐式注意力。
+当前模态上下文优先于历史上下文。
+Dialog / Popover / Command 这类临时容器优先于页面主体。
+高置信度短时 target_hint 优先于低置信度长期记忆。
+stateVersion 变化后必须重新校验焦点和目标。
+高风险 action 不因焦点命中而跳过确认。
+```
 
 ## 9. LLM 的作用
 

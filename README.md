@@ -9,11 +9,11 @@ Multimodal UI turns the current GUI into a compact Interaction Snapshot, resolve
 - `@multimodal-ui/core`: framework-agnostic types, snapshot creation, action registry, resolver contracts, validation, and feedback primitives.
 - `@multimodal-ui/react`: React runtime, DOM/ARIA extraction, provider, hooks, and default feedback styles.
 - `@multimodal-ui/shadcn`: shadcn registry source for optional wrappers installed into `components/multimodal/*`.
-- `apps/docs`: local documentation, registry output, Todo demo, Settings demo, and Snapshot DevTools.
+- `apps/docs`: local mobile TodoList project with bottom tabs, todo detail screens, a floating Chatbot, settings, and registry output.
 
 ## Quick Start
 
-Install dependencies and run the local docs app:
+Install dependencies and run the local TodoList app:
 
 ```bash
 npm install
@@ -26,14 +26,19 @@ Open:
 http://127.0.0.1:5173/
 ```
 
-Do not open `apps/docs/index.html` directly with `file://`; the docs app and registry output are served by Vite.
+The local app exposes `/`, `/todos`, and `/settings`. Chatbot is a global floating sheet opened from the bottom tab, so it stays available while you move between pages. Enter your SiliconFlow API key in the Settings tab before sending messages.
+
+You can also set `SILICONFLOW_API_KEY` before starting Vite as a server-side fallback, but local UI usage should go through Settings.
+
+Do not open `apps/docs/index.html` directly with `file://`; the TodoList app and registry output are served by Vite.
 
 Try these utterances in the demo:
 
 ```text
 完成第一个
-只看未完成
-打开蓝牙
+打开 Chatbot
+只看今天
+清空已完成
 把买牛奶那个完成
 只显示还没做完的
 ```

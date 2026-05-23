@@ -823,14 +823,19 @@ function buildGroupObjects(
       (list) => list.id !== group.id && list.element.contains(group.element)
     )
     const siblings = parentList
-      ? Array.from(groups.values()).filter(
-          (candidate) =>
-            candidate.role === group.role &&
-            candidate.id !== parentList.id &&
-            parentList.element.contains(candidate.element)
-        )
+      ? Array.from(groups.values())
+          .filter(
+            (candidate) =>
+              candidate.role === group.role &&
+              candidate.id !== parentList.id &&
+              parentList.element.contains(candidate.element)
+          )
+          .sort(compareElementOrder)
       : []
-    const index = parentList?.indexBy === "visible_order" ? siblings.findIndex((item) => item.id === group.id) + 1 : undefined
+    const index =
+      parentList?.indexBy === "visible_order"
+        ? siblings.findIndex((item) => item.id === group.id) + 1
+        : undefined
     const inferredState = inferGroupState(group, children, elementMap)
     const primaryControl = inferPrimaryControl(children, elementMap)
     const aliases = [...(group.aliases ?? [])]
@@ -858,6 +863,15 @@ function buildGroupObjects(
       },
     }
   })
+}
+
+function compareElementOrder(a: RegisteredGroup, b: RegisteredGroup): number {
+  if (a.element === b.element) return 0
+
+  const position = a.element.compareDocumentPosition(b.element)
+  if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1
+  if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1
+  return 0
 }
 
 function isModalGroupActive(

@@ -1,50 +1,156 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { App } from "./App"
+
+beforeEach(() => {
+  window.localStorage.clear()
+  window.history.pushState(null, "", "/")
+})
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
+  window.localStorage.clear()
+  window.history.pushState(null, "", "/")
 })
 
-describe("docs demo", () => {
-  it("keeps the voice console out of the interaction snapshot", async () => {
+describe("mobile todo app", () => {
+  it("navigates with bottom tabs", () => {
     render(<App />)
 
+    expect(screen.getByRole("heading", { level: 1, name: "首页" })).not.toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+
+    expect(window.location.pathname).toBe("/todos")
+    expect(screen.getByRole("heading", { level: 1, name: "待办" })).not.toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "设置" }))
+
+    expect(window.location.pathname).toBe("/settings")
+    expect(screen.getByRole("heading", { level: 1, name: "设置" })).not.toBeNull()
+  })
+
+  it("opens a todo detail page from the list", () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: /买牛奶/ }))
+
+    expect(window.location.pathname).toBe("/todos/todo_1")
+    expect(screen.getByRole("heading", { level: 1, name: "买牛奶" })).not.toBeNull()
+    expect(screen.getByLabelText("详情")).not.toBeNull()
+  })
+
+  it("updates todo details", async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: /买牛奶/ }))
+    fireEvent.change(screen.getByLabelText("详情"), {
+      target: { value: "买两盒牛奶" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+
     await waitFor(() => {
-      const text = document.querySelector(".devtools pre")?.textContent
-      expect(text).toBeTruthy()
-
-      const snapshot = JSON.parse(text!)
-      const labels = snapshot.visibleObjects.map((object: { label?: string }) => object.label)
-
-      expect(labels).toContain("买牛奶")
-      expect(labels).not.toContain("提交语音")
-      expect(labels).not.toContain("点击添加")
-      expect(labels).not.toContain("LLM resolver demo")
+      expect(screen.getByText("买两盒牛奶")).not.toBeNull()
     })
   })
 
-  it("executes the opt-in LLM demo utterances through runtime actions", async () => {
+  it("stores the SiliconFlow API key in settings", () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "LLM resolver demo" }))
-    fireEvent.click(screen.getByRole("button", { name: "把买牛奶那个完成" }))
+    fireEvent.click(screen.getByRole("button", { name: "设置" }))
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "test-key" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+
+    expect(window.localStorage.getItem("siliconflow_api_key")).toBe("test-key")
+    expect(screen.getByText("已保存到本机")).not.toBeNull()
+  })
+
+  it("opens the floating chatbot from the bottom tab", () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+
+    expect(screen.getByRole("heading", { level: 2, name: "Chatbot" })).not.toBeNull()
+    expect(screen.getByLabelText("消息")).not.toBeNull()
+  })
+
+  it("opens the floating chatbot from the legacy chat URL", () => {
+    window.history.pushState(null, "", "/chat")
+
+    render(<App />)
+
+    expect(screen.getByRole("heading", { level: 1, name: "首页" })).not.toBeNull()
+    expect(screen.getByRole("heading", { level: 2, name: "Chatbot" })).not.toBeNull()
+  })
+
+  it("sends chatbot messages with the configured API key", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "你好，我是你的任务助手。" } }],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "你好" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
 
     await waitFor(() => {
-      expect((screen.getByRole("checkbox", { name: "取消完成 买牛奶" }) as HTMLInputElement).checked).toBe(true)
+      expect(screen.getByText("你好，我是你的任务助手。")).not.toBeNull()
     })
 
-    fireEvent.click(screen.getByRole("button", { name: "只显示还没做完的" }))
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>
+    expect(calls[0][0]).toBe("/api/chat")
+    expect((calls[0][1].headers as Record<string, string>)["x-siliconflow-api-key"]).toBe(
+      "test-key"
+    )
+  })
 
-    await waitFor(() => {
-      expect(screen.queryByRole("checkbox", { name: "取消完成 买牛奶" })).toBeNull()
-      expect(screen.getByRole("checkbox", { name: "完成 写周报" })).not.toBeNull()
+  it("uses Web Speech API transcripts as chatbot input", async () => {
+    class MockRecognition {
+      lang = ""
+      continuous = false
+      interimResults = false
+      onresult: ((event: { results: Array<Array<{ transcript: string }>> }) => void) | null = null
+      onerror: (() => void) | null = null
+      onend: (() => void) | null = null
+
+      start() {
+        this.onresult?.({ results: [[{ transcript: "语音任务" }]] })
+        this.onend?.()
+      }
+
+      stop() {}
+    }
+
+    vi.stubGlobal("webkitSpeechRecognition", MockRecognition)
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "" },
     })
-
-    fireEvent.click(screen.getByRole("button", { name: "把温度稍微调高一点" }))
+    fireEvent.click(screen.getByRole("button", { name: "语音输入" }))
 
     await waitFor(() => {
-      expect(screen.getByText("温度 25℃")).not.toBeNull()
+      expect((screen.getByLabelText("消息") as HTMLTextAreaElement).value).toBe("语音任务")
     })
   })
 })

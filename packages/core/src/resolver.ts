@@ -371,7 +371,7 @@ function chooseAction(
   }
 
   if (intent === "open") {
-    const actionId = domain([".open", ".turnOn", "open", "turnOn"])
+    const actionId = domain([".open", ".goto", ".navigate", "open", "turnOn", "goto", "navigate"])
     if (actionId) return { actionId }
     const primitiveAction = primitive(["turnOn", "open", "toggle", "press"])
     if (primitiveAction) return { primitiveAction }
@@ -385,7 +385,7 @@ function chooseAction(
   }
 
   if (intent === "select") {
-    const actionId = domain([".filter", ".select", "switchTo"])
+    const actionId = domain([".filter", ".select", ".goto", ".navigate", "switchTo", "goto", "navigate"])
     if (actionId) return { actionId }
     if (options.ordinal && primitiveActions.includes("selectByIndex")) {
       return { primitiveAction: "selectByIndex", params: { index: options.ordinal } }
