@@ -166,6 +166,9 @@ describe("mobile todo app", () => {
     expect(body.messages[0].content).toContain("买牛奶")
     expect(body.messages[0].content).toContain("写周报")
     expect(body.messages[0].content).toContain("visibleObjects")
+    expect(body.messages[0].content).toContain('"manifest"')
+    expect(body.messages[0].content).toContain('"navigation.goto"')
+    expect(body.messages[0].content).toContain('"app.route.settings"')
   })
 
   it("falls back to the LLM for todo commands outside the local JSON allowlist", async () => {
@@ -395,6 +398,107 @@ describe("mobile todo app", () => {
       expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
     })
     expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+  })
+
+  it("executes batched LLM actions for all incomplete todos", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "interaction_actions",
+                  resolutions: [
+                    {
+                      status: "resolved",
+                      utterance: "把全部任务都设置成完成",
+                      targetId: "todo_1",
+                      actionId: "todo.complete",
+                      confidence: 0.92,
+                    },
+                    {
+                      status: "resolved",
+                      utterance: "把全部任务都设置成完成",
+                      targetId: "todo_2",
+                      actionId: "todo.complete",
+                      confidence: 0.92,
+                    },
+                  ],
+                  reply: "已将全部未完成任务标记为完成。",
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "把全部任务都设置成完成" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已将全部未完成任务标记为完成。")).not.toBeNull()
+      expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+      expect((screen.getByLabelText("取消完成 写周报") as HTMLInputElement).checked).toBe(true)
+      expect((screen.getByLabelText("取消完成 整理发布清单") as HTMLInputElement).checked).toBe(
+        true
+      )
+    })
+  })
+
+  it("infers completion when MiniMax returns empty todo.update tool calls", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "<minimax:tool_call>",
+                  '<invoke name="todo.update"><parameter name="targetId">todo_1</parameter></invoke>',
+                  '<invoke name="todo.update"><parameter name="targetId">todo_2</parameter></invoke>',
+                  "</minimax:tool_call>",
+                ].join("\n"),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "全部任务完成了" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已执行 2 个操作。")).not.toBeNull()
+      expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+      expect((screen.getByLabelText("取消完成 写周报") as HTMLInputElement).checked).toBe(true)
+    })
   })
 
   it("executes MiniMax add tool-call XML without targetId", async () => {

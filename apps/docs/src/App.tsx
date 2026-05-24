@@ -2,8 +2,6 @@ import {
   MultimodalGroup,
   MultimodalPage,
   MultimodalProvider,
-  NAVIGATION_GOTO_ACTION_ID,
-  defineMultimodalConfig,
   useInteractionActions,
   useInteractionAssistant,
   useInteractionObjects,
@@ -13,11 +11,14 @@ import {
   type AssistantChatMessage,
   type InteractionObject,
   type InteractionSubmitResult,
-  type LocalExecutionPolicy,
   type LocalInteractionReplyContext,
-  type ModelActionPolicy,
 } from "@multimodal-ui/react"
 import * as React from "react"
+import {
+  assistantLocalFastPathPolicy,
+  assistantModelActionPolicy,
+  multimodalConfig,
+} from "./multimodal.config"
 
 type AppScreen = "home" | "todos" | "todoDetail" | "settings"
 type TabId = "home" | "todos" | "chatbot" | "settings"
@@ -45,7 +46,7 @@ type TodoAction =
   | { type: "todo.uncomplete"; todoId: string }
   | { type: "todo.delete"; todoId: string }
   | { type: "todo.filter"; filter: TodoFilter }
-  | { type: "todo.update"; todoId: string; title: string; description: string }
+  | { type: "todo.update"; todoId: string; title?: string; description?: string; completed?: boolean }
   | { type: "todo.clearCompleted" }
 
 type ChatMessage = {
@@ -91,17 +92,6 @@ type SpeechRecognitionEventLike = {
 
 const chatModel = "MiniMaxAI/MiniMax-M2.5"
 const todoStorageKey = "todo_items"
-
-const multimodalConfig = defineMultimodalConfig({
-  rules: [
-    {
-      id: "navigation.goto",
-      patterns: ["打开{route}", "去{route}", "进入{route}", "回到{route}"],
-      target: "route.byLabel",
-      actionId: NAVIGATION_GOTO_ACTION_ID,
-    },
-  ],
-})
 
 const initialTodos: Todo[] = [
   {
@@ -165,32 +155,6 @@ const appNavigationRoutes = [
     path: "/settings",
   },
 ]
-
-const assistantLocalFastPathPolicy = {
-  mode: "allowlist",
-  minConfidence: 0.7,
-  allowDomainActions: true,
-  allowPrimitiveActions: false,
-  actionIds: ["navigation.*"],
-} satisfies LocalExecutionPolicy
-
-const assistantModelActionPolicy = {
-  mode: "allowlist",
-  minConfidence: 0.7,
-  allowDomainActions: true,
-  allowPrimitiveActions: false,
-  actionIds: [
-    "navigation.*",
-    "todo.add",
-    "todo.complete",
-    "todo.uncomplete",
-    "todo.update",
-    "todo.filter",
-    "todo.delete",
-    "todo.clearCompleted",
-  ],
-  requireConfirmationForRisk: ["medium", "high"],
-} satisfies ModelActionPolicy
 
 const filterLabels: Record<TodoFilter, string> = {
   all: "全部",
@@ -312,13 +276,22 @@ function AppRuntime() {
       }
 
       if (todoAction.type === "todo.update") {
+        const hasTitle = typeof todoAction.title === "string" && todoAction.title.trim().length > 0
+        const hasDescription = typeof todoAction.description === "string"
+        const hasCompleted = typeof todoAction.completed === "boolean"
+
+        if (!hasTitle && !hasDescription && !hasCompleted) {
+          throw new Error("todo.update 需要至少提供 title、description 或 completed。")
+        }
+
         setTodos((current) =>
           current.map((todo) =>
             todo.id === todoAction.todoId
               ? {
                   ...todo,
-                  title: todoAction.title.trim() || todo.title,
-                  description: todoAction.description,
+                  title: hasTitle ? todoAction.title!.trim() : todo.title,
+                  description: hasDescription ? todoAction.description! : todo.description,
+                  completed: hasCompleted ? todoAction.completed! : todo.completed,
                 }
               : todo
           )
@@ -396,18 +369,23 @@ function AppRuntime() {
         executeScope: "object" as const,
         paramsFrom: ({ target, candidate }: ActionContext) => {
           const params = candidate?.params ?? {}
-          return {
+          const title = readStringParam(params, ["title", "name"])
+          const description = readStringParam(params, [
+            "description",
+            "detail",
+            "details",
+            "content",
+          ])
+          const completed = inferTodoCompletedParam(params, candidate?.utterance)
+          const mappedParams: Record<string, unknown> = {
             todoId: target.entity?.id,
-            title: String(params.title ?? params.name ?? target.label ?? ""),
-            description: String(
-              params.description ??
-                params.detail ??
-                params.details ??
-                params.content ??
-                target.state?.description ??
-                ""
-            ),
           }
+
+          if (title !== undefined) mappedParams.title = title
+          if (description !== undefined) mappedParams.description = description
+          if (completed !== undefined) mappedParams.completed = completed
+
+          return mappedParams
         },
       },
       "todo.clearCompleted": {
@@ -438,6 +416,44 @@ function AppRuntime() {
       onChatOpenChange={setIsChatOpen}
     />
   )
+}
+
+function readStringParam(params: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = params[key]
+    if (typeof value === "string") return value
+  }
+
+  return undefined
+}
+
+function inferTodoCompletedParam(
+  params: Record<string, unknown>,
+  utterance: string | undefined
+): boolean | undefined {
+  const explicit = parseTodoCompletedValue(
+    params.completed ?? params.done ?? params.checked ?? params.status ?? params.state
+  )
+  if (explicit !== undefined) return explicit
+
+  return parseTodoCompletedValue(utterance)
+}
+
+function parseTodoCompletedValue(value: unknown): boolean | undefined {
+  if (typeof value === "boolean") return value
+  if (typeof value !== "string") return undefined
+
+  const text = value.trim().toLowerCase()
+  if (!text) return undefined
+
+  if (/取消完成|恢复未完成|设为未完成|设置成未完成|未完成|没完成|未做|待完成|active|incomplete|false|unchecked/.test(text)) {
+    return false
+  }
+  if (/已完成|完成了|完成|做完|办完|搞定|好了|标记为完成|设为完成|设置成完成|done|complete|completed|true|checked/.test(text)) {
+    return true
+  }
+
+  return undefined
 }
 
 function MobileApp(props: {
@@ -916,8 +932,11 @@ function FloatingChatbot(props: {
         "用户询问页面、待办、筛选、数量或当前状态时，优先依据 snapshot.page.state 和 visibleObjects 回答。",
         "不要声称无法访问当前应用页面；如果用户询问的信息没有出现在快照里，就明确说明当前上下文没有提供该信息。",
         "当用户用自然语言表达待办已完成、没完成、修改、删除、新增或筛选时，请根据 snapshot 判断 targetId、actionId 和 params，并返回 interaction_action JSON，由应用本地执行。",
-        "todo.update 可直接修改任意 snapshot 中的 todo 对象，不要求用户先导航到详情页；更新详情时使用 params.description，保留标题时不要覆盖 title。",
+        "完成/已完成/完成了/标记完成是状态切换，请使用 todo.complete；未完成/取消完成/恢复是状态切换，请使用 todo.uncomplete；不要用 todo.update 表达完成状态。",
+        "当用户说“全部”“所有”“每个”等批量请求时，请返回 interaction_actions JSON，并在 resolutions 中为每一个需要变化的 todo 逐项列出 action；例如把全部任务设为完成时，只对 state.completed 为 false 的 todo 返回 todo.complete。",
+        "todo.update 只用于修改标题或详情，不要求用户先导航到详情页；更新详情时使用 params.description，保留标题时不要覆盖 title。",
         "如果用户要进入某个待办详情页，请使用 navigation.goto 指向对应 app.route.todo.*；如果用户要修改详情内容，请优先使用 todo.update 而不是只回复文字。",
+        "interaction_actions 示例：{\"type\":\"interaction_actions\",\"resolutions\":[{\"status\":\"resolved\",\"utterance\":\"把全部任务都设置成完成\",\"targetId\":\"todo_1\",\"actionId\":\"todo.complete\",\"confidence\":0.92},{\"status\":\"resolved\",\"utterance\":\"把全部任务都设置成完成\",\"targetId\":\"todo_2\",\"actionId\":\"todo.complete\",\"confidence\":0.92}],\"reply\":\"已将全部未完成任务标记为完成。\"}。",
         "MiniMax tool call 也可以使用：<minimax:tool_call><invoke name=\"todo.update\"><parameter name=\"targetId\">todo_1</parameter><parameter name=\"description\">新详情</parameter></invoke></minimax:tool_call>。",
         "如果用户说法不完整，例如只说“改一下”，不要猜测目标，直接自然语言追问。",
       ],
@@ -1096,6 +1115,10 @@ function FloatingChatbot(props: {
           .map((item): AssistantChatMessage => ({ role: item.role, content: item.content })),
         { role: "user", content: trimmed },
       ])
+      const requestBody = {
+        model: chatModel,
+        messages: apiMessages,
+      }
 
       setMessages((current) => [
         ...current,
@@ -1106,19 +1129,18 @@ function FloatingChatbot(props: {
       setStatus("sending")
 
       try {
+        console.log("[LLM input]", requestBody)
         const response = await fetch("/api/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "x-siliconflow-api-key": props.apiKey.trim(),
           },
-          body: JSON.stringify({
-            model: chatModel,
-            messages: apiMessages,
-          }),
+          body: JSON.stringify(requestBody),
         })
         const data = await parseChatResponse(response)
         const content = data.choices?.[0]?.message?.content?.trim()
+        console.log("[LLM output]", { data, content })
         const modelInteraction = await interactionAssistant.trySubmitModelReply(
           content ?? "",
           trimmed

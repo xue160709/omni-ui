@@ -110,6 +110,47 @@ describe("assistant action policy", () => {
 })
 
 describe("assistant model reply parser", () => {
+  it("parses batched interaction action JSON", () => {
+    const parsed = parseInteractionAssistantModelReply(
+      JSON.stringify({
+        type: "interaction_actions",
+        resolutions: [
+          {
+            status: "resolved",
+            targetId: "task.item.task_1",
+            actionId: "task.complete",
+            confidence: 0.91,
+          },
+          {
+            status: "resolved",
+            targetId: "task.item.task_2",
+            actionId: "task.complete",
+            confidence: 0.9,
+          },
+        ],
+        reply: "已完成全部任务。",
+      }),
+      "把全部任务都设置成完成"
+    )
+
+    expect(parsed).toMatchObject({
+      type: "interaction_actions",
+      resolutions: [
+        {
+          utterance: "把全部任务都设置成完成",
+          targetId: "task.item.task_1",
+          actionId: "task.complete",
+        },
+        {
+          utterance: "把全部任务都设置成完成",
+          targetId: "task.item.task_2",
+          actionId: "task.complete",
+        },
+      ],
+      reply: "已完成全部任务。",
+    })
+  })
+
   it("parses MiniMax tool-call XML without requiring targetId", () => {
     const parsed = parseInteractionAssistantModelReply(
       [
@@ -131,6 +172,36 @@ describe("assistant model reply parser", () => {
           title: "发布说明",
         },
       },
+    })
+  })
+
+  it("parses multiple MiniMax tool-call XML invokes as a batch", () => {
+    const parsed = parseInteractionAssistantModelReply(
+      [
+        "<minimax:tool_call>",
+        '<invoke name="task.complete">',
+        '<parameter name="targetId">task.item.task_1</parameter>',
+        "</invoke>",
+        '<invoke name="task.complete">',
+        '<parameter name="targetId">task.item.task_2</parameter>',
+        "</invoke>",
+        "</minimax:tool_call>",
+      ].join("\n"),
+      "全部完成"
+    )
+
+    expect(parsed).toMatchObject({
+      type: "interaction_actions",
+      resolutions: [
+        {
+          actionId: "task.complete",
+          targetId: "task.item.task_1",
+        },
+        {
+          actionId: "task.complete",
+          targetId: "task.item.task_2",
+        },
+      ],
     })
   })
 

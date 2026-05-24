@@ -16,7 +16,7 @@ import {
   type ResolvedInteraction,
 } from "@multimodal-ui/core"
 import * as React from "react"
-import { useInteractionApi } from "./runtime"
+import { useInteractionApi, type InteractionApi } from "./runtime"
 
 export type AssistantChatMessage = {
   role: "system" | "user" | "assistant"
@@ -51,7 +51,7 @@ export type InteractionAssistantApi = {
     content: string,
     utterance: string,
     options?: InteractionSubmitOptions
-  ) => Promise<LocalAssistantSubmitResult & { content?: string }>
+  ) => Promise<LocalAssistantSubmitResult & { content?: string; results?: InteractionSubmitResult[] }>
   createSystemPrompt: () => string
   createChatMessages: (messages: AssistantChatMessage[]) => AssistantChatMessage[]
 }
@@ -133,65 +133,63 @@ export function useInteractionAssistant(
       content: string,
       utterance: string,
       submitOptions: InteractionSubmitOptions = {}
-    ): Promise<LocalAssistantSubmitResult & { content?: string }> => {
+    ): Promise<LocalAssistantSubmitResult & { content?: string; results?: InteractionSubmitResult[] }> => {
       const currentOptions = optionsRef.current
       const parsed = parseInteractionAssistantModelReply(content, utterance)
 
       if (parsed.type !== "interaction_action") {
+        if (parsed.type === "interaction_actions") {
+          const results: InteractionSubmitResult[] = []
+
+          for (const parsedResolution of parsed.resolutions) {
+            const modelInteraction = await submitModelResolution(
+              parsedResolution,
+              undefined,
+              submitOptions,
+              currentOptions,
+              interaction
+            )
+
+            if (modelInteraction.result) {
+              results.push(modelInteraction.result)
+            }
+
+            if (!modelInteraction.result?.ok || !modelInteraction.result.executed) {
+              return {
+                ...modelInteraction,
+                results,
+              }
+            }
+          }
+
+          const reply =
+            parsed.reply ??
+            `已执行 ${results.filter((result) => result.ok && result.executed).length} 个操作。`
+
+          return {
+            handled: true,
+            reply: {
+              content: reply,
+              state: "ready",
+            },
+            result: results[results.length - 1],
+            results,
+          }
+        }
+
         return {
           handled: false,
           content: parsed.content,
         }
       }
 
-      const snapshot = interaction.getSnapshot()
-      const resolution = normalizeModelResolutionTarget(
+      return submitModelResolution(
         parsed.resolution,
-        snapshot
+        parsed.reply,
+        submitOptions,
+        currentOptions,
+        interaction
       )
-      const modelPolicy = currentOptions.modelActionPolicy ?? defaultModelActionPolicy
-      const policyValidation = validateResolvedInteractionPolicy(resolution, modelPolicy, {
-        snapshot,
-        confirmedActionId: submitOptions.confirmedActionId,
-        source: "model",
-      })
-
-      if (!policyValidation.ok) {
-        const target = resolution.targetId
-          ? snapshot.visibleObjects.find((object) => object.id === resolution.targetId)
-          : undefined
-        const result: InteractionSubmitResult = {
-          snapshot,
-          resolution,
-          ok: false,
-          executed: false,
-          target,
-          validation: policyValidation,
-          error: policyValidation.reason,
-        }
-        const reply = createLocalInteractionReply(result, currentOptions.localReply)
-
-        return {
-          handled: Boolean(reply),
-          reply,
-          result,
-        }
-      }
-
-      const result = await interaction.dispatchResolution(resolution, {
-        ...submitOptions,
-        baseStateVersion: submitOptions.baseStateVersion ?? snapshot.stateVersion,
-      })
-      const reply =
-        result.ok && result.executed && parsed.reply
-          ? { content: parsed.reply, state: "ready" as const }
-          : createLocalInteractionReply(result, currentOptions.localReply)
-
-      return {
-        handled: Boolean(reply),
-        reply,
-        result,
-      }
     },
     [interaction]
   )
@@ -226,6 +224,60 @@ export function useInteractionAssistant(
     }),
     [createChatMessages, createSystemPrompt, trySubmitLocal, trySubmitModelReply]
   )
+}
+
+async function submitModelResolution(
+  parsedResolution: ResolvedInteraction,
+  successReply: string | undefined,
+  submitOptions: InteractionSubmitOptions,
+  currentOptions: UseInteractionAssistantOptions,
+  interaction: InteractionApi
+): Promise<LocalAssistantSubmitResult> {
+  const snapshot = interaction.getSnapshot()
+  const resolution = normalizeModelResolutionTarget(parsedResolution, snapshot)
+  const modelPolicy = currentOptions.modelActionPolicy ?? defaultModelActionPolicy
+  const policyValidation = validateResolvedInteractionPolicy(resolution, modelPolicy, {
+    snapshot,
+    confirmedActionId: submitOptions.confirmedActionId,
+    source: "model",
+  })
+
+  if (!policyValidation.ok) {
+    const target = resolution.targetId
+      ? snapshot.visibleObjects.find((object) => object.id === resolution.targetId)
+      : undefined
+    const result: InteractionSubmitResult = {
+      snapshot,
+      resolution,
+      ok: false,
+      executed: false,
+      target,
+      validation: policyValidation,
+      error: policyValidation.reason,
+    }
+    const reply = createLocalInteractionReply(result, currentOptions.localReply)
+
+    return {
+      handled: Boolean(reply),
+      reply,
+      result,
+    }
+  }
+
+  const result = await interaction.dispatchResolution(resolution, {
+    ...submitOptions,
+    baseStateVersion: submitOptions.baseStateVersion ?? snapshot.stateVersion,
+  })
+  const reply =
+    result.ok && result.executed && successReply
+      ? { content: successReply, state: "ready" as const }
+      : createLocalInteractionReply(result, currentOptions.localReply)
+
+  return {
+    handled: Boolean(reply),
+    reply,
+    result,
+  }
 }
 
 function normalizeModelResolutionTarget(

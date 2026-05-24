@@ -67,12 +67,19 @@ export type InteractionAssistantModelAction = {
   reply?: string
 }
 
+export type InteractionAssistantModelBatchAction = {
+  type: "interaction_actions"
+  resolutions: ResolvedInteraction[]
+  reply?: string
+}
+
 export type InteractionAssistantModelReply =
   | {
       type: "message"
       content: string
     }
   | InteractionAssistantModelAction
+  | InteractionAssistantModelBatchAction
 
 export type CreateAssistantSnapshotContextOptions = {
   maxObjects?: number
@@ -195,6 +202,7 @@ export function createInteractionAssistantSystemPrompt(
     "用户询问当前页面、对象、数量、状态或筛选时，优先依据 snapshot.page.state 和 visibleObjects 回答。",
     "如果用户要求修改状态或执行页面操作，请返回一个 interaction_action JSON 对象，让应用本地验证并执行；不要只用自然语言承诺已经完成。",
     "interaction_action JSON 格式：{\"type\":\"interaction_action\",\"resolution\":{\"status\":\"resolved\",\"utterance\":\"用户原话\",\"targetId\":\"快照中的对象 id\",\"actionId\":\"快照中的动作 id\",\"params\":{},\"confidence\":0.9},\"reply\":\"执行成功后展示给用户的话\"}。",
+    "如果用户要求对多个对象执行同一操作，请返回 interaction_actions JSON 对象，在 resolutions 中逐项列出每个目标；不要只返回一个代表目标。格式：{\"type\":\"interaction_actions\",\"resolutions\":[{\"status\":\"resolved\",\"utterance\":\"用户原话\",\"targetId\":\"对象 id\",\"actionId\":\"动作 id\",\"params\":{},\"confidence\":0.9}],\"reply\":\"执行成功后展示给用户的话\"}。",
     "只使用 Interaction Snapshot 里真实存在的 targetId、actionId 或 primitiveAction；如果目标不明确，直接用自然语言追问。",
     "如果用户询问的信息没有出现在快照里，请明确说明当前上下文没有提供该信息。",
   ]
@@ -210,16 +218,78 @@ export function parseInteractionAssistantModelReply(
   content: string,
   fallbackUtterance: string
 ): InteractionAssistantModelReply {
-  const parsed = parseJsonObject(content) ?? parseToolCall(content)
-  if (!parsed) {
+  const parsed = parseJsonValue(content)
+  const reply =
+    (parsed ? parseModelReplyValue(parsed, fallbackUtterance) : undefined) ??
+    parseToolCall(content, fallbackUtterance)
+
+  if (!reply) {
     return {
       type: "message",
       content,
     }
   }
 
-  const record = parsed as Record<string, unknown>
-  const resolutionSource = isRecord(record.resolution) ? record.resolution : record
+  return reply
+}
+
+function parseModelReplyValue(
+  value: unknown,
+  fallbackUtterance: string
+): InteractionAssistantModelAction | InteractionAssistantModelBatchAction | undefined {
+  if (Array.isArray(value)) {
+    return createBatchAction(value, fallbackUtterance)
+  }
+
+  if (!isRecord(value)) return undefined
+
+  const batchSources = getBatchResolutionSources(value)
+  if (batchSources) {
+    return createBatchAction(batchSources, fallbackUtterance, value)
+  }
+
+  const resolution = normalizeModelResolution(value, fallbackUtterance)
+  if (!resolution) return undefined
+
+  return {
+    type: "interaction_action",
+    resolution,
+    reply: typeof value.reply === "string" ? value.reply : undefined,
+  }
+}
+
+function getBatchResolutionSources(record: Record<string, unknown>): unknown[] | undefined {
+  if (Array.isArray(record.resolutions)) return record.resolutions
+  if (Array.isArray(record.actions)) return record.actions
+  if (Array.isArray(record.interaction_actions)) return record.interaction_actions
+  return undefined
+}
+
+function createBatchAction(
+  sources: unknown[],
+  fallbackUtterance: string,
+  parent?: Record<string, unknown>
+): InteractionAssistantModelBatchAction | undefined {
+  const resolutions = sources
+    .map((source) => normalizeModelResolution(source, fallbackUtterance))
+    .filter((resolution): resolution is ResolvedInteraction => Boolean(resolution))
+
+  if (resolutions.length === 0) return undefined
+
+  return {
+    type: "interaction_actions",
+    resolutions,
+    reply: typeof parent?.reply === "string" ? parent.reply : undefined,
+  }
+}
+
+function normalizeModelResolution(
+  source: unknown,
+  fallbackUtterance: string
+): ResolvedInteraction | undefined {
+  if (!isRecord(source)) return undefined
+
+  const resolutionSource = isRecord(source.resolution) ? source.resolution : source
   const actionId =
     typeof resolutionSource.actionId === "string"
       ? resolutionSource.actionId
@@ -230,19 +300,7 @@ export function parseInteractionAssistantModelReply(
     typeof actionId === "string" ||
     typeof resolutionSource.primitiveAction === "string"
 
-  if (record.type !== "interaction_action" && !hasExecutableResolution) {
-    return {
-      type: "message",
-      content,
-    }
-  }
-
-  if (!hasExecutableResolution) {
-    return {
-      type: "message",
-      content,
-    }
-  }
+  if (!hasExecutableResolution) return undefined
 
   const targetId =
     typeof resolutionSource.targetId === "string"
@@ -250,29 +308,25 @@ export function parseInteractionAssistantModelReply(
       : undefined
 
   return {
-    type: "interaction_action",
-    resolution: {
-      status: "resolved",
-      utterance:
-        typeof resolutionSource.utterance === "string"
-          ? resolutionSource.utterance
-          : fallbackUtterance,
-      intent: typeof resolutionSource.intent === "string" ? resolutionSource.intent : undefined,
-      targetId,
-      actionId,
-      primitiveAction:
-        typeof resolutionSource.primitiveAction === "string"
-          ? resolutionSource.primitiveAction
-          : undefined,
-      params: isRecord(resolutionSource.params) ? resolutionSource.params : undefined,
-      confidence:
-        typeof resolutionSource.confidence === "number"
-          ? Math.max(0, Math.min(1, resolutionSource.confidence))
-          : 0.9,
-      reason: typeof resolutionSource.reason === "string" ? resolutionSource.reason : undefined,
-      resolverId: "assistant-llm",
-    },
-    reply: typeof record.reply === "string" ? record.reply : undefined,
+    status: "resolved",
+    utterance:
+      typeof resolutionSource.utterance === "string"
+        ? resolutionSource.utterance
+        : fallbackUtterance,
+    intent: typeof resolutionSource.intent === "string" ? resolutionSource.intent : undefined,
+    targetId,
+    actionId,
+    primitiveAction:
+      typeof resolutionSource.primitiveAction === "string"
+        ? resolutionSource.primitiveAction
+        : undefined,
+    params: isRecord(resolutionSource.params) ? resolutionSource.params : undefined,
+    confidence:
+      typeof resolutionSource.confidence === "number"
+        ? Math.max(0, Math.min(1, resolutionSource.confidence))
+        : 0.9,
+    reason: typeof resolutionSource.reason === "string" ? resolutionSource.reason : undefined,
+    resolverId: "assistant-llm",
   }
 }
 
@@ -369,17 +423,20 @@ function normalizeReply(
   }
 }
 
-function parseJsonObject(content: string): Record<string, unknown> | undefined {
+function parseJsonValue(content: string): unknown | undefined {
   const text = stripMarkdownFence(content.trim())
   const candidates = [text]
   const start = text.indexOf("{")
   const end = text.lastIndexOf("}")
   if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1))
+  const arrayStart = text.indexOf("[")
+  const arrayEnd = text.lastIndexOf("]")
+  if (arrayStart >= 0 && arrayEnd > arrayStart) candidates.push(text.slice(arrayStart, arrayEnd + 1))
 
   for (const candidate of candidates) {
     try {
       const parsed = JSON.parse(candidate) as unknown
-      if (isRecord(parsed)) return parsed
+      if (isRecord(parsed) || Array.isArray(parsed)) return parsed
     } catch {
       // Try the next candidate.
     }
@@ -393,31 +450,46 @@ function stripMarkdownFence(content: string): string {
   return match?.[1]?.trim() ?? content
 }
 
-function parseToolCall(content: string): Record<string, unknown> | undefined {
+function parseToolCall(
+  content: string,
+  fallbackUtterance: string
+): InteractionAssistantModelAction | InteractionAssistantModelBatchAction | undefined {
   const text = stripMarkdownFence(content.trim())
-  const invoke = text.match(
-    /(?:<\s*)?invoke\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/i
-  )
-  if (!invoke) return undefined
+  const invokePattern =
+    /(?:<\s*)?invoke\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi
+  const resolutions: ResolvedInteraction[] = []
 
-  const params: Record<string, unknown> = {}
-  const parameterPattern =
-    /<parameter\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/parameter>/gi
-  for (const match of invoke[2].matchAll(parameterPattern)) {
-    params[match[1]] = decodeXmlText(match[2].trim())
-  }
+  for (const invoke of text.matchAll(invokePattern)) {
+    const params: Record<string, unknown> = {}
+    const parameterPattern =
+      /<parameter\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/parameter>/gi
+    for (const match of invoke[2].matchAll(parameterPattern)) {
+      params[match[1]] = decodeXmlText(match[2].trim())
+    }
 
-  const targetId = typeof params.targetId === "string" ? params.targetId : undefined
-  return {
-    type: "interaction_action",
-    resolution: {
+    const targetId = typeof params.targetId === "string" ? params.targetId : undefined
+    resolutions.push({
       status: "resolved",
-      utterance: content,
+      utterance: fallbackUtterance,
       actionId: decodeXmlText(invoke[1].trim()),
       targetId,
       params,
       confidence: 0.9,
-    },
+      resolverId: "assistant-llm",
+    })
+  }
+
+  if (resolutions.length === 0) return undefined
+  if (resolutions.length === 1) {
+    return {
+      type: "interaction_action",
+      resolution: resolutions[0],
+    }
+  }
+
+  return {
+    type: "interaction_actions",
+    resolutions,
   }
 }
 
