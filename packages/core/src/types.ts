@@ -122,6 +122,7 @@ export type ValidationResult =
         | "target_missing"
         | "ambiguous"
         | "execution_failed"
+        | "policy_denied"
     }
 
 export type ActionAttachTarget = {
@@ -169,6 +170,7 @@ export type RegisteredActionSpec<TAction extends ActionPayload = ActionPayload> 
 export type InteractionSnapshot = {
   snapshotId: string
   stateVersion: number
+  manifest?: import("./manifest").AppInteractionManifest
   session?: {
     id?: string
     language?: string

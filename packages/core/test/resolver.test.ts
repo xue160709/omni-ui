@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { createInteractionSnapshot, resolveUtterance } from "../src"
+import {
+  createConfiguredRuleResolver,
+  createInteractionSnapshot,
+  NAVIGATION_GOTO_ACTION_ID,
+  resolveUtterance,
+  type ResolvedInteraction,
+} from "../src"
 
 describe("resolver", () => {
   it("resolves visible click targets to primitive press", () => {
@@ -149,34 +155,81 @@ describe("resolver", () => {
     })
   })
 
-  it("resolves conversational todo completion phrasing", () => {
+  it("resolves configured local rules against manifest routes", () => {
+    const resolver = createConfiguredRuleResolver({
+      rules: [
+        {
+          id: "open-route",
+          patterns: ["打开{route}", "去{route}"],
+          target: "route.byLabel",
+          actionId: NAVIGATION_GOTO_ACTION_ID,
+        },
+      ],
+    })
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      manifest: {
+        routes: [
+          {
+            id: "app.route.profile",
+            label: "个人资料",
+            aliases: ["资料"],
+            path: "/profile",
+          },
+        ],
+      },
+      visibleObjects: [],
+    })
+    const result = resolver.resolve({
+      utterance: "打开个人资料",
+      snapshot,
+    }) as ResolvedInteraction
+
+    expect(snapshot.visibleObjects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "app.route.profile",
+          role: "route",
+          actions: [NAVIGATION_GOTO_ACTION_ID],
+        }),
+      ])
+    )
+    expect(result).toMatchObject({
+      status: "resolved",
+      targetId: "app.route.profile",
+      actionId: NAVIGATION_GOTO_ACTION_ID,
+      reason: "configured_rule:open-route",
+    })
+  })
+
+  it("resolves conversational task completion phrasing", () => {
     const snapshot = createInteractionSnapshot({
       stateVersion: 1,
       visibleObjects: [
         {
-          id: "todo.item.todo_1",
+          id: "task.item.task_1",
           type: "composite",
           role: "list_item",
-          label: "买牛奶",
-          entity: { type: "todo", id: "todo_1" },
-          actions: ["todo.complete", "todo.uncomplete"],
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          actions: ["task.complete", "task.uncomplete"],
           state: { completed: false, index: 1 },
         },
       ],
     })
 
-    expect(resolveUtterance("帮我将买牛奶改成完成", snapshot)).toMatchObject({
+    expect(resolveUtterance("帮我将评审方案改成完成", snapshot)).toMatchObject({
       status: "resolved",
       intent: "complete",
-      targetId: "todo.item.todo_1",
-      actionId: "todo.complete",
+      targetId: "task.item.task_1",
+      actionId: "task.complete",
     })
 
-    expect(resolveUtterance("取消完成买牛奶", snapshot)).toMatchObject({
+    expect(resolveUtterance("取消完成评审方案", snapshot)).toMatchObject({
       status: "resolved",
       intent: "uncomplete",
-      targetId: "todo.item.todo_1",
-      actionId: "todo.uncomplete",
+      targetId: "task.item.task_1",
+      actionId: "task.uncomplete",
     })
 
   })
@@ -186,20 +239,20 @@ describe("resolver", () => {
       stateVersion: 1,
       visibleObjects: [
         {
-          id: "todo.item.todo_1",
+          id: "task.item.task_1",
           type: "composite",
           role: "list_item",
-          label: "买牛奶",
-          entity: { type: "todo", id: "todo_1" },
-          actions: ["todo.uncomplete"],
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          actions: ["task.uncomplete"],
           state: { completed: true, index: 1 },
         },
       ],
     })
 
-    expect(resolveUtterance("完成买牛奶", snapshot)).toMatchObject({
+    expect(resolveUtterance("完成评审方案", snapshot)).toMatchObject({
       status: "not_found",
-      targetId: "todo.item.todo_1",
+      targetId: "task.item.task_1",
     })
   })
 })

@@ -10,36 +10,36 @@ import {
 describe("snapshot context", () => {
   it("creates an LLM-safe snapshot context without executable action fields", () => {
     const actionSpecs: Record<string, RegisteredActionSpec> = {
-      "todo.complete": {
-        id: "todo.complete",
-        namespace: "todo",
-        attachTo: { entityType: "todo" },
+      "task.complete": {
+        id: "task.complete",
+        namespace: "task",
+        attachTo: { entityType: "task" },
         executeScope: "object",
-        paramsFrom: () => ({ todoId: "todo_1" }),
+        paramsFrom: () => ({ taskId: "task_1" }),
         availableWhen: () => true,
         execute: () => undefined,
       },
     }
-    const circularState: Record<string, unknown> = { title: "买牛奶" }
+    const circularState: Record<string, unknown> = { title: "评审方案" }
     circularState.self = circularState
 
     const snapshot = createInteractionSnapshot({
       stateVersion: 3,
       actionSpecs,
       page: {
-        id: "page.todo",
+        id: "page.task",
         type: "page",
         role: "page",
-        title: "待办",
-        route: "/todos",
+        title: "任务",
+        route: "/tasks",
       },
       visibleObjects: [
         {
-          id: "todo.item.todo_1",
+          id: "task.item.task_1",
           type: "composite",
           role: "list_item",
-          label: "买牛奶",
-          entity: { type: "todo", id: "todo_1" },
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
           state: {
             circularState,
             completed: false,
@@ -52,15 +52,15 @@ describe("snapshot context", () => {
     const context = createLlmSnapshotContext(snapshot)
     const encoded = JSON.stringify(context)
 
-    expect(encoded).toContain("todo.complete")
-    expect(encoded).toContain("买牛奶")
+    expect(encoded).toContain("task.complete")
+    expect(encoded).toContain("评审方案")
     expect(encoded).not.toContain("paramsFrom")
     expect(encoded).not.toContain("availableWhen")
     expect(encoded).not.toContain('"execute"')
     expect(context.actions[0]).toEqual({
-      id: "todo.complete",
-      namespace: "todo",
-      attachTo: { entityType: "todo" },
+      id: "task.complete",
+      namespace: "task",
+      attachTo: { entityType: "task" },
       executeScope: "object",
       risk: undefined,
       requiresConfirmation: undefined,
@@ -72,8 +72,8 @@ describe("snapshot context", () => {
       stateVersion: 1,
       visibleObjects: [],
       actionSpecs: {
-        "todo.clearCompleted": {
-          id: "todo.clearCompleted",
+        "task.clearCompleted": {
+          id: "task.clearCompleted",
           executeScope: "page",
           execute: () => undefined,
         },
@@ -86,7 +86,41 @@ describe("snapshot context", () => {
       schema: LLM_RESOLVER_SCHEMA,
     })
 
-    expect(prompt).toContain("todo.clearCompleted")
+    expect(prompt).toContain("task.clearCompleted")
     expect(prompt).not.toContain('"execute"')
+  })
+
+  it("adds manifest routes to the LLM context without requiring page render", () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      manifest: {
+        routes: [
+          {
+            id: "app.route.settings",
+            label: "设置",
+            path: "/settings",
+            aliases: ["配置"],
+          },
+        ],
+      },
+      visibleObjects: [],
+    })
+    const context = createLlmSnapshotContext(snapshot)
+
+    expect(context.visibleObjects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "app.route.settings",
+          role: "route",
+          label: "设置",
+        }),
+      ])
+    )
+    expect(context.manifest?.routes[0]).toMatchObject({
+      id: "app.route.settings",
+      label: "设置",
+      path: "/settings",
+      actionId: "navigation.goto",
+    })
   })
 })

@@ -13,20 +13,20 @@ describe("llm resolver", () => {
       normalizeLlmOutput(
         {
           status: "resolved",
-          utterance: "把买牛奶那个完成",
-          intent: "complete_todo",
-          actionId: "todo.complete",
+          utterance: "把评审方案那个完成",
+          intent: "complete_task",
+          actionId: "task.complete",
           targetCandidates: [
-            { id: "todo.item.todo_2", confidence: 0.2 },
-            { id: "todo.item.todo_1", confidence: 0.91 },
+            { id: "task.item.task_2", confidence: 0.2 },
+            { id: "task.item.task_1", confidence: 0.91 },
           ],
           confidence: 0.88,
         },
-        "把买牛奶那个完成"
+        "把评审方案那个完成"
       )
     ).toMatchObject({
       status: "resolved",
-      targetId: "todo.item.todo_1",
+      targetId: "task.item.task_1",
       resolverId: "llm",
     })
   })
@@ -62,8 +62,8 @@ describe("llm resolver", () => {
                   content: JSON.stringify({
                     status: "resolved",
                     utterance: "完成第一个",
-                    targetId: "todo.item.todo_1",
-                    actionId: "todo.complete",
+                    targetId: "task.item.task_1",
+                    actionId: "task.complete",
                     confidence: 0.91,
                   }),
                 },
@@ -81,8 +81,8 @@ describe("llm resolver", () => {
 
     await expect(resolver.resolve({ utterance: "完成第一个", snapshot })).resolves.toMatchObject({
       status: "resolved",
-      targetId: "todo.item.todo_1",
-      actionId: "todo.complete",
+      targetId: "task.item.task_1",
+      actionId: "task.complete",
       resolverId: "openai",
     })
     expect(calls[0].url).toBe("https://llm.example/v1/chat/completions")

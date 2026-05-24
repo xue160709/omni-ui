@@ -4,6 +4,8 @@ import type {
   InteractionSnapshot,
   InteractionSubmitResult,
   ResolvedInteraction,
+  RiskLevel,
+  ValidationResult,
 } from "./types"
 
 export type InteractionAssistantReplyState = "ready" | "error" | string
@@ -13,7 +15,7 @@ export type InteractionAssistantReply = {
   state?: InteractionAssistantReplyState
 }
 
-export type LocalExecutionPolicy = {
+export type InteractionActionPolicy = {
   mode?: "all" | "allowlist" | "off"
   minConfidence?: number
   allowDomainActions?: boolean
@@ -21,6 +23,18 @@ export type LocalExecutionPolicy = {
   intents?: string[]
   actionIds?: string[]
   primitiveActions?: string[]
+  riskLevels?: RiskLevel[]
+  requireConfirmationForRisk?: RiskLevel[]
+}
+
+export type LocalExecutionPolicy = InteractionActionPolicy
+
+export type ModelActionPolicy = InteractionActionPolicy
+
+export type InteractionActionPolicyContext = {
+  snapshot?: InteractionSnapshot
+  confirmedActionId?: string
+  source?: "local" | "model" | string
 }
 
 export type LocalInteractionReplyContext = {
@@ -69,27 +83,94 @@ export function shouldSubmitResolvedInteraction(
   resolution: ResolvedInteraction,
   policy: LocalExecutionPolicy = {}
 ): boolean {
-  if (policy.mode === "off") return false
-  if (resolution.status !== "resolved" || !resolution.targetId) return false
+  return validateResolvedInteractionPolicy(resolution, policy).ok
+}
+
+export function validateResolvedInteractionPolicy(
+  resolution: ResolvedInteraction,
+  policy: InteractionActionPolicy = {},
+  context: InteractionActionPolicyContext = {}
+): ValidationResult {
+  if (policy.mode === "off") {
+    return {
+      ok: false,
+      code: "policy_denied",
+      reason: `${formatPolicySource(context.source)}不允许执行该操作`,
+    }
+  }
+
+  if (resolution.status !== "resolved" || !resolution.targetId) {
+    return {
+      ok: false,
+      code: "target_missing",
+      reason: "候选意图没有解析出可执行目标",
+    }
+  }
 
   const minConfidence = policy.minConfidence ?? 0.7
-  if (resolution.confidence < minConfidence) return false
+  if (resolution.confidence < minConfidence) {
+    return {
+      ok: false,
+      code: "policy_denied",
+      reason: `候选意图置信度不足，需要至少 ${minConfidence}`,
+    }
+  }
 
   const actionAllowed = Boolean(resolution.actionId && policy.allowDomainActions !== false)
   const primitiveAllowed = Boolean(
     resolution.primitiveAction && policy.allowPrimitiveActions !== false
   )
-  if (!actionAllowed && !primitiveAllowed) return false
+  if (!actionAllowed && !primitiveAllowed) {
+    return {
+      ok: false,
+      code: "policy_denied",
+      reason: resolution.actionId || resolution.primitiveAction
+        ? `${formatPolicySource(context.source)}不允许执行该类型的操作`
+        : "候选意图没有可执行 action",
+    }
+  }
 
   if (policy.mode === "allowlist") {
-    return (
+    const allowed =
       matchesPolicyList(policy.intents, resolution.intent) ||
       matchesPolicyList(policy.actionIds, resolution.actionId) ||
       matchesPolicyList(policy.primitiveActions, resolution.primitiveAction)
-    )
+
+    if (!allowed) {
+      return {
+        ok: false,
+        code: "policy_denied",
+        reason: `${formatPolicySource(context.source)}未放行该 action`,
+      }
+    }
   }
 
-  return true
+  const actionSpec = resolution.actionId
+    ? context.snapshot?.actionSpecs[resolution.actionId]
+    : undefined
+  const risk = actionSpec?.risk
+
+  if (risk && policy.riskLevels?.length && !policy.riskLevels.includes(risk)) {
+    return {
+      ok: false,
+      code: "policy_denied",
+      reason: `${formatPolicySource(context.source)}不允许执行 ${risk} 风险操作`,
+    }
+  }
+
+  if (
+    risk &&
+    policy.requireConfirmationForRisk?.includes(risk) &&
+    context.confirmedActionId !== resolution.actionId
+  ) {
+    return {
+      ok: false,
+      code: "confirmation_required",
+      reason: "该操作需要确认",
+    }
+  }
+
+  return { ok: true }
 }
 
 export function createAssistantSnapshotContext(
@@ -146,8 +227,8 @@ export function parseInteractionAssistantModelReply(
         ? resolutionSource.action
         : undefined
   const hasExecutableResolution =
-    typeof resolutionSource.targetId === "string" &&
-    (typeof actionId === "string" || typeof resolutionSource.primitiveAction === "string")
+    typeof actionId === "string" ||
+    typeof resolutionSource.primitiveAction === "string"
 
   if (record.type !== "interaction_action" && !hasExecutableResolution) {
     return {
@@ -163,7 +244,10 @@ export function parseInteractionAssistantModelReply(
     }
   }
 
-  const targetId = String(resolutionSource.targetId)
+  const targetId =
+    typeof resolutionSource.targetId === "string"
+      ? resolutionSource.targetId
+      : undefined
 
   return {
     type: "interaction_action",
@@ -311,13 +395,15 @@ function stripMarkdownFence(content: string): string {
 
 function parseToolCall(content: string): Record<string, unknown> | undefined {
   const text = stripMarkdownFence(content.trim())
-  const invoke = text.match(/<invoke\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/i)
+  const invoke = text.match(
+    /(?:<\s*)?invoke\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/i
+  )
   if (!invoke) return undefined
 
   const params: Record<string, unknown> = {}
   const parameterPattern =
     /<parameter\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/parameter>/gi
-  for (const match of text.matchAll(parameterPattern)) {
+  for (const match of invoke[2].matchAll(parameterPattern)) {
     params[match[1]] = decodeXmlText(match[2].trim())
   }
 
@@ -355,4 +441,10 @@ function matchesPolicyList(list: string[] | undefined, value: string | undefined
     if (item.endsWith("*")) return value.startsWith(item.slice(0, -1))
     return false
   })
+}
+
+function formatPolicySource(source: InteractionActionPolicyContext["source"]): string {
+  if (source === "local") return "本地快路径策略"
+  if (source === "model") return "模型动作策略"
+  return source ? `${source} 策略` : "当前策略"
 }

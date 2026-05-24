@@ -20,16 +20,16 @@ afterEach(() => {
   cleanup()
 })
 
-function TodoHarness() {
+function TaskHarness() {
   const [completed, setCompleted] = React.useState(false)
   const submitUtterance = useSubmitUtterance()
 
   const actions = React.useMemo(
     () => ({
-      "todo.complete": {
-        attachTo: { entityType: "todo" },
+      "task.complete": {
+        attachTo: { entityType: "task" },
         executeScope: "object" as const,
-        paramsFrom: ({ target }: ActionContext) => ({ todoId: target.entity?.id }),
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
       },
     }),
@@ -37,10 +37,10 @@ function TodoHarness() {
   )
 
   useInteractionActions({
-    namespace: "todo",
+    namespace: "task",
     actions,
     execute: (action: ActionPayload) => {
-      if (action.type === "todo.complete" && action.todoId === "todo_1") {
+      if (action.type === "task.complete" && action.taskId === "task_1") {
         setCompleted(true)
       }
     },
@@ -51,16 +51,16 @@ function TodoHarness() {
       <button type="button" onClick={() => void submitUtterance("完成第一个")}>
         voice
       </button>
-      <MultimodalGroup id="todo.list" role="list" label="待办列表" indexBy="visible_order">
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
         <MultimodalGroup
-          id="todo.item.todo_1"
+          id="task.item.task_1"
           role="list_item"
-          label="买牛奶"
-          entity={{ type: "todo", id: "todo_1" }}
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
         >
           <label>
             <input type="checkbox" checked={completed} onChange={() => setCompleted((value) => !value)} />
-            买牛奶
+            评审方案
           </label>
         </MultimodalGroup>
       </MultimodalGroup>
@@ -68,16 +68,16 @@ function TodoHarness() {
   )
 }
 
-function DynamicTodoHarness() {
-  const [todos, setTodos] = React.useState([{ id: "todo_1", title: "买牛奶", completed: false }])
+function DynamicTaskHarness() {
+  const [tasks, setTasks] = React.useState([{ id: "task_1", title: "评审方案", completed: false }])
   const submitUtterance = useSubmitUtterance()
 
   const actions = React.useMemo(
     () => ({
-      "todo.complete": {
-        attachTo: { entityType: "todo" },
+      "task.complete": {
+        attachTo: { entityType: "task" },
         executeScope: "object" as const,
-        paramsFrom: ({ target }: ActionContext) => ({ todoId: target.entity?.id }),
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
       },
     }),
@@ -85,13 +85,13 @@ function DynamicTodoHarness() {
   )
 
   useInteractionActions({
-    namespace: "todo",
+    namespace: "task",
     actions,
     execute: (action: ActionPayload) => {
-      if (action.type !== "todo.complete") return
-      setTodos((current) =>
-        current.map((todo) =>
-          todo.id === action.todoId ? { ...todo, completed: true } : todo
+      if (action.type !== "task.complete") return
+      setTasks((current) =>
+        current.map((task) =>
+          task.id === action.taskId ? { ...task, completed: true } : task
         )
       )
     },
@@ -102,8 +102,8 @@ function DynamicTodoHarness() {
       <button
         type="button"
         onClick={() =>
-          setTodos((current) => [
-            { id: "todo_2", title: "写方案", completed: false },
+          setTasks((current) => [
+            { id: "task_2", title: "整理需求", completed: false },
             ...current,
           ])
         }
@@ -113,19 +113,19 @@ function DynamicTodoHarness() {
       <button type="button" onClick={() => void submitUtterance("完成第一个")}>
         voice
       </button>
-      <MultimodalGroup id="todo.list" role="list" label="待办列表" indexBy="visible_order">
-        {todos.map((todo) => (
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        {tasks.map((task) => (
           <MultimodalGroup
-            key={todo.id}
-            id={`todo.item.${todo.id}`}
+            key={task.id}
+            id={`task.item.${task.id}`}
             role="list_item"
-            label={todo.title}
-            entity={{ type: "todo", id: todo.id }}
-            state={{ completed: todo.completed }}
+            label={task.title}
+            entity={{ type: "task", id: task.id }}
+            state={{ completed: task.completed }}
           >
             <label>
-              <input type="checkbox" checked={todo.completed} onChange={() => {}} />
-              {todo.title}
+              <input type="checkbox" checked={task.completed} onChange={() => {}} />
+              {task.title}
             </label>
           </MultimodalGroup>
         ))}
@@ -134,16 +134,16 @@ function DynamicTodoHarness() {
   )
 }
 
-function LlmTodoHarness() {
+function LlmTaskHarness() {
   const [completed, setCompleted] = React.useState(false)
   const submitUtterance = useSubmitUtterance()
 
   const actions = React.useMemo(
     () => ({
-      "todo.complete": {
-        attachTo: { entityType: "todo" },
+      "task.complete": {
+        attachTo: { entityType: "task" },
         executeScope: "object" as const,
-        paramsFrom: ({ target }: ActionContext) => ({ todoId: target.entity?.id }),
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
       },
     }),
@@ -151,10 +151,10 @@ function LlmTodoHarness() {
   )
 
   useInteractionActions({
-    namespace: "todo",
+    namespace: "task",
     actions,
     execute: (action: ActionPayload) => {
-      if (action.type === "todo.complete" && action.todoId === "todo_1") {
+      if (action.type === "task.complete" && action.taskId === "task_1") {
         setCompleted(true)
       }
     },
@@ -162,19 +162,19 @@ function LlmTodoHarness() {
 
   return (
     <>
-      <button type="button" onClick={() => void submitUtterance("把买牛奶那个完成")}>
+      <button type="button" onClick={() => void submitUtterance("把评审方案那个完成")}>
         voice llm
       </button>
-      <MultimodalGroup id="todo.list" role="list" label="待办列表" indexBy="visible_order">
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
         <MultimodalGroup
-          id="todo.item.todo_1"
+          id="task.item.task_1"
           role="list_item"
-          label="买牛奶"
-          entity={{ type: "todo", id: "todo_1" }}
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
         >
           <label>
             <input type="checkbox" checked={completed} onChange={() => setCompleted((value) => !value)} />
-            买牛奶
+            评审方案
           </label>
         </MultimodalGroup>
       </MultimodalGroup>
@@ -277,10 +277,10 @@ function ApiHarness() {
   const [result, setResult] = React.useState("")
 
   useInteractionActions({
-    namespace: "todo",
+    namespace: "task",
     actions: {
-      "todo.complete": {
-        attachTo: { entityType: "todo" },
+      "task.complete": {
+        attachTo: { entityType: "task" },
         executeScope: "object",
         availableWhen: ({ target }) => target.state?.completed === false,
       },
@@ -310,15 +310,15 @@ function ApiHarness() {
         resolve api
       </button>
       <div data-testid="api-result">{result}</div>
-      <MultimodalGroup id="todo.list" role="list" label="待办列表" indexBy="visible_order">
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
         <MultimodalGroup
-          id="todo.item.todo_1"
+          id="task.item.task_1"
           role="list_item"
-          label="买牛奶"
-          entity={{ type: "todo", id: "todo_1" }}
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
           state={{ completed: false }}
         >
-          <span>买牛奶</span>
+          <span>评审方案</span>
         </MultimodalGroup>
       </MultimodalGroup>
     </>
@@ -390,6 +390,33 @@ function AssistantHarness() {
         assistant route
       </button>
       <div data-testid="assistant-reply">{reply}</div>
+    </>
+  )
+}
+
+function AssistantPromptManifestHarness() {
+  const assistant = useInteractionAssistant()
+  const [prompt, setPrompt] = React.useState("")
+
+  useInteractionRoutes({
+    routes: [
+      {
+        id: "app.route.profile",
+        label: "个人资料",
+        aliases: ["资料"],
+        path: "/profile",
+        route: "profile",
+      },
+    ],
+    execute: () => undefined,
+  })
+
+  return (
+    <>
+      <button type="button" onClick={() => setPrompt(assistant.createSystemPrompt())}>
+        create prompt
+      </button>
+      <pre data-testid="assistant-prompt">{prompt}</pre>
     </>
   )
 }
@@ -470,39 +497,212 @@ function AllowlistedLocalAssistantHarness() {
   )
 }
 
+function ModelActionPolicyHarness() {
+  const assistant = useInteractionAssistant({
+    modelActionPolicy: {
+      mode: "allowlist",
+      actionIds: ["task.complete"],
+      allowPrimitiveActions: false,
+    },
+  })
+  const [reply, setReply] = React.useState("")
+  const [executed, setExecuted] = React.useState("none")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+      },
+      "task.delete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+      },
+    },
+    execute: (action) => setExecuted(action.type),
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await assistant.trySubmitModelReply(
+            JSON.stringify({
+              type: "interaction_action",
+              resolution: {
+                status: "resolved",
+                utterance: "删除评审方案",
+                targetId: "task.item.task_1",
+                actionId: "task.delete",
+                confidence: 0.92,
+              },
+            }),
+            "删除评审方案"
+          )
+          setReply(`${result.handled}:${result.result?.executed}:${result.reply?.content ?? ""}`)
+        }}
+      >
+        model disallowed delete
+      </button>
+      <div data-testid="model-policy-reply">{reply}</div>
+      <div data-testid="model-policy-executed">{executed}</div>
+      <MultimodalGroup
+        id="task.item.task_1"
+        role="list_item"
+        label="评审方案"
+        entity={{ type: "task", id: "task_1" }}
+      >
+        <span>评审方案</span>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function ModelRiskPolicyHarness() {
+  const assistant = useInteractionAssistant()
+  const [reply, setReply] = React.useState("")
+  const [executed, setExecuted] = React.useState("none")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.delete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        risk: "medium",
+      },
+    },
+    execute: (action) => setExecuted(action.type),
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await assistant.trySubmitModelReply(
+            JSON.stringify({
+              type: "interaction_action",
+              resolution: {
+                status: "resolved",
+                utterance: "删除评审方案",
+                targetId: "task.item.task_1",
+                actionId: "task.delete",
+                confidence: 0.92,
+              },
+            }),
+            "删除评审方案"
+          )
+          setReply(`${result.handled}:${result.result?.executed}:${result.reply?.content ?? ""}`)
+        }}
+      >
+        model risky delete
+      </button>
+      <div data-testid="model-risk-reply">{reply}</div>
+      <div data-testid="model-risk-executed">{executed}</div>
+      <MultimodalGroup
+        id="task.item.task_1"
+        role="list_item"
+        label="评审方案"
+        entity={{ type: "task", id: "task_1" }}
+      >
+        <span>评审方案</span>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function ModelMissingTargetHarness() {
+  const assistant = useInteractionAssistant({
+    modelActionPolicy: {
+      mode: "allowlist",
+      actionIds: ["task.create"],
+    },
+  })
+  const [reply, setReply] = React.useState("")
+  const [executed, setExecuted] = React.useState("none")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.create": {
+        attachTo: { id: "task.composer" },
+        executeScope: "page",
+        paramsFrom: ({ candidate }: ActionContext) => ({
+          title: String(candidate?.params?.title ?? ""),
+        }),
+      },
+    },
+    execute: (action) => setExecuted(`${action.type}:${action.title ?? ""}`),
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await assistant.trySubmitModelReply(
+            JSON.stringify({
+              type: "interaction_action",
+              resolution: {
+                status: "resolved",
+                utterance: "创建任务：发布说明",
+                actionId: "task.create",
+                params: { title: "发布说明" },
+                confidence: 0.92,
+              },
+            }),
+            "创建任务：发布说明"
+          )
+          setReply(`${result.handled}:${result.result?.executed}:${result.reply?.content ?? ""}`)
+        }}
+      >
+        model add without target
+      </button>
+      <div data-testid="model-missing-target-reply">{reply}</div>
+      <div data-testid="model-missing-target-executed">{executed}</div>
+      <MultimodalGroup id="task.composer" role="composer" label="新建任务">
+        <input aria-label="任务标题" />
+      </MultimodalGroup>
+    </>
+  )
+}
+
 describe("MultimodalProvider", () => {
   it("resolves a voice command and executes the registered domain action", async () => {
     render(
       <MultimodalProvider>
-        <TodoHarness />
+        <TaskHarness />
       </MultimodalProvider>
     )
 
     fireEvent.click(screen.getByRole("button", { name: "voice" }))
 
     await waitFor(() => {
-      expect((screen.getByRole("checkbox", { name: "买牛奶" }) as HTMLInputElement).checked).toBe(true)
+      expect((screen.getByRole("checkbox", { name: "评审方案" }) as HTMLInputElement).checked).toBe(true)
     })
   })
 
   it("indexes dynamic list items by their visible DOM order", async () => {
     render(
       <MultimodalProvider>
-        <DynamicTodoHarness />
+        <DynamicTaskHarness />
       </MultimodalProvider>
     )
 
     fireEvent.click(screen.getByRole("button", { name: "add first" }))
 
     await waitFor(() => {
-      expect(screen.getByRole("checkbox", { name: "写方案" })).not.toBeNull()
+      expect(screen.getByRole("checkbox", { name: "整理需求" })).not.toBeNull()
     })
 
     fireEvent.click(screen.getByRole("button", { name: "voice" }))
 
     await waitFor(() => {
-      expect((screen.getByRole("checkbox", { name: "写方案" }) as HTMLInputElement).checked).toBe(true)
-      expect((screen.getByRole("checkbox", { name: "买牛奶" }) as HTMLInputElement).checked).toBe(false)
+      expect((screen.getByRole("checkbox", { name: "整理需求" }) as HTMLInputElement).checked).toBe(true)
+      expect((screen.getByRole("checkbox", { name: "评审方案" }) as HTMLInputElement).checked).toBe(false)
     })
   })
 
@@ -510,24 +710,24 @@ describe("MultimodalProvider", () => {
     const llmResolver = createLlmResolver({
       complete: () => ({
         status: "resolved",
-        utterance: "把买牛奶那个完成",
-        intent: "complete_todo",
-        targetId: "todo.item.todo_1",
-        actionId: "todo.complete",
+        utterance: "把评审方案那个完成",
+        intent: "complete_task",
+        targetId: "task.item.task_1",
+        actionId: "task.complete",
         confidence: 0.91,
       }),
     })
 
     render(
       <MultimodalProvider resolvers={[llmResolver]} resolverMode="rule-first">
-        <LlmTodoHarness />
+        <LlmTaskHarness />
       </MultimodalProvider>
     )
 
     fireEvent.click(screen.getByRole("button", { name: "voice llm" }))
 
     await waitFor(() => {
-      expect((screen.getByRole("checkbox", { name: "买牛奶" }) as HTMLInputElement).checked).toBe(true)
+      expect((screen.getByRole("checkbox", { name: "评审方案" }) as HTMLInputElement).checked).toBe(true)
     })
   })
 
@@ -567,10 +767,10 @@ describe("MultimodalProvider", () => {
     const llmResolver = createLlmResolver({
       complete: () => ({
         status: "resolved",
-        utterance: "完成买牛奶",
-        intent: "complete_todo",
-        targetId: "todo.item.todo_1",
-        actionId: "todo.complete",
+        utterance: "完成评审方案",
+        intent: "complete_task",
+        targetId: "task.item.task_1",
+        actionId: "task.complete",
         confidence: 0.91,
       }),
     })
@@ -580,10 +780,10 @@ describe("MultimodalProvider", () => {
       const submitUtterance = useSubmitUtterance()
 
       useInteractionActions({
-        namespace: "todo",
+        namespace: "task",
         actions: {
-          "todo.complete": {
-            attachTo: { entityType: "todo" },
+          "task.complete": {
+            attachTo: { entityType: "task" },
             executeScope: "object",
             availableWhen: ({ target }) => target.state?.completed === false,
           },
@@ -593,18 +793,18 @@ describe("MultimodalProvider", () => {
 
       return (
         <>
-          <button type="button" onClick={() => void submitUtterance("完成买牛奶")}>
+          <button type="button" onClick={() => void submitUtterance("完成评审方案")}>
             invalid llm
           </button>
           <div data-testid="executed">{String(executed)}</div>
           <MultimodalGroup
-            id="todo.item.todo_1"
+            id="task.item.task_1"
             role="list_item"
-            label="买牛奶"
-            entity={{ type: "todo", id: "todo_1" }}
+            label="评审方案"
+            entity={{ type: "task", id: "task_1" }}
             state={{ completed: true }}
           >
-            <span>买牛奶</span>
+            <span>评审方案</span>
           </MultimodalGroup>
         </>
       )
@@ -692,7 +892,7 @@ describe("MultimodalProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "resolve api" }))
 
     await waitFor(() => {
-      expect(screen.getByTestId("api-result").textContent).toBe("resolved:todo.item.todo_1")
+      expect(screen.getByTestId("api-result").textContent).toBe("resolved:task.item.task_1")
     })
 
     fireEvent.click(screen.getByRole("button", { name: "submit api" }))
@@ -730,6 +930,23 @@ describe("MultimodalProvider", () => {
     })
   })
 
+  it("includes registered routes in the assistant manifest context", async () => {
+    render(
+      <MultimodalProvider>
+        <AssistantPromptManifestHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "create prompt" }))
+
+    await waitFor(() => {
+      const prompt = screen.getByTestId("assistant-prompt").textContent ?? ""
+      expect(prompt).toContain('"manifest"')
+      expect(prompt).toContain('"app.route.profile"')
+      expect(prompt).toContain('"navigation.goto"')
+    })
+  })
+
   it("lets assistant local execution be disabled by policy", async () => {
     render(
       <MultimodalProvider>
@@ -756,6 +973,57 @@ describe("MultimodalProvider", () => {
     await waitFor(() => {
       expect(screen.getByTestId("allowlisted-assistant-reply").textContent).toBe(
         "true:allowed route"
+      )
+    })
+  })
+
+  it("blocks LLM action replies outside the model action policy", async () => {
+    render(
+      <MultimodalProvider>
+        <ModelActionPolicyHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "model disallowed delete" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-policy-reply").textContent).toBe(
+        "true:false:模型动作策略未放行该 action"
+      )
+      expect(screen.getByTestId("model-policy-executed").textContent).toBe("none")
+    })
+  })
+
+  it("requires confirmation for risky LLM action replies by default", async () => {
+    render(
+      <MultimodalProvider>
+        <ModelRiskPolicyHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "model risky delete" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-risk-reply").textContent).toBe("true:false:该操作需要确认")
+      expect(screen.getByTestId("model-risk-executed").textContent).toBe("none")
+    })
+  })
+
+  it("infers a model action target from its action spec when targetId is omitted", async () => {
+    render(
+      <MultimodalProvider>
+        <ModelMissingTargetHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "model add without target" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-missing-target-reply").textContent).toBe(
+        "true:true:已执行：task.create。"
+      )
+      expect(screen.getByTestId("model-missing-target-executed").textContent).toBe(
+        "task.create:发布说明"
       )
     })
   })

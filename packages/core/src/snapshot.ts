@@ -1,4 +1,10 @@
 import { attachDomainActions } from "./action-registry"
+import {
+  createLlmManifestContext,
+  createManifestObjects,
+  type AppInteractionManifest,
+  type LlmInteractionManifest,
+} from "./manifest"
 import type {
   ContextObject,
   EntityRef,
@@ -19,6 +25,7 @@ let snapshotCounter = 0
 
 export type CreateSnapshotInput = {
   stateVersion: number
+  manifest?: AppInteractionManifest
   page?: PageObject
   contextStack?: ContextObject[]
   visibleObjects: InteractionObject[]
@@ -72,6 +79,7 @@ export type LlmSnapshotContext = {
   objectCount: number
   omittedObjectCount: number
   actions: LlmSnapshotContextAction[]
+  manifest?: LlmInteractionManifest
 }
 
 export function createInteractionSnapshot(input: CreateSnapshotInput): InteractionSnapshot {
@@ -93,14 +101,22 @@ export function createInteractionSnapshot(input: CreateSnapshotInput): Interacti
           ]
         : []),
     page: input.page,
+    manifest: input.manifest,
     focus: input.focus,
     recentEvents: input.recentEvents ?? [],
     actionSpecs,
   }
 
-  const objects = input.page
-    ? [input.page, ...input.visibleObjects.filter((object) => object.id !== input.page?.id)]
-    : input.visibleObjects
+  const manifestObjects = createManifestObjects(input.manifest)
+  const objects = dedupeObjects(
+    input.page
+      ? [
+          input.page,
+          ...manifestObjects.filter((object) => object.id !== input.page?.id),
+          ...input.visibleObjects.filter((object) => object.id !== input.page?.id),
+        ]
+      : [...manifestObjects, ...input.visibleObjects]
+  )
 
   return {
     ...base,
@@ -158,7 +174,14 @@ export function createLlmSnapshotContext(
       risk: spec.risk,
       requiresConfirmation: spec.requiresConfirmation,
     })),
+    manifest: createLlmManifestContext(snapshot.manifest),
   }
+}
+
+function dedupeObjects(objects: InteractionObject[]): InteractionObject[] {
+  const byId = new Map<string, InteractionObject>()
+  objects.forEach((object) => byId.set(object.id, object))
+  return Array.from(byId.values())
 }
 
 function summarizeObjectForLlm(object: InteractionObject): LlmSnapshotContextObject {

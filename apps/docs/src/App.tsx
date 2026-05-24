@@ -2,6 +2,8 @@ import {
   MultimodalGroup,
   MultimodalPage,
   MultimodalProvider,
+  NAVIGATION_GOTO_ACTION_ID,
+  defineMultimodalConfig,
   useInteractionActions,
   useInteractionAssistant,
   useInteractionObjects,
@@ -10,8 +12,10 @@ import {
   type ActionPayload,
   type AssistantChatMessage,
   type InteractionObject,
+  type InteractionSubmitResult,
   type LocalExecutionPolicy,
   type LocalInteractionReplyContext,
+  type ModelActionPolicy,
 } from "@multimodal-ui/react"
 import * as React from "react"
 
@@ -51,6 +55,13 @@ type ChatMessage = {
   state?: ChatStatus
 }
 
+type PendingModelAction = {
+  content: string
+  utterance: string
+  actionId: string
+  targetLabel?: string
+}
+
 type SiliconFlowResponse = {
   choices?: Array<{
     message?: {
@@ -79,6 +90,18 @@ type SpeechRecognitionEventLike = {
 }
 
 const chatModel = "MiniMaxAI/MiniMax-M2.5"
+const todoStorageKey = "todo_items"
+
+const multimodalConfig = defineMultimodalConfig({
+  rules: [
+    {
+      id: "navigation.goto",
+      patterns: ["打开{route}", "去{route}", "进入{route}", "回到{route}"],
+      target: "route.byLabel",
+      actionId: NAVIGATION_GOTO_ACTION_ID,
+    },
+  ],
+})
 
 const initialTodos: Todo[] = [
   {
@@ -143,13 +166,31 @@ const appNavigationRoutes = [
   },
 ]
 
-const assistantLocalExecutionPolicy = {
+const assistantLocalFastPathPolicy = {
   mode: "allowlist",
   minConfidence: 0.7,
   allowDomainActions: true,
   allowPrimitiveActions: false,
   actionIds: ["navigation.*"],
 } satisfies LocalExecutionPolicy
+
+const assistantModelActionPolicy = {
+  mode: "allowlist",
+  minConfidence: 0.7,
+  allowDomainActions: true,
+  allowPrimitiveActions: false,
+  actionIds: [
+    "navigation.*",
+    "todo.add",
+    "todo.complete",
+    "todo.uncomplete",
+    "todo.update",
+    "todo.filter",
+    "todo.delete",
+    "todo.clearCompleted",
+  ],
+  requireConfirmationForRisk: ["medium", "high"],
+} satisfies ModelActionPolicy
 
 const filterLabels: Record<TodoFilter, string> = {
   all: "全部",
@@ -166,7 +207,7 @@ const priorityLabels: Record<TodoPriority, string> = {
 
 export function App() {
   return (
-    <MultimodalProvider>
+    <MultimodalProvider config={multimodalConfig}>
       <AppRuntime />
     </MultimodalProvider>
   )
@@ -174,7 +215,7 @@ export function App() {
 
 function AppRuntime() {
   const [route, navigate] = useBrowserRoute()
-  const [todos, setTodos] = React.useState<Todo[]>(initialTodos)
+  const [todos, setTodos] = useStoredTodos()
   const [filter, setFilter] = React.useState<TodoFilter>("all")
   const [apiKey, setApiKey] = useLocalStorage("siliconflow_api_key", "")
   const [isChatOpen, setIsChatOpen] = React.useState(() => window.location.pathname === "/chat")
@@ -234,7 +275,9 @@ function AppRuntime() {
   useInteractionRoutes<AppRoute>({
     namespace: "navigation",
     routes: navigationRoutes,
-    execute: (nextRoute) => navigate(nextRoute),
+    execute: (nextRoute) => {
+      navigate(nextRoute)
+    },
   })
 
   const executeTodoAction = React.useCallback(
@@ -845,7 +888,8 @@ function FloatingChatbot(props: {
   onOpenChange: (open: boolean) => void
 }) {
   const interactionAssistant = useInteractionAssistant({
-    localExecution: assistantLocalExecutionPolicy,
+    localFastPath: assistantLocalFastPathPolicy,
+    modelActionPolicy: assistantModelActionPolicy,
     localReply: {
       actionReplies: {
         "navigation.goto": ({ result }: LocalInteractionReplyContext) =>
@@ -888,6 +932,7 @@ function FloatingChatbot(props: {
   const nextMessageId = React.useRef(1)
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null)
   const chatLogRef = React.useRef<HTMLDivElement | null>(null)
+  const [pendingModelAction, setPendingModelAction] = React.useState<PendingModelAction | null>(null)
   const [messages, setMessages] = React.useState<ChatMessage[]>([
     {
       id: "assistant_welcome",
@@ -901,10 +946,107 @@ function FloatingChatbot(props: {
     chatLogRef.current?.scrollTo?.({ top: chatLogRef.current.scrollHeight, behavior: "smooth" })
   }, [messages, props.open])
 
+  const confirmPendingModelAction = React.useCallback(
+    async (message = "确认执行") => {
+      if (!pendingModelAction || status === "sending") return
+
+      const pending = pendingModelAction
+      const userMessage: ChatMessage = {
+        id: `user_${nextMessageId.current++}`,
+        role: "user",
+        content: message,
+        state: "ready",
+      }
+      const pendingId = `assistant_${nextMessageId.current++}`
+
+      setPendingModelAction(null)
+      setMessages((current) => [
+        ...current,
+        userMessage,
+        { id: pendingId, role: "assistant", content: "正在执行确认操作...", state: "sending" },
+      ])
+      setDraft("")
+      setStatus("sending")
+
+      try {
+        const modelInteraction = await interactionAssistant.trySubmitModelReply(
+          pending.content,
+          pending.utterance,
+          { confirmedActionId: pending.actionId }
+        )
+        const replyContent = modelInteraction.reply?.content
+
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === pendingId
+              ? {
+                  ...item,
+                  content: replyContent || modelInteraction.content || "没有返回内容。",
+                  state: modelInteraction.reply?.state === "error" ? "error" : "ready",
+                }
+              : item
+          )
+        )
+        setStatus(modelInteraction.reply?.state === "error" ? "error" : "ready")
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : "请求失败"
+        setMessages((current) =>
+          current.map((item) =>
+            item.id === pendingId ? { ...item, content: errorMessage, state: "error" } : item
+          )
+        )
+        setStatus("error")
+      }
+    },
+    [interactionAssistant, pendingModelAction, status]
+  )
+
+  const cancelPendingModelAction = React.useCallback(
+    (message = "取消") => {
+      if (!pendingModelAction) return
+
+      const userMessage: ChatMessage = {
+        id: `user_${nextMessageId.current++}`,
+        role: "user",
+        content: message,
+        state: "ready",
+      }
+
+      setPendingModelAction(null)
+      setMessages((current) => [
+        ...current,
+        userMessage,
+        {
+          id: `assistant_${nextMessageId.current++}`,
+          role: "assistant",
+          content: "已取消待确认操作。",
+          state: "ready",
+        },
+      ])
+      setDraft("")
+      setStatus("ready")
+    },
+    [pendingModelAction]
+  )
+
   const submitMessage = React.useCallback(
     async (message: string) => {
       const trimmed = message.trim()
       if (!trimmed || status === "sending") return
+
+      if (pendingModelAction && isCancelText(trimmed)) {
+        cancelPendingModelAction(trimmed)
+        return
+      }
+
+      if (pendingModelAction && isConfirmationText(trimmed)) {
+        await confirmPendingModelAction(trimmed)
+        return
+      }
+
+      if (pendingModelAction) {
+        setPendingModelAction(null)
+      }
 
       const userMessage: ChatMessage = {
         id: `user_${nextMessageId.current++}`,
@@ -981,20 +1123,31 @@ function FloatingChatbot(props: {
           content ?? "",
           trimmed
         )
+        const pendingAction = createPendingModelAction(content ?? "", trimmed, modelInteraction.result)
         const replyContent = modelInteraction.reply?.content
+
+        if (pendingAction) {
+          setPendingModelAction(pendingAction)
+        }
 
         setMessages((current) =>
           current.map((item) =>
             item.id === pendingId
               ? {
                   ...item,
-                  content: replyContent || modelInteraction.content || content || "没有返回内容。",
-                  state: modelInteraction.reply?.state === "error" ? "error" : "ready",
+                  content: pendingAction
+                    ? formatPendingModelAction(pendingAction)
+                    : replyContent || modelInteraction.content || content || "没有返回内容。",
+                  state: pendingAction
+                    ? "ready"
+                    : modelInteraction.reply?.state === "error"
+                      ? "error"
+                      : "ready",
                 }
               : item
           )
         )
-        setStatus(modelInteraction.reply?.state === "error" ? "error" : "ready")
+        setStatus(pendingAction ? "ready" : modelInteraction.reply?.state === "error" ? "error" : "ready")
       } catch (error) {
         const message = error instanceof Error ? error.message : "请求失败"
         setMessages((current) =>
@@ -1005,7 +1158,15 @@ function FloatingChatbot(props: {
         setStatus("error")
       }
     },
-    [interactionAssistant, messages, props.apiKey, status]
+    [
+      cancelPendingModelAction,
+      confirmPendingModelAction,
+      interactionAssistant,
+      messages,
+      pendingModelAction,
+      props.apiKey,
+      status,
+    ]
   )
 
   function startSpeechInput() {
@@ -1077,6 +1238,32 @@ function FloatingChatbot(props: {
           </article>
         ))}
       </div>
+
+      {pendingModelAction ? (
+        <div className="pending-confirmation" role="status" aria-live="polite">
+          <div>
+            <span className="message-role">待确认</span>
+            <p>{formatPendingModelAction(pendingModelAction)}</p>
+          </div>
+          <div className="confirmation-actions">
+            <button
+              type="button"
+              className="button button-secondary"
+              onClick={() => cancelPendingModelAction()}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => void confirmPendingModelAction()}
+              disabled={status === "sending"}
+            >
+              确认执行
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <form
         className="chat-composer"
@@ -1246,6 +1433,38 @@ function tabFromRoute(route: AppRoute): TabId {
   return "home"
 }
 
+function createPendingModelAction(
+  content: string,
+  utterance: string,
+  result?: InteractionSubmitResult
+): PendingModelAction | null {
+  if (!result?.validation || result.validation.ok) return null
+  if (result.validation.code !== "confirmation_required") return null
+
+  const actionId = result.resolution.actionId
+  if (!actionId) return null
+
+  return {
+    content,
+    utterance,
+    actionId,
+    targetLabel: result.target?.label,
+  }
+}
+
+function formatPendingModelAction(action: PendingModelAction): string {
+  const target = action.targetLabel ? `（「${action.targetLabel}」）` : ""
+  return `这个操作需要确认：${action.actionId}${target}。`
+}
+
+function isConfirmationText(text: string): boolean {
+  return /^(确认|确定|好的|好|执行|继续|是的|yes|ok)$/i.test(text.trim())
+}
+
+function isCancelText(text: string): boolean {
+  return /^(取消|算了|不用|不要|否|no)$/i.test(text.trim())
+}
+
 function useBrowserRoute(): [AppRoute, (route: AppRoute) => void] {
   const [route, setRoute] = React.useState<AppRoute>(() => routeFromPath(window.location.pathname))
 
@@ -1280,6 +1499,68 @@ function pathForRoute(route: AppRoute): string {
   if (route.screen === "todos") return "/todos"
   if (route.screen === "todoDetail") return `/todos/${encodeURIComponent(route.todoId ?? "")}`
   return "/"
+}
+
+function useStoredTodos(): [Todo[], React.Dispatch<React.SetStateAction<Todo[]>>] {
+  const [todos, setTodos] = React.useState<Todo[]>(readStoredTodos)
+
+  React.useEffect(() => {
+    writeStoredTodos(todos)
+  }, [todos])
+
+  return [todos, setTodos]
+}
+
+function readStoredTodos(): Todo[] {
+  const raw = window.localStorage.getItem(todoStorageKey)
+  if (!raw) return cloneInitialTodos()
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return cloneInitialTodos()
+
+    return parsed
+      .map(normalizeStoredTodo)
+      .filter((todo): todo is Todo => Boolean(todo))
+  } catch {
+    return cloneInitialTodos()
+  }
+}
+
+function writeStoredTodos(todos: Todo[]): void {
+  try {
+    window.localStorage.setItem(todoStorageKey, JSON.stringify(todos))
+  } catch {
+    // Keep the app usable in memory if localStorage is unavailable or full.
+  }
+}
+
+function cloneInitialTodos(): Todo[] {
+  return initialTodos.map((todo) => ({ ...todo }))
+}
+
+function normalizeStoredTodo(value: unknown): Todo | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== "string" || typeof record.title !== "string") return undefined
+
+  return {
+    id: record.id,
+    title: record.title,
+    completed: typeof record.completed === "boolean" ? record.completed : false,
+    priority: isTodoPriority(record.priority) ? record.priority : "medium",
+    due: isTodoDue(record.due) ? record.due : "今天",
+    description: typeof record.description === "string" ? record.description : "",
+  }
+}
+
+function isTodoPriority(value: unknown): value is TodoPriority {
+  return value === "low" || value === "medium" || value === "high"
+}
+
+function isTodoDue(value: unknown): value is Todo["due"] {
+  return value === "今天" || value === "明天" || value === "本周"
 }
 
 function useLocalStorage(key: string, initialValue: string) {

@@ -1,7 +1,10 @@
 import {
   buildActionPayload,
   compactSnapshotForIntent,
+  createConfiguredRuleResolver,
   createInteractionSnapshot,
+  mergeInteractionManifests,
+  normalizeConfiguredRules,
   resolveUtterance,
   resolveWithResolvers,
   ruleResolver,
@@ -9,6 +12,7 @@ import {
   type ActionContext,
   type ActionExecutor,
   type ActionPayload,
+  type AppInteractionManifest,
   type DomainActionSpec,
   type EntityRef,
   type InteractionHint,
@@ -17,6 +21,8 @@ import {
   type InteractionSnapshot,
   type InteractionSubmitOptions,
   type InteractionSubmitResult,
+  type LocalInteractionRule,
+  type MultimodalConfig,
   type PageObject,
   type RegisteredActionSpec,
   type ResolverMode,
@@ -84,6 +90,7 @@ type RuntimeContextValue = {
   registerNode: (node: RegisteredNode) => () => void
   registerGroup: (group: RegisteredGroup) => () => void
   registerObject: (object: RegisteredVirtualObject) => () => void
+  registerManifest: (id: string, manifest: AppInteractionManifest) => () => void
   registerPage: (page: RegisteredPage) => () => void
   registerActions: (registration: ActionRegistration) => () => void
 }
@@ -102,8 +109,11 @@ const RuntimeContext = React.createContext<RuntimeContextValue | null>(null)
 
 export type MultimodalProviderProps = {
   children: React.ReactNode
+  config?: MultimodalConfig
   language?: string
   device?: string
+  manifest?: AppInteractionManifest
+  localRules?: LocalInteractionRule[]
   resolvers?: IntentResolver[]
   resolverMode?: ResolverMode
   onResolution?: (resolution: ResolvedInteraction) => void
@@ -113,8 +123,11 @@ export type MultimodalProviderProps = {
 export function MultimodalProvider(props: MultimodalProviderProps) {
   const {
     children,
+    config,
     device,
     language,
+    localRules,
+    manifest,
     onClarification,
     onResolution,
     resolverMode = "rule-first",
@@ -127,6 +140,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const [nodes, setNodes] = React.useState(() => new Map<string, RegisteredNode>())
   const [groups, setGroups] = React.useState(() => new Map<string, RegisteredGroup>())
   const [objects, setObjects] = React.useState(() => new Map<string, RegisteredVirtualObject>())
+  const [manifests, setManifests] = React.useState(() => new Map<string, AppInteractionManifest>())
   const [page, setPage] = React.useState<RegisteredPage | undefined>()
   const [actions, setActions] = React.useState(() => new Map<string, ActionRegistration>())
   const [lastResolution, setLastResolution] = React.useState<ResolvedInteraction | undefined>()
@@ -218,6 +232,31 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     return specs
   }, [actions])
 
+  const effectiveManifest = React.useMemo(
+    () =>
+      mergeInteractionManifests(
+        config?.manifest,
+        manifest,
+        ...Array.from(manifests.values())
+      ),
+    [config?.manifest, manifest, manifests]
+  )
+
+  const configuredRuleSignature = stableStringify({
+    configRules: config?.rules,
+    localRules,
+  })
+  const localResolvers = React.useMemo(() => {
+    const rules = [
+      ...normalizeConfiguredRules(config?.rules),
+      ...(localRules ?? []),
+    ]
+    const configuredResolver = rules.length
+      ? createConfiguredRuleResolver({ rules })
+      : undefined
+    return configuredResolver ? [configuredResolver] : undefined
+  }, [configuredRuleSignature, config?.rules, localRules])
+
   const snapshot = React.useMemo(() => {
     const elementMap = new Map<string, HTMLElement>()
     const root = rootRef.current
@@ -302,6 +341,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
     const builtSnapshot = createInteractionSnapshot({
       stateVersion: version,
+      manifest: effectiveManifest,
       page: pageObject,
       contextStack: [...pageContext, ...modalContexts],
       visibleObjects: [...virtualObjects, ...groupObjects, ...rawObjects],
@@ -322,7 +362,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     elementByObjectId.current = elementMap
     snapshotRef.current = builtSnapshot
     return builtSnapshot
-  }, [actionSpecs, device, groups, language, nodes, objects, page, version])
+  }, [actionSpecs, device, effectiveManifest, groups, language, nodes, objects, page, version])
 
   const applyFeedback = React.useCallback((targetId: string, phase: string) => {
     const element = elementByObjectId.current.get(targetId)
@@ -345,6 +385,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     async (text: string): Promise<InteractionResolutionResult> => {
       const currentSnapshot = snapshotRef.current
       const resolution = await resolveCandidate(text, currentSnapshot, {
+        localResolvers,
         resolvers,
         resolverMode,
       })
@@ -360,7 +401,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         resolution,
       }
     },
-    [onClarification, onResolution, resolverMode, resolvers]
+    [localResolvers, onClarification, onResolution, resolverMode, resolvers]
   )
 
   const dispatchResolution = React.useCallback(
@@ -563,6 +604,22 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     [bumpVersion]
   )
 
+  const registerManifest = React.useCallback(
+    (id: string, nextManifest: AppInteractionManifest) => {
+      setManifests((current) => new Map(current).set(id, nextManifest))
+      bumpVersion()
+      return () => {
+        setManifests((current) => {
+          const next = new Map(current)
+          next.delete(id)
+          return next
+        })
+        bumpVersion()
+      }
+    },
+    [bumpVersion]
+  )
+
   const registerPage = React.useCallback(
     (nextPage: RegisteredPage) => {
       setPage(nextPage)
@@ -602,6 +659,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       registerNode,
       registerGroup,
       registerObject,
+      registerManifest,
       registerPage,
       registerActions,
     }),
@@ -613,6 +671,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       registerGroup,
       registerNode,
       registerObject,
+      registerManifest,
       registerPage,
       resolveText,
       snapshot,
@@ -785,6 +844,19 @@ export function useInteractionObjects(objects: InteractionObject[]): void {
       disposers.forEach((dispose) => dispose())
     }
   }, [objectsSignature, registerObject])
+}
+
+export function useInteractionManifest(
+  manifest: AppInteractionManifest,
+  id = "app"
+): void {
+  const { registerManifest } = useMultimodalRuntime()
+  const manifestSignature = stableStringify(manifest)
+
+  React.useEffect(
+    () => registerManifest(id, manifest),
+    [id, manifestSignature, registerManifest]
+  )
 }
 
 export type UseInteractionActionsOptions<TAction extends ActionPayload = ActionPayload> = {
@@ -1058,10 +1130,23 @@ async function resolveCandidate(
   utterance: string,
   snapshot: InteractionSnapshot,
   options: {
+    localResolvers?: IntentResolver[]
     resolvers?: IntentResolver[]
     resolverMode: ResolverMode
   }
 ): Promise<ResolvedInteraction> {
+  if (options.resolverMode !== "llm-first" && options.localResolvers?.length) {
+    const localResult = await resolveWithResolvers(
+      { utterance, snapshot },
+      options.localResolvers,
+      0.8
+    )
+
+    if (localResult.status === "resolved" || localResult.status === "needs_clarification") {
+      return localResult
+    }
+  }
+
   const ruleResult = resolveUtterance(utterance, snapshot)
   if (options.resolverMode === "rule-only" || !options.resolvers?.length) {
     return ruleResult
@@ -1073,7 +1158,7 @@ async function resolveCandidate(
   if (options.resolverMode === "llm-first") {
     return resolveWithResolvers(
       { utterance, snapshot: compactSnapshot },
-      [...externalResolvers, ruleResolver],
+      [...externalResolvers, ...(options.localResolvers ?? []), ruleResolver],
       0.7
     )
   }

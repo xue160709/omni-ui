@@ -58,6 +58,30 @@ describe("mobile todo app", () => {
     })
   })
 
+  it("persists todo changes in localStorage across remounts", async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByLabelText("完成 买牛奶"))
+
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem("todo_items") ?? "[]") as Array<{
+        id: string
+        completed: boolean
+      }>
+      expect(stored.find((todo) => todo.id === "todo_1")?.completed).toBe(true)
+    })
+
+    cleanup()
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+
+    await waitFor(() => {
+      expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+    })
+  })
+
   it("stores the SiliconFlow API key in settings", () => {
     render(<App />)
 
@@ -371,6 +395,106 @@ describe("mobile todo app", () => {
       expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
     })
     expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+  })
+
+  it("executes MiniMax add tool-call XML without targetId", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "<minimax:tool_call>",
+                  'invoke name="todo.add"><parameter name="targetId">todo.composer</parameter><parameter name="title">写作业</parameter>',
+                  "</invoke>",
+                  "</minimax:tool_call>",
+                ].join("\n"),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "新增一个事项：写作业" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已添加待办：写作业。")).not.toBeNull()
+      expect(screen.getByRole("button", { name: /写作业/ })).not.toBeNull()
+    })
+
+    const stored = JSON.parse(window.localStorage.getItem("todo_items") ?? "[]") as Array<{
+      title: string
+    }>
+    expect(stored.some((todo) => todo.title === "写作业")).toBe(true)
+  })
+
+  it("requires confirmation before executing risky LLM actions", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "interaction_action",
+                  resolution: {
+                    status: "resolved",
+                    utterance: "删除买牛奶",
+                    targetId: "todo_1",
+                    actionId: "todo.delete",
+                    confidence: 0.92,
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "删掉买牛奶" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/这个操作需要确认：todo.delete/).length).toBeGreaterThan(0)
+      expect(screen.getByRole("button", { name: "确认执行" })).not.toBeNull()
+    })
+    expect(screen.getByRole("button", { name: /买牛奶/ })).not.toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "确认执行" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已删除「买牛奶」。")).not.toBeNull()
+      expect(screen.queryByRole("button", { name: /买牛奶/ })).toBeNull()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it("lets the LLM clarify bare completion instead of selecting the completed filter", async () => {

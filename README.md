@@ -11,6 +11,8 @@ Multimodal UI turns the current GUI into a compact Interaction Snapshot, resolve
 - `@multimodal-ui/shadcn`: shadcn registry source for optional wrappers installed into `components/multimodal/*`.
 - `apps/docs`: local mobile TodoList project with bottom tabs, todo detail screens, a floating Chatbot, settings, and registry output.
 
+For app integration, see [packages/README.md](packages/README.md).
+
 ## Quick Start
 
 Install dependencies and run the local TodoList app:
@@ -47,15 +49,27 @@ Try these utterances in the demo:
 
 ```tsx
 import {
+  defineMultimodalConfig,
   MultimodalProvider,
   MultimodalPage,
   MultimodalGroup,
   useInteractionActions,
 } from "@multimodal-ui/react"
 
+const multimodalConfig = defineMultimodalConfig({
+  rules: [
+    {
+      id: "navigation.goto",
+      patterns: ["打开{route}", "去{route}", "进入{route}", "回到{route}"],
+      target: "route.byLabel",
+      actionId: "navigation.goto",
+    },
+  ],
+})
+
 function App() {
   return (
-    <MultimodalProvider>
+    <MultimodalProvider config={multimodalConfig}>
       <MultimodalPage id="page.todo" title="Todo" route="/todo">
         <TodoPage />
       </MultimodalPage>
@@ -97,6 +111,54 @@ useInteractionActions({
 })
 ```
 
+`todo.complete` is app-owned. Multimodal UI does not ship Todo, CRM, inbox, or other domain actions. Apps register their own domain actions and execute them through the same reducer/service used by GUI clicks.
+
+## App Manifest and Local Rules
+
+The runtime now keeps two context layers:
+
+- The current Interaction Snapshot: live page, visible objects, state, focus, and currently executable actions.
+- The App Manifest: global capabilities such as registered routes and app-level commands that do not require the target page to be mounted.
+
+Developers should not hand-write a whole app map for LLMs. Use route/action registration APIs at the app root; they are merged into the manifest automatically.
+
+```tsx
+useInteractionRoutes({
+  routes: [
+    { id: "app.route.home", label: "Home", route: { screen: "home" }, path: "/" },
+    { id: "app.route.settings", label: "Settings", route: { screen: "settings" }, path: "/settings" },
+  ],
+  execute: (route) => navigate(route),
+})
+```
+
+`useInteractionRoutes()` registers the built-in `navigation.goto` action, exposes route objects for local resolution, and contributes route metadata to the LLM manifest context.
+
+Apps can add deterministic local rules in a JSON/TS config:
+
+```ts
+import { defineMultimodalConfig } from "@multimodal-ui/react"
+
+export default defineMultimodalConfig({
+  rules: [
+    {
+      id: "navigation.goto",
+      patterns: ["打开{route}", "去{route}", "进入{route}"],
+      target: "route.byLabel",
+      actionId: "navigation.goto",
+    },
+    {
+      id: "issue.close",
+      patterns: ["关闭{issue}", "把{issue}关闭"],
+      target: "entity.issue.byLabelOrIndex",
+      actionId: "issue.close",
+    },
+  ],
+})
+```
+
+The route rule uses the library-provided `navigation.goto`. The `issue.close` action is still implemented by the app with `useInteractionActions()`.
+
 ## shadcn Registry
 
 The local registry is generated into `apps/docs/public/r`.
@@ -118,7 +180,11 @@ The registry installs wrappers into `components/multimodal/*` and does not overw
 
 By default, the runtime uses the built-in rule resolver. It is offline and handles visible-speak commands against the current Interaction Snapshot.
 
+Configured local rules from `defineMultimodalConfig({ rules })` are tried before external LLM resolvers, so app-specific deterministic commands can stay local.
+
 LLM support is opt-in through the `IntentResolver` interface. The LLM can propose candidates, but it cannot execute actions directly; local validation still enforces scope, state version, availability, and confirmation policies.
+
+LLM prompts receive the user utterance, a compact Interaction Snapshot, a compact App Manifest, and the expected JSON schema. They do not receive the whole project, source code, or unregistered pages.
 
 Provider helpers read API keys from environment variables. Set `OPENAI_API_KEY` + `OPENAI_MODEL` or `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`; optional base URLs can come from `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`.
 
@@ -172,14 +238,20 @@ useInteractionRoutes({
 })
 ```
 
-`useInteractionAssistant()` wraps the common chatbot path: try a local GUI action first, generate a local reply when something executed, and build an Interaction Snapshot system prompt for LLM fallback.
+`useInteractionAssistant()` wraps the common chatbot path: try a deterministic local fast path first, generate a local reply when something executed, and build an Interaction Snapshot system prompt for LLM fallback. LLM action replies still pass through a separate model action policy before the validated dispatcher runs them.
 
 ```tsx
 const assistant = useInteractionAssistant({
-  localExecution: {
+  localFastPath: {
     mode: "allowlist",
     actionIds: ["navigation.*"],
     allowPrimitiveActions: false,
+  },
+  modelActionPolicy: {
+    mode: "allowlist",
+    actionIds: ["navigation.*", "todo.complete", "todo.update"],
+    allowPrimitiveActions: false,
+    requireConfirmationForRisk: ["medium", "high"],
   },
   localReply: {
     actionReplies: {
@@ -192,7 +264,7 @@ const local = await assistant.trySubmitLocal(text)
 const messages = assistant.createChatMessages([{ role: "user", content: text }])
 ```
 
-`localExecution` is app-owned JSON. Use it to keep local parsing intentionally small: `mode: "allowlist"` only executes matching `intents`, `actionIds`, or `primitiveActions` locally; unmatched text should be sent to the LLM fallback. List entries support exact values and prefix wildcards such as `navigation.*`.
+`localFastPath` is app-owned JSON for commands that can skip the LLM, such as route changes or closing a dialog. `modelActionPolicy` is the separate gate for action JSON returned by the LLM. Both policies support exact values and prefix wildcards such as `navigation.*`; `localExecution` remains as a backwards-compatible alias for `localFastPath`.
 
 ## Verification
 

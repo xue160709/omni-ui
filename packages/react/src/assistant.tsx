@@ -4,6 +4,7 @@ import {
   createLocalInteractionReply,
   parseInteractionAssistantModelReply,
   shouldSubmitResolvedInteraction,
+  validateResolvedInteractionPolicy,
   type InteractionAssistantPromptOptions,
   type InteractionAssistantReply,
   type InteractionSubmitOptions,
@@ -11,6 +12,7 @@ import {
   type InteractionSnapshot,
   type LocalExecutionPolicy,
   type LocalInteractionReplyOptions,
+  type ModelActionPolicy,
   type ResolvedInteraction,
 } from "@multimodal-ui/core"
 import * as React from "react"
@@ -28,7 +30,10 @@ export type LocalAssistantSubmitResult = {
 }
 
 export type UseInteractionAssistantOptions = {
+  localFastPath?: LocalExecutionPolicy
+  /** @deprecated Use localFastPath for deterministic local execution policy. */
   localExecution?: LocalExecutionPolicy
+  modelActionPolicy?: ModelActionPolicy
   localReply?: LocalInteractionReplyOptions
   prompt?: InteractionAssistantPromptOptions
   snapshot?: {
@@ -51,6 +56,14 @@ export type InteractionAssistantApi = {
   createChatMessages: (messages: AssistantChatMessage[]) => AssistantChatMessage[]
 }
 
+const defaultModelActionPolicy: ModelActionPolicy = {
+  mode: "all",
+  minConfidence: 0.7,
+  allowDomainActions: true,
+  allowPrimitiveActions: false,
+  requireConfirmationForRisk: ["medium", "high"],
+}
+
 export function useInteractionAssistant(
   options: UseInteractionAssistantOptions = {}
 ): InteractionAssistantApi {
@@ -64,15 +77,17 @@ export function useInteractionAssistant(
       submitOptions: InteractionSubmitOptions = {}
     ): Promise<LocalAssistantSubmitResult> => {
       const currentOptions = optionsRef.current
-      if (currentOptions.localExecution?.mode === "off") {
+      const localPolicy = currentOptions.localFastPath ?? currentOptions.localExecution
+
+      if (localPolicy?.mode === "off") {
         return { handled: false }
       }
 
       const resolved = await interaction.resolveText(text)
 
-      if (!shouldSubmitResolvedInteraction(resolved.resolution, currentOptions.localExecution)) {
+      if (!shouldSubmitResolvedInteraction(resolved.resolution, localPolicy)) {
         if (
-          currentOptions.localExecution?.mode !== "allowlist" &&
+          localPolicy?.mode !== "allowlist" &&
           resolved.resolution.status === "needs_clarification"
         ) {
           const reply = createLocalInteractionReply(
@@ -129,13 +144,43 @@ export function useInteractionAssistant(
         }
       }
 
+      const snapshot = interaction.getSnapshot()
       const resolution = normalizeModelResolutionTarget(
         parsed.resolution,
-        interaction.getSnapshot()
+        snapshot
       )
+      const modelPolicy = currentOptions.modelActionPolicy ?? defaultModelActionPolicy
+      const policyValidation = validateResolvedInteractionPolicy(resolution, modelPolicy, {
+        snapshot,
+        confirmedActionId: submitOptions.confirmedActionId,
+        source: "model",
+      })
+
+      if (!policyValidation.ok) {
+        const target = resolution.targetId
+          ? snapshot.visibleObjects.find((object) => object.id === resolution.targetId)
+          : undefined
+        const result: InteractionSubmitResult = {
+          snapshot,
+          resolution,
+          ok: false,
+          executed: false,
+          target,
+          validation: policyValidation,
+          error: policyValidation.reason,
+        }
+        const reply = createLocalInteractionReply(result, currentOptions.localReply)
+
+        return {
+          handled: Boolean(reply),
+          reply,
+          result,
+        }
+      }
+
       const result = await interaction.dispatchResolution(resolution, {
         ...submitOptions,
-        baseStateVersion: submitOptions.baseStateVersion ?? interaction.getSnapshot().stateVersion,
+        baseStateVersion: submitOptions.baseStateVersion ?? snapshot.stateVersion,
       })
       const reply =
         result.ok && result.executed && parsed.reply
@@ -187,7 +232,16 @@ function normalizeModelResolutionTarget(
   resolution: ResolvedInteraction,
   snapshot: InteractionSnapshot
 ): ResolvedInteraction {
-  if (!resolution.targetId) return resolution
+  if (!resolution.targetId) {
+    const target = inferTargetFromAction(resolution, snapshot)
+    return target
+      ? {
+          ...resolution,
+          targetId: target.id,
+        }
+      : resolution
+  }
+
   if (snapshot.visibleObjects.some((object) => object.id === resolution.targetId)) {
     return resolution
   }
@@ -199,7 +253,36 @@ function normalizeModelResolutionTarget(
   return target
     ? {
         ...resolution,
-        targetId: target.id,
-      }
+      targetId: target.id,
+    }
     : resolution
+}
+
+function inferTargetFromAction(
+  resolution: ResolvedInteraction,
+  snapshot: InteractionSnapshot
+) {
+  if (!resolution.actionId) return undefined
+  const spec = snapshot.actionSpecs[resolution.actionId]
+  if (!spec) return undefined
+
+  const attachTo = spec.attachTo
+  if (attachTo?.id) {
+    return snapshot.visibleObjects.find((object) => object.id === attachTo.id)
+  }
+  if (attachTo?.entityType) {
+    return snapshot.visibleObjects.find((object) => object.entity?.type === attachTo.entityType)
+  }
+  if (attachTo?.role) {
+    return snapshot.visibleObjects.find((object) => object.role === attachTo.role)
+  }
+
+  if (spec.executeScope === "page") {
+    return snapshot.page ?? snapshot.visibleObjects.find((object) => object.type === "page")
+  }
+  if (spec.executeScope === "container") {
+    return snapshot.visibleObjects.find((object) => object.type === "container")
+  }
+
+  return undefined
 }

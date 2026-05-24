@@ -6,6 +6,7 @@ export {
   useInteractionActions,
   useInteractionApi,
   useInteractionHint,
+  useInteractionManifest,
   useInteractionObject,
   useInteractionObjects,
   useInteractionRoutes,
@@ -16,6 +17,7 @@ export {
   type InteractionApi,
   type InteractionHint,
   type InteractionSubmitResult,
+  type AppInteractionManifest,
   type UseInteractionAssistantOptions,
   type UseInteractionRoutesOptions,
 } from "@multimodal-ui/react"

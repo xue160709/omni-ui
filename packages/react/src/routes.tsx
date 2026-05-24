@@ -1,11 +1,12 @@
-import type {
-  ActionContext,
-  ActionPayload,
-  ExecuteScope,
-  InteractionObject,
+import {
+  NAVIGATION_GOTO_ACTION_ID,
+  type ActionContext,
+  type ActionPayload,
+  type ExecuteScope,
+  type InteractionObject,
 } from "@multimodal-ui/core"
 import * as React from "react"
-import { useInteractionActions, useInteractionObjects } from "./runtime"
+import { useInteractionActions, useInteractionManifest, useInteractionObjects } from "./runtime"
 
 export type InteractionRoute<TRoute = unknown> = {
   id: string
@@ -40,7 +41,9 @@ export function useInteractionRoutes<TRoute = unknown>(
   options: UseInteractionRoutesOptions<TRoute>
 ): void {
   const namespace = options.namespace ?? "navigation"
-  const actionId = options.actionId ?? `${namespace}.goto`
+  const actionId =
+    options.actionId ??
+    (namespace === "navigation" ? NAVIGATION_GOTO_ACTION_ID : `${namespace}.goto`)
   const role = options.role ?? "route"
   const executeScope = options.executeScope ?? "app"
 
@@ -69,6 +72,29 @@ export function useInteractionRoutes<TRoute = unknown>(
   executeRef.current = options.execute
 
   useInteractionObjects(routeObjects)
+
+  useInteractionManifest(
+    {
+      routes: options.routes.map((route) => ({
+        id: route.id,
+        label: route.label,
+        aliases: route.aliases,
+        path: route.path,
+        active: route.active,
+        state: route.state,
+        actionId,
+      })),
+      actions: [
+        {
+          id: actionId,
+          namespace,
+          attachTo: { role },
+          executeScope,
+        },
+      ],
+    },
+    `${namespace}.routes`
+  )
 
   const actions = React.useMemo(
     () => ({

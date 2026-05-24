@@ -304,7 +304,7 @@ function extractTargetFromCompletionText(text: string, patterns: RegExp[]): stri
 function cleanupTargetText(value: string | undefined): string | undefined {
   const cleaned = value
     ?.replace(/^(帮我|请|麻烦|把|将|给我)+/, "")
-    .replace(/(这个|那个|这项|那项|任务|待办|事项)$/g, "")
+    .replace(/(这个|那个|这项|那项|该项|此项)$/g, "")
     .trim()
   return cleaned || undefined
 }

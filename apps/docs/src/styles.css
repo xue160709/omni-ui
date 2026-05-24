@@ -651,6 +651,29 @@ textarea:focus {
   color: var(--destructive) !important;
 }
 
+.pending-confirmation {
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgb(180 83 9 / 0.32);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  padding: 10px;
+}
+
+.pending-confirmation p {
+  margin: 4px 0 0;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.confirmation-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .chat-composer {
   display: grid;
   gap: 8px;

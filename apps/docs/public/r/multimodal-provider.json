@@ -11,7 +11,7 @@
       "path": "registry/new-york/provider.tsx",
       "type": "registry:component",
       "target": "components/multimodal/provider.tsx",
-      "content": "\"use client\"\n\nexport {\n  MultimodalProvider,\n  useInteractionAssistant,\n  useInteractionActions,\n  useInteractionApi,\n  useInteractionHint,\n  useInteractionObject,\n  useInteractionObjects,\n  useInteractionRoutes,\n  useLastResolution,\n  useInteractionSnapshot,\n  useSubmitUtterance,\n  type InteractionAssistantApi,\n  type InteractionApi,\n  type InteractionHint,\n  type InteractionSubmitResult,\n  type UseInteractionAssistantOptions,\n  type UseInteractionRoutesOptions,\n} from \"@multimodal-ui/react\"\nimport \"@multimodal-ui/react/styles.css\"\n"
+      "content": "\"use client\"\n\nexport {\n  MultimodalProvider,\n  useInteractionAssistant,\n  useInteractionActions,\n  useInteractionApi,\n  useInteractionHint,\n  useInteractionManifest,\n  useInteractionObject,\n  useInteractionObjects,\n  useInteractionRoutes,\n  useLastResolution,\n  useInteractionSnapshot,\n  useSubmitUtterance,\n  type InteractionAssistantApi,\n  type InteractionApi,\n  type InteractionHint,\n  type InteractionSubmitResult,\n  type AppInteractionManifest,\n  type UseInteractionAssistantOptions,\n  type UseInteractionRoutesOptions,\n} from \"@multimodal-ui/react\"\nimport \"@multimodal-ui/react/styles.css\"\n"
     }
   ]
 }
