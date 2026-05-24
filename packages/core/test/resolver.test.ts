@@ -23,28 +23,6 @@ describe("resolver", () => {
     })
   })
 
-  it("resolves filter utterances to filter actions", () => {
-    const snapshot = createInteractionSnapshot({
-      stateVersion: 1,
-      visibleObjects: [
-        {
-          id: "todo.filters",
-          type: "composite",
-          role: "filter_tabs",
-          label: "待办过滤",
-          actions: ["todo.filter"],
-        },
-      ],
-    })
-
-    expect(resolveUtterance("只看未完成", snapshot)).toMatchObject({
-      status: "resolved",
-      targetId: "todo.filters",
-      actionId: "todo.filter",
-      params: { filter: "active" },
-    })
-  })
-
   it("prioritizes dialog confirmation and cancellation in modal context", () => {
     const snapshot = createInteractionSnapshot({
       stateVersion: 1,
@@ -148,6 +126,29 @@ describe("resolver", () => {
     })
   })
 
+  it("resolves route-style utterances to navigation actions", () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "app.route.home",
+          type: "composite",
+          role: "route",
+          label: "首页",
+          aliases: ["主页"],
+          actions: ["navigation.goto"],
+        },
+      ],
+    })
+
+    expect(resolveUtterance("回到首页", snapshot)).toMatchObject({
+      status: "resolved",
+      intent: "navigate",
+      targetId: "app.route.home",
+      actionId: "navigation.goto",
+    })
+  })
+
   it("resolves conversational todo completion phrasing", () => {
     const snapshot = createInteractionSnapshot({
       stateVersion: 1,
@@ -177,6 +178,7 @@ describe("resolver", () => {
       targetId: "todo.item.todo_1",
       actionId: "todo.uncomplete",
     })
+
   })
 
   it("does not treat uncomplete as a complete action", () => {

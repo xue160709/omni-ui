@@ -144,9 +144,35 @@ describe("mobile todo app", () => {
     expect(body.messages[0].content).toContain("visibleObjects")
   })
 
-  it("executes todo commands locally from chatbot messages", async () => {
-    const fetchMock = vi.fn()
+  it("falls back to the LLM for todo commands outside the local JSON allowlist", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "interaction_action",
+                  resolution: {
+                    status: "resolved",
+                    utterance: "帮我将买牛奶改成完成",
+                    targetId: "todo_1",
+                    actionId: "todo.complete",
+                    confidence: 0.92,
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
     vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
 
     render(<App />)
 
@@ -161,7 +187,221 @@ describe("mobile todo app", () => {
       expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
     })
     expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalled()
+  })
+
+  it("updates todo detail from an LLM action without navigating first", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "<minimax:tool_call>",
+                  '<invoke name="todo.update">',
+                  '<parameter name="targetId">todo_1</parameter>',
+                  '<parameter name="description">看《铁达尼号》</parameter>',
+                  "</invoke>",
+                  "</minimax:tool_call>",
+                ].join("\n"),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "买牛奶的详情页里是看《铁达尼号》" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已执行：todo.update。")).not.toBeNull()
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: /买牛奶/ }))
+
+    await waitFor(() => {
+      expect((screen.getByLabelText("详情") as HTMLTextAreaElement).value).toBe(
+        "看《铁达尼号》"
+      )
+    })
+  })
+
+  it("executes natural completion phrasing from an LLM action reply", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "interaction_action",
+                  resolution: {
+                    status: "resolved",
+                    utterance: "牛奶买了",
+                    targetId: "todo.item.todo_1",
+                    actionId: "todo.complete",
+                    confidence: 0.92,
+                  },
+                  reply: "已将「买牛奶」标记为完成。",
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "牛奶买了" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
+    })
+    expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+    expect(fetchMock).toHaveBeenCalled()
+  })
+
+  it("executes loose LLM action JSON with entity ids", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "```json",
+                  "{",
+                  '  "intent": "标记为已完成",',
+                  '  "action": "todo.complete",',
+                  '  "targetId": "todo_1"',
+                  "}",
+                  "```",
+                ].join("\n"),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "牛奶买好了" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
+    })
+    expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+  })
+
+  it("executes MiniMax tool-call XML with entity ids", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "<minimax:tool_call>",
+                  '<invoke name="todo.complete">',
+                  '<parameter name="targetId">todo_1</parameter>',
+                  "</invoke>",
+                  "</minimax:tool_call>",
+                ].join("\n"),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "牛奶买好了" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
+    })
+    expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
+  })
+
+  it("lets the LLM clarify bare completion instead of selecting the completed filter", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "你想完成哪一项？" } }],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "完成" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("你想完成哪一项？")).not.toBeNull()
+    })
+    expect(screen.queryByText("已执行：select。")).toBeNull()
+    expect(fetchMock).toHaveBeenCalled()
   })
 
   it("navigates locally from chatbot messages", async () => {
@@ -180,7 +420,7 @@ describe("mobile todo app", () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe("/")
       expect(screen.getByRole("heading", { level: 1, name: "首页" })).not.toBeNull()
-      expect(screen.getByText("已回到首页。")).not.toBeNull()
+      expect(screen.getByText("已打开首页。")).not.toBeNull()
     })
 
     fireEvent.change(screen.getByLabelText("消息"), {
@@ -191,7 +431,7 @@ describe("mobile todo app", () => {
     await waitFor(() => {
       expect(window.location.pathname).toBe("/todos")
       expect(screen.getByRole("heading", { level: 1, name: "待办" })).not.toBeNull()
-      expect(screen.getByText("已打开待办列表。")).not.toBeNull()
+      expect(screen.getByText("已打开待办。")).not.toBeNull()
     })
     expect(fetchMock).not.toHaveBeenCalled()
   })

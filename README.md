@@ -158,6 +158,42 @@ function MyInput() {
 - `resolveText(text)` calls the rule/LLM resolver and returns the proposed target/action without executing it.
 - `submitUtterance(text)` resolves, validates, executes the matching domain or primitive action, and returns a structured result.
 
+## Assistant and Route Helpers
+
+Apps can register non-DOM route targets once, then let chat or voice surfaces execute navigation through the same validated dispatcher:
+
+```tsx
+useInteractionRoutes({
+  routes: [
+    { id: "app.route.home", label: "Home", route: { screen: "home" }, aliases: ["main"] },
+    { id: "app.route.settings", label: "Settings", route: { screen: "settings" } },
+  ],
+  execute: (route) => navigate(route),
+})
+```
+
+`useInteractionAssistant()` wraps the common chatbot path: try a local GUI action first, generate a local reply when something executed, and build an Interaction Snapshot system prompt for LLM fallback.
+
+```tsx
+const assistant = useInteractionAssistant({
+  localExecution: {
+    mode: "allowlist",
+    actionIds: ["navigation.*"],
+    allowPrimitiveActions: false,
+  },
+  localReply: {
+    actionReplies: {
+      "navigation.goto": ({ result }) => `Opened ${result.target?.label}.`,
+    },
+  },
+})
+
+const local = await assistant.trySubmitLocal(text)
+const messages = assistant.createChatMessages([{ role: "user", content: text }])
+```
+
+`localExecution` is app-owned JSON. Use it to keep local parsing intentionally small: `mode: "allowlist"` only executes matching `intents`, `actionIds`, or `primitiveActions` locally; unmatched text should be sent to the LLM fallback. List entries support exact values and prefix wildcards such as `navigation.*`.
+
 ## Verification
 
 ```bash

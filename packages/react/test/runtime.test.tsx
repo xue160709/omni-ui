@@ -5,8 +5,10 @@ import {
   MultimodalGroup,
   MultimodalProvider,
   createLlmResolver,
+  useInteractionAssistant,
   useInteractionApi,
   useInteractionActions,
+  useInteractionRoutes,
   useInteractionSnapshot,
   useSubmitUtterance,
   type ActionContext,
@@ -323,6 +325,151 @@ function ApiHarness() {
   )
 }
 
+function RouteHarness() {
+  const [screen, setScreen] = React.useState("home")
+  const submitUtterance = useSubmitUtterance()
+
+  useInteractionRoutes({
+    routes: [
+      {
+        id: "app.route.home",
+        label: "首页",
+        aliases: ["主页"],
+        route: "home",
+      },
+      {
+        id: "app.route.settings",
+        label: "设置",
+        aliases: ["配置"],
+        route: "settings",
+      },
+    ],
+    execute: (route) => setScreen(String(route)),
+  })
+
+  return (
+    <>
+      <button type="button" onClick={() => void submitUtterance("回到设置")}>
+        voice route
+      </button>
+      <div data-testid="screen">{screen}</div>
+    </>
+  )
+}
+
+function AssistantHarness() {
+  const assistant = useInteractionAssistant({
+    localReply: {
+      actionReplies: {
+        "navigation.goto": ({ result }) => `已打开${result.target?.label ?? "目标"}。`,
+      },
+    },
+  })
+  const [reply, setReply] = React.useState("")
+
+  useInteractionRoutes({
+    routes: [
+      {
+        id: "app.route.home",
+        label: "首页",
+        route: "home",
+      },
+    ],
+    execute: () => undefined,
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await assistant.trySubmitLocal("回到首页")
+          setReply(`${result.handled}:${result.reply?.content ?? ""}`)
+        }}
+      >
+        assistant route
+      </button>
+      <div data-testid="assistant-reply">{reply}</div>
+    </>
+  )
+}
+
+function DisabledLocalAssistantHarness() {
+  const assistant = useInteractionAssistant({
+    localExecution: {
+      mode: "off",
+    },
+  })
+  const [reply, setReply] = React.useState("")
+
+  useInteractionRoutes({
+    routes: [
+      {
+        id: "app.route.home",
+        label: "首页",
+        route: "home",
+      },
+    ],
+    execute: () => undefined,
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await assistant.trySubmitLocal("回到首页")
+          setReply(String(result.handled))
+        }}
+      >
+        disabled assistant route
+      </button>
+      <div data-testid="disabled-assistant-reply">{reply}</div>
+    </>
+  )
+}
+
+function AllowlistedLocalAssistantHarness() {
+  const assistant = useInteractionAssistant({
+    localExecution: {
+      mode: "allowlist",
+      actionIds: ["navigation.goto"],
+    },
+    localReply: {
+      actionReplies: {
+        "navigation.goto": "allowed route",
+      },
+    },
+  })
+  const [reply, setReply] = React.useState("")
+
+  useInteractionRoutes({
+    routes: [
+      {
+        id: "app.route.home",
+        label: "首页",
+        route: "home",
+      },
+    ],
+    execute: () => undefined,
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await assistant.trySubmitLocal("回到首页")
+          setReply(`${result.handled}:${result.reply?.content ?? ""}`)
+        }}
+      >
+        allowlisted assistant route
+      </button>
+      <div data-testid="allowlisted-assistant-reply">{reply}</div>
+    </>
+  )
+}
+
 describe("MultimodalProvider", () => {
   it("resolves a voice command and executes the registered domain action", async () => {
     render(
@@ -552,6 +699,64 @@ describe("MultimodalProvider", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("api-result").textContent).toMatch(/^true:domain-action:/)
+    })
+  })
+
+  it("registers virtual route objects and executes route commands", async () => {
+    render(
+      <MultimodalProvider>
+        <RouteHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "voice route" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("screen").textContent).toBe("settings")
+    })
+  })
+
+  it("lets assistant surfaces try local interaction before chat fallback", async () => {
+    render(
+      <MultimodalProvider>
+        <AssistantHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "assistant route" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("assistant-reply").textContent).toBe("true:已打开首页。")
+    })
+  })
+
+  it("lets assistant local execution be disabled by policy", async () => {
+    render(
+      <MultimodalProvider>
+        <DisabledLocalAssistantHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "disabled assistant route" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("disabled-assistant-reply").textContent).toBe("false")
+    })
+  })
+
+  it("lets assistant local execution be allowlisted by action id", async () => {
+    render(
+      <MultimodalProvider>
+        <AllowlistedLocalAssistantHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "allowlisted assistant route" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("allowlisted-assistant-reply").textContent).toBe(
+        "true:allowed route"
+      )
     })
   })
 })

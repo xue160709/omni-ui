@@ -666,6 +666,38 @@ textarea:focus {
   }
 }
 
+@media (min-width: 960px) {
+  .mobile-shell[data-chat-open="true"] {
+    width: min(540px, calc(100vw - 460px));
+    margin-right: auto;
+    margin-left: max(24px, calc((100vw - 1120px) / 2 + 24px));
+  }
+
+  .mobile-shell[data-chat-open="true"] .bottom-tabs {
+    right: auto;
+    left: max(24px, calc((100vw - 1120px) / 2 + 24px));
+    width: min(480px, calc(100vw - 460px));
+  }
+
+  .chat-sheet {
+    top: 34px;
+    right: max(24px, calc((100vw - 1120px) / 2 + 24px));
+    bottom: 24px;
+    left: auto;
+    width: min(380px, calc(100vw - 560px));
+    max-height: none;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .sheet-handle {
+    display: none;
+  }
+
+  .chat-log {
+    min-height: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,3 +1,4 @@
+export * from "./assistant"
 export * from "./action-registry"
 export * from "./feedback"
 export * from "./llm-resolver"

@@ -1,3 +1,5 @@
 export * from "@multimodal-ui/core"
+export * from "./assistant"
+export * from "./routes"
 export * from "./runtime"
 import "./styles.css"

@@ -75,12 +75,6 @@ function resolveWithRules({
   snapshot,
 }: IntentResolverContext): ResolvedInteraction {
   const text = utterance.trim()
-  const filter = resolveFilterIntent(text, snapshot)
-  if (filter) return filter
-
-  const add = resolveAddIntent(text, snapshot)
-  if (add) return add
-
   const intent = inferIntent(text)
   const dialog = resolveDialogIntent(text, intent, snapshot)
   if (dialog) return dialog
@@ -88,6 +82,7 @@ function resolveWithRules({
   const ordinal = extractOrdinal(text)
   const targetByOrdinal = ordinal ? findObjectByOrdinal(snapshot, ordinal) : undefined
   const targetText = ordinal ? "" : extractTargetText(text, intent)
+
   const selectTarget =
     intent === "select"
       ? ordinal
@@ -135,6 +130,7 @@ function resolveWithRules({
 
 export function inferIntent(text: string): string {
   if (/确认|确定|好的|好/.test(text)) return "confirm"
+  if (/^(点击|点一下|点|按一下|按)/.test(text)) return "click"
   if (/取消完成|取消勾选/.test(text)) return "uncomplete"
   if (/取消|算了|关闭弹窗/.test(text)) return "cancel"
   if (/删除|移除|删掉/.test(text)) return "delete"
@@ -142,6 +138,7 @@ export function inferIntent(text: string): string {
   if (/关闭|关掉/.test(text)) return "close"
   if (/打开|开启|开/.test(text)) return "open"
   if (/选择|切到|切换|只看|显示/.test(text)) return "select"
+  if (/^(回到|返回|去|进入|前往|跳转|导航到)/.test(text)) return "navigate"
   if (/调高|增大|加/.test(text)) return "increase"
   if (/调低|减小|降低/.test(text)) return "decrease"
   if (/添加|新增|创建/.test(text)) return "add"
@@ -225,38 +222,6 @@ function findSelectableControlByOption(
   })
 }
 
-function resolveFilterIntent(
-  text: string,
-  snapshot: InteractionSnapshot
-): ResolvedInteraction | undefined {
-  const filter = /未完成|待办|进行中/.test(text)
-    ? "active"
-    : /已完成|完成的/.test(text)
-      ? "completed"
-      : /全部|所有/.test(text)
-        ? "all"
-        : undefined
-
-  if (!filter || !/只看|显示|筛选|过滤|切到|切换/.test(text)) return undefined
-
-  const target = snapshot.visibleObjects.find(
-    (object) => object.role === "filter_tabs" || object.actions?.some((action) => action.endsWith(".filter"))
-  )
-  const actionId = target?.actions?.find((action) => action.endsWith(".filter"))
-
-  if (!target || !actionId) return undefined
-
-  return {
-    status: "resolved",
-    utterance: text,
-    intent: "filter",
-    targetId: target.id,
-    actionId,
-    params: { filter },
-    confidence: 0.94,
-  }
-}
-
 function resolveDialogIntent(
   text: string,
   intent: string,
@@ -291,31 +256,6 @@ function resolveDialogIntent(
   }
 }
 
-function resolveAddIntent(
-  text: string,
-  snapshot: InteractionSnapshot
-): ResolvedInteraction | undefined {
-  if (!/添加|新增|创建/.test(text)) return undefined
-
-  const title = text.split(/[:：]/).slice(1).join("：").trim()
-  const target = snapshot.visibleObjects.find(
-    (object) => object.role === "composer" || object.actions?.some((action) => action.endsWith(".add"))
-  )
-  const actionId = target?.actions?.find((action) => action.endsWith(".add"))
-
-  if (!target || !actionId) return undefined
-
-  return {
-    status: "resolved",
-    utterance: text,
-    intent: "add",
-    targetId: target.id,
-    actionId,
-    params: title ? { title } : {},
-    confidence: title ? 0.92 : 0.72,
-  }
-}
-
 function extractTargetText(text: string, intent: string): string {
   const commandWords: Record<string, RegExp> = {
     click: /^(点击|点一下|点|按一下|按)/,
@@ -325,6 +265,7 @@ function extractTargetText(text: string, intent: string): string {
     complete: /^(把)?(.*?)(标记完成|完成|勾选)$/,
     uncomplete: /^(取消完成|取消勾选)/,
     select: /^(选择|切到|切换到|显示|只看)/,
+    navigate: /^(回到|返回到?|返回|去|进入|前往|跳转到?|导航到?)/,
     increase: /^(调高|增大|加大)/,
     decrease: /^(调低|减小|降低)/,
     add: /^(添加|新增|创建)/,
@@ -433,6 +374,13 @@ function chooseAction(
     if (primitiveAction) return { primitiveAction }
   }
 
+  if (intent === "navigate") {
+    const actionId = domain([".goto", ".navigate", ".open", "goto", "navigate", "open", "switchTo"])
+    if (actionId) return { actionId }
+    const primitiveAction = primitive(["press", "open", "switchTo", "select"])
+    if (primitiveAction) return { primitiveAction }
+  }
+
   if (intent === "confirm") {
     const actionId = domain([".confirm", "confirm"])
     if (actionId) return { actionId }
@@ -464,6 +412,10 @@ function chooseAction(
   if (intent === "add") {
     const actionId = domain([".add", "add"])
     if (actionId) return { actionId }
+  }
+
+  if (["complete", "uncomplete", "delete", "increase", "decrease", "add"].includes(intent)) {
+    return undefined
   }
 
   const actionId = domain([".confirm", ".add", ".open"])

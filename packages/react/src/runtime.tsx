@@ -63,6 +63,8 @@ type RegisteredPage = {
   state?: Record<string, unknown>
 }
 
+type RegisteredVirtualObject = InteractionObject
+
 type ActionRegistration = {
   namespace: string
   actions: Record<string, DomainActionSpec>
@@ -81,6 +83,7 @@ type RuntimeContextValue = {
   submitUtterance: (text: string, options?: InteractionSubmitOptions) => Promise<InteractionSubmitResult>
   registerNode: (node: RegisteredNode) => () => void
   registerGroup: (group: RegisteredGroup) => () => void
+  registerObject: (object: RegisteredVirtualObject) => () => void
   registerPage: (page: RegisteredPage) => () => void
   registerActions: (registration: ActionRegistration) => () => void
 }
@@ -123,6 +126,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const [version, setVersion] = React.useState(0)
   const [nodes, setNodes] = React.useState(() => new Map<string, RegisteredNode>())
   const [groups, setGroups] = React.useState(() => new Map<string, RegisteredGroup>())
+  const [objects, setObjects] = React.useState(() => new Map<string, RegisteredVirtualObject>())
   const [page, setPage] = React.useState<RegisteredPage | undefined>()
   const [actions, setActions] = React.useState(() => new Map<string, ActionRegistration>())
   const [lastResolution, setLastResolution] = React.useState<ResolvedInteraction | undefined>()
@@ -244,6 +248,10 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       })
     }
 
+    const virtualObjects = Array.from(objects.values()).map((object) => ({
+      ...object,
+      source: object.source ?? "registered_object",
+    }))
     const groupObjects = buildGroupObjects(groups, rawObjects, elementMap)
     groupObjects.forEach((object) => {
       const group = groups.get(object.id)
@@ -296,7 +304,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       stateVersion: version,
       page: pageObject,
       contextStack: [...pageContext, ...modalContexts],
-      visibleObjects: [...groupObjects, ...rawObjects],
+      visibleObjects: [...virtualObjects, ...groupObjects, ...rawObjects],
       focus: focusedNode
         ? {
             objectId: focusedNode[0],
@@ -314,7 +322,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     elementByObjectId.current = elementMap
     snapshotRef.current = builtSnapshot
     return builtSnapshot
-  }, [actionSpecs, device, groups, language, nodes, page, version])
+  }, [actionSpecs, device, groups, language, nodes, objects, page, version])
 
   const applyFeedback = React.useCallback((targetId: string, phase: string) => {
     const element = elementByObjectId.current.get(targetId)
@@ -375,12 +383,6 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         }
       }
 
-      applyFeedback(resolution.targetId, "voice-target")
-      elementByObjectId.current
-        .get(resolution.targetId)
-        ?.ownerDocument.defaultView
-        ?.setTimeout(() => applyFeedback(resolution.targetId!, "voice-press"), 80)
-
       if (resolution.actionId) {
         const validation = validateActionRequest(currentSnapshot, {
           actionId: resolution.actionId,
@@ -426,6 +428,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         }
 
         try {
+          applyFeedback(resolution.targetId, "voice-target")
+          applyFeedback(resolution.targetId, "voice-press")
           await spec.execute(action as ActionPayload, {
             actionId: resolution.actionId,
             target,
@@ -460,6 +464,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
         const element = elementByObjectId.current.get(resolution.targetId)
         if (element) {
+          applyFeedback(resolution.targetId, "voice-target")
+          applyFeedback(resolution.targetId, "voice-press")
           applyPrimitiveAction(element, resolution.primitiveAction, resolution.params)
           applyFeedback(resolution.targetId, "success")
           bumpVersion()
@@ -541,6 +547,22 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     [bumpVersion]
   )
 
+  const registerObject = React.useCallback(
+    (object: RegisteredVirtualObject) => {
+      setObjects((current) => new Map(current).set(object.id, object))
+      bumpVersion()
+      return () => {
+        setObjects((current) => {
+          const next = new Map(current)
+          next.delete(object.id)
+          return next
+        })
+        bumpVersion()
+      }
+    },
+    [bumpVersion]
+  )
+
   const registerPage = React.useCallback(
     (nextPage: RegisteredPage) => {
       setPage(nextPage)
@@ -579,6 +601,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       submitUtterance,
       registerNode,
       registerGroup,
+      registerObject,
       registerPage,
       registerActions,
     }),
@@ -589,6 +612,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       registerActions,
       registerGroup,
       registerNode,
+      registerObject,
       registerPage,
       resolveText,
       snapshot,
@@ -739,6 +763,28 @@ export function MultimodalGroup({
       {children}
     </div>
   )
+}
+
+export function useInteractionObject(object: InteractionObject): void {
+  const { registerObject } = useMultimodalRuntime()
+  const objectSignature = stableStringify(object)
+
+  React.useEffect(
+    () => registerObject(object),
+    [object.id, objectSignature, registerObject]
+  )
+}
+
+export function useInteractionObjects(objects: InteractionObject[]): void {
+  const { registerObject } = useMultimodalRuntime()
+  const objectsSignature = stableStringify(objects)
+
+  React.useEffect(() => {
+    const disposers = objects.map((object) => registerObject(object))
+    return () => {
+      disposers.forEach((dispose) => dispose())
+    }
+  }, [objectsSignature, registerObject])
 }
 
 export type UseInteractionActionsOptions<TAction extends ActionPayload = ActionPayload> = {
