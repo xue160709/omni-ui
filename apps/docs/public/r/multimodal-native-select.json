@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-native-select",
+  "type": "registry:component",
+  "title": "Multimodal Native Select",
+  "description": "shadcn NativeSelect wrapper that registers native option selection semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/native-select.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/native-select.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { NativeSelect as ShadcnNativeSelect } from \"@/components/ui/native-select\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalNativeSelectProps = React.ComponentProps<typeof ShadcnNativeSelect> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：NativeSelect 注册 selectByLabel/selectByIndex，比纯 DOM fallback 更稳定地表达原生选择器。\n// English: NativeSelect registers selectByLabel/selectByIndex for stable native-select semantics.\nexport const MultimodalNativeSelect = React.forwardRef<\n  React.ElementRef<typeof ShadcnNativeSelect>,\n  MultimodalNativeSelectProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnNativeSelect>>({\n    id: interactionId,\n    role: \"select\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"selectByLabel\", \"selectByIndex\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnNativeSelect ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalNativeSelect.displayName = \"MultimodalNativeSelect\"\n\n"
+    }
+  ]
+}

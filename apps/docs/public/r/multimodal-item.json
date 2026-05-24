@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-item",
+  "type": "registry:component",
+  "title": "Multimodal Item",
+  "description": "shadcn Item wrappers that register item group and item semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/item.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/item.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Item as ShadcnItem,\n  ItemActions,\n  ItemContent,\n  ItemDescription,\n  ItemFooter,\n  ItemGroup as ShadcnItemGroup,\n  ItemHeader,\n  ItemMedia,\n  ItemSeparator,\n  ItemTitle,\n} from \"@/components/ui/item\"\nimport { MultimodalGroup, type EntityRef, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalItemGroupProps = React.ComponentProps<typeof ShadcnItemGroup> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：ItemGroup 注册为 list，提供可见序号别名，支持“打开第二项”。\n// English: ItemGroup registers as a list with visible-order aliases for commands like open the second item.\nexport function MultimodalItemGroup({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalItemGroupProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"list\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint)}\n      aliases={resolveInteractionAliases(interactionHint)}\n      indexBy=\"visible_order\"\n    >\n      <ShadcnItemGroup {...props}>{children}</ShadcnItemGroup>\n    </MultimodalGroup>\n  )\n}\n\ntype MultimodalItemProps = React.ComponentProps<typeof ShadcnItem> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n  entity?: EntityRef\n  state?: Record<string, unknown>\n}\n\n// 中文：Item 注册为 list_item，适合内容、媒体和动作组成的业务条目。\n// English: Item registers as list_item for business items composed of content, media, and actions.\nexport function MultimodalItem({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  entity,\n  state,\n  children,\n  ...props\n}: MultimodalItemProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"list_item\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint)}\n      aliases={resolveInteractionAliases(interactionHint)}\n      entity={entity}\n      state={state}\n    >\n      <ShadcnItem {...props}>{children}</ShadcnItem>\n    </MultimodalGroup>\n  )\n}\n\nexport {\n  ItemActions,\n  ItemContent,\n  ItemDescription,\n  ItemFooter,\n  ItemHeader,\n  ItemMedia,\n  ItemSeparator,\n  ItemTitle,\n}\n\n"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-breadcrumb",
+  "type": "registry:component",
+  "title": "Multimodal Breadcrumb",
+  "description": "shadcn Breadcrumb wrappers that register hierarchy navigation semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/breadcrumb.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/breadcrumb.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Breadcrumb,\n  BreadcrumbEllipsis as ShadcnBreadcrumbEllipsis,\n  BreadcrumbItem,\n  BreadcrumbLink as ShadcnBreadcrumbLink,\n  BreadcrumbList,\n  BreadcrumbPage,\n  BreadcrumbSeparator,\n} from \"@/components/ui/breadcrumb\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalBreadcrumbLinkProps = React.ComponentProps<typeof ShadcnBreadcrumbLink> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Breadcrumb link 注册为 link，支持“回到上一级/打开项目页”等层级导航。\n// English: Breadcrumb link registers as a link for hierarchy navigation commands.\nexport const MultimodalBreadcrumbLink = React.forwardRef<\n  React.ElementRef<typeof ShadcnBreadcrumbLink>,\n  MultimodalBreadcrumbLinkProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnBreadcrumbLink>>({\n    id: interactionId,\n    role: \"link\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnBreadcrumbLink ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalBreadcrumbLink.displayName = \"MultimodalBreadcrumbLink\"\n\ntype MultimodalBreadcrumbEllipsisProps = React.ComponentProps<typeof ShadcnBreadcrumbEllipsis> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Breadcrumb ellipsis 暴露 open/press，用于打开被折叠的层级。\n// English: Breadcrumb ellipsis exposes open/press for collapsed hierarchy items.\nexport const MultimodalBreadcrumbEllipsis = React.forwardRef<\n  React.ElementRef<typeof ShadcnBreadcrumbEllipsis>,\n  MultimodalBreadcrumbEllipsisProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnBreadcrumbEllipsis>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"open\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnBreadcrumbEllipsis ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalBreadcrumbEllipsis.displayName = \"MultimodalBreadcrumbEllipsis\"\n\nexport {\n  Breadcrumb,\n  BreadcrumbItem,\n  BreadcrumbList,\n  BreadcrumbPage,\n  BreadcrumbSeparator,\n}\n\n"
+    }
+  ]
+}

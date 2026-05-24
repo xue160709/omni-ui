@@ -81,11 +81,20 @@ export function inferPrimitiveActions(role: string, element?: HTMLElement): Prim
   if (role === "switch") return ["turnOn", "turnOff", "toggle"]
   if (role === "checkbox") return ["check", "uncheck", "toggle"]
   if (role === "radio") return ["select"]
+  if (role === "radiogroup" || role === "toggle_group") return ["selectByLabel", "selectByIndex"]
   if (role === "slider") return ["setValue", "increase", "decrease"]
   if (role === "textbox") return ["focus", "setText", "appendText", "clear"]
   if (role === "tab") return ["switchTo", "select"]
   if (role === "select" || role === "combobox") return ["open", "selectByLabel", "selectByIndex"]
   if (role === "command" || role === "command_item") return ["search", "selectResult", "select"]
+  if (role === "calendar") return ["selectDate", "nextMonth", "previousMonth"]
+  if (role === "date_picker") return ["open", "selectDate", "clear"]
+  if (role === "carousel") return ["next", "previous", "selectSlide"]
+  if (role === "resize_handle") return ["resize", "increase", "decrease"]
+  if (role === "scroll_area") return ["scrollUp", "scrollDown", "scrollToTop", "scrollToBottom"]
+  if (role === "context_menu_trigger") return ["open"]
+  if (role === "menuitemcheckbox") return ["toggle", "select", "press"]
+  if (role === "menuitemradio") return ["select", "press"]
   if (role === "option" || role === "menuitem") return ["select", "press"]
   if (element instanceof HTMLSelectElement) return ["selectByLabel", "selectByIndex"]
   return []
@@ -112,6 +121,14 @@ export function getElementState(element: HTMLElement): Record<string, unknown> {
 
   if (element.getAttribute("aria-selected") != null) {
     state.selected = element.getAttribute("aria-selected") === "true"
+  }
+
+  if (element.getAttribute("aria-pressed") != null) {
+    state.pressed = element.getAttribute("aria-pressed") === "true"
+  }
+
+  if (element.getAttribute("aria-expanded") != null) {
+    state.expanded = element.getAttribute("aria-expanded") === "true"
   }
 
   if (element.getAttribute("aria-valuenow") != null) {
@@ -204,6 +221,25 @@ export function applyPrimitiveAction(
     return
   }
 
+  if (action === "scrollUp" || action === "scrollDown") {
+    const target = findScrollTarget(element)
+    const delta = target.clientHeight ? target.clientHeight * 0.7 : 240
+    target.scrollBy({
+      top: action === "scrollDown" ? delta : -delta,
+      behavior: "smooth",
+    })
+    return
+  }
+
+  if (action === "scrollToTop" || action === "scrollToBottom") {
+    const target = findScrollTarget(element)
+    target.scrollTo({
+      top: action === "scrollToTop" ? 0 : target.scrollHeight,
+      behavior: "smooth",
+    })
+    return
+  }
+
   if (action === "check" && element instanceof HTMLInputElement && !element.checked) {
     element.click()
     return
@@ -224,9 +260,41 @@ export function applyPrimitiveAction(
     return
   }
 
-  if (["press", "toggle", "open", "close", "confirm", "cancel", "select", "switchTo"].includes(action)) {
+  if (
+    [
+      "press",
+      "toggle",
+      "open",
+      "close",
+      "confirm",
+      "cancel",
+      "select",
+      "switchTo",
+      "selectRow",
+      "openRow",
+      "next",
+      "previous",
+    ].includes(action)
+  ) {
     element.click()
   }
+}
+
+function findScrollTarget(element: HTMLElement): HTMLElement {
+  const radixViewport = element.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]")
+  if (radixViewport) return radixViewport
+
+  if (element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth) {
+    return element
+  }
+
+  return (
+    Array.from(element.querySelectorAll<HTMLElement>("*")).find(
+      (candidate) =>
+        candidate.scrollHeight > candidate.clientHeight ||
+        candidate.scrollWidth > candidate.clientWidth
+    ) ?? element
+  )
 }
 
 // 中文：可见性判断覆盖 hidden/aria-hidden、关闭的 details、display/visibility，避免快照暴露不可操作目标。

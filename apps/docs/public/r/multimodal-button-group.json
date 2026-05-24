@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-button-group",
+  "type": "registry:component",
+  "title": "Multimodal Button Group",
+  "description": "shadcn ButtonGroup wrapper that registers grouped button semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/button-group.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/button-group.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  ButtonGroup as ShadcnButtonGroup,\n  ButtonGroupSeparator,\n  ButtonGroupText,\n} from \"@/components/ui/button-group\"\nimport { MultimodalGroup, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalButtonGroupProps = React.ComponentProps<typeof ShadcnButtonGroup> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：ButtonGroup 注册为 button_group，让一组相关按钮获得共同上下文。\n// English: ButtonGroup registers as button_group so related buttons share a common context.\nexport function MultimodalButtonGroup({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalButtonGroupProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"button_group\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint)}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnButtonGroup {...props}>{children}</ShadcnButtonGroup>\n    </MultimodalGroup>\n  )\n}\n\nexport { ButtonGroupSeparator, ButtonGroupText }\n\n"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-collapsible",
+  "type": "registry:component",
+  "title": "Multimodal Collapsible",
+  "description": "shadcn Collapsible wrappers that register expandable region semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/collapsible.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/collapsible.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Collapsible,\n  CollapsibleContent as ShadcnCollapsibleContent,\n  CollapsibleTrigger as ShadcnCollapsibleTrigger,\n} from \"@/components/ui/collapsible\"\nimport {\n  MultimodalGroup,\n  useInteractionNode,\n  type InteractionHint,\n} from \"@multimodal-ui/react\"\nimport { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalCollapsibleTriggerProps = React.ComponentProps<typeof ShadcnCollapsibleTrigger> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Collapsible trigger 暴露 open/close/toggle，适合展开详情、筛选条件和侧栏块。\n// English: Collapsible trigger exposes open/close/toggle for details, filters, and sidebar sections.\nexport const MultimodalCollapsibleTrigger = React.forwardRef<\n  React.ElementRef<typeof ShadcnCollapsibleTrigger>,\n  MultimodalCollapsibleTriggerProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnCollapsibleTrigger>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"open\", \"close\", \"toggle\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnCollapsibleTrigger ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalCollapsibleTrigger.displayName = \"MultimodalCollapsibleTrigger\"\n\ntype MultimodalCollapsibleContentProps = React.ComponentProps<typeof ShadcnCollapsibleContent> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Collapsible content 注册为 region，给内部控件一个可说的区域边界。\n// English: Collapsible content registers as a region boundary for controls inside.\nexport function MultimodalCollapsibleContent({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalCollapsibleContentProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"region\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"展开区域\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnCollapsibleContent {...props}>{children}</ShadcnCollapsibleContent>\n    </MultimodalGroup>\n  )\n}\n\nexport { Collapsible }\n\n"
+    }
+  ]
+}

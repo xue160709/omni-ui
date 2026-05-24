@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-alert-dialog",
+  "type": "registry:component",
+  "title": "Multimodal Alert Dialog",
+  "description": "shadcn AlertDialog wrappers that register confirm and cancel semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/alert-dialog.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/alert-dialog.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  AlertDialog,\n  AlertDialogAction as ShadcnAlertDialogAction,\n  AlertDialogCancel as ShadcnAlertDialogCancel,\n  AlertDialogContent,\n  AlertDialogDescription,\n  AlertDialogFooter,\n  AlertDialogHeader,\n  AlertDialogTitle,\n  AlertDialogTrigger,\n} from \"@/components/ui/alert-dialog\"\nimport {\n  MultimodalGroup,\n  useInteractionNode,\n  type InteractionHint,\n} from \"@multimodal-ui/react\"\nimport { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalAlertDialogContentProps = React.ComponentProps<typeof AlertDialogContent> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：AlertDialog content 注册为 alertdialog，让运行时优先处理确认/取消语境。\n// English: AlertDialog content registers as alertdialog so the runtime prioritizes confirm/cancel context.\nexport function MultimodalAlertDialogContent({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalAlertDialogContentProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"alertdialog\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"确认对话框\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <AlertDialogContent {...props}>{children}</AlertDialogContent>\n    </MultimodalGroup>\n  )\n}\n\ntype MultimodalAlertDialogActionProps = React.ComponentProps<typeof ShadcnAlertDialogAction> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：确认按钮暴露 confirm/press，兼容“确认”“继续”“点确定”等表达。\n// English: The action button exposes confirm/press for phrases like confirm, continue, or click OK.\nexport const MultimodalAlertDialogAction = React.forwardRef<\n  React.ElementRef<typeof ShadcnAlertDialogAction>,\n  MultimodalAlertDialogActionProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnAlertDialogAction>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"confirm\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnAlertDialogAction ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalAlertDialogAction.displayName = \"MultimodalAlertDialogAction\"\n\ntype MultimodalAlertDialogCancelProps = React.ComponentProps<typeof ShadcnAlertDialogCancel> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：取消按钮暴露 cancel/press，便于模型和规则区分确认与放弃。\n// English: The cancel button exposes cancel/press so resolvers can distinguish accept from dismiss.\nexport const MultimodalAlertDialogCancel = React.forwardRef<\n  React.ElementRef<typeof ShadcnAlertDialogCancel>,\n  MultimodalAlertDialogCancelProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnAlertDialogCancel>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"cancel\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnAlertDialogCancel ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalAlertDialogCancel.displayName = \"MultimodalAlertDialogCancel\"\n\nexport {\n  AlertDialog,\n  AlertDialogDescription,\n  AlertDialogFooter,\n  AlertDialogHeader,\n  AlertDialogTitle,\n  AlertDialogTrigger,\n}\n\n"
+    }
+  ]
+}

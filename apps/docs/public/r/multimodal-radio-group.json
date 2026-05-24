@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-radio-group",
+  "type": "registry:component",
+  "title": "Multimodal Radio Group",
+  "description": "shadcn RadioGroup wrappers that register radiogroup and radio option semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/radio-group.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/radio-group.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  RadioGroup,\n  RadioGroupItem as ShadcnRadioGroupItem,\n} from \"@/components/ui/radio-group\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalRadioGroupProps = React.ComponentProps<typeof RadioGroup> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：RadioGroup 根节点注册为 radiogroup，表达“按标签或序号选择一个选项”的组合语义。\n// English: RadioGroup root registers as a radiogroup for \"choose an option by label or index\" semantics.\nexport const MultimodalRadioGroup = React.forwardRef<\n  React.ElementRef<typeof RadioGroup>,\n  MultimodalRadioGroupProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof RadioGroup>>({\n    id: interactionId,\n    role: \"radiogroup\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"selectByLabel\", \"selectByIndex\"],\n    hint: interactionHint,\n  })\n\n  return <RadioGroup ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalRadioGroup.displayName = \"MultimodalRadioGroup\"\n\ntype MultimodalRadioGroupItemProps = React.ComponentProps<typeof ShadcnRadioGroupItem> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Radio item 暴露 select，便于“选中标准/高级/第一个”这类命令定位真实选项。\n// English: Radio item exposes select so commands can target the concrete visible option.\nexport const MultimodalRadioGroupItem = React.forwardRef<\n  React.ElementRef<typeof ShadcnRadioGroupItem>,\n  MultimodalRadioGroupItemProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnRadioGroupItem>>({\n    id: interactionId,\n    role: \"radio\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"select\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnRadioGroupItem ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalRadioGroupItem.displayName = \"MultimodalRadioGroupItem\"\n\n"
+    }
+  ]
+}

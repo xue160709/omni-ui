@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-accordion",
+  "type": "registry:component",
+  "title": "Multimodal Accordion",
+  "description": "shadcn Accordion wrappers that register expandable section semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/accordion.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/accordion.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Accordion,\n  AccordionContent as ShadcnAccordionContent,\n  AccordionItem,\n  AccordionTrigger as ShadcnAccordionTrigger,\n} from \"@/components/ui/accordion\"\nimport {\n  MultimodalGroup,\n  useInteractionNode,\n  type InteractionHint,\n} from \"@multimodal-ui/react\"\nimport { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalAccordionTriggerProps = React.ComponentProps<typeof ShadcnAccordionTrigger> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Accordion trigger 暴露 open/close/toggle，支持“展开第二节/收起详情”。\n// English: Accordion trigger exposes open/close/toggle for expanding or collapsing sections.\nexport const MultimodalAccordionTrigger = React.forwardRef<\n  React.ElementRef<typeof ShadcnAccordionTrigger>,\n  MultimodalAccordionTriggerProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnAccordionTrigger>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"open\", \"close\", \"toggle\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnAccordionTrigger ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalAccordionTrigger.displayName = \"MultimodalAccordionTrigger\"\n\ntype MultimodalAccordionContentProps = React.ComponentProps<typeof ShadcnAccordionContent> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Accordion content 注册为 region，让展开内容成为可引用的局部区域。\n// English: Accordion content registers as a region so expanded content can be referenced locally.\nexport function MultimodalAccordionContent({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalAccordionContentProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"region\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"折叠内容\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnAccordionContent {...props}>{children}</ShadcnAccordionContent>\n    </MultimodalGroup>\n  )\n}\n\nexport { Accordion, AccordionItem }\n\n"
+    }
+  ]
+}

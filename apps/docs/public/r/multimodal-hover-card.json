@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-hover-card",
+  "type": "registry:component",
+  "title": "Multimodal Hover Card",
+  "description": "shadcn HoverCard wrappers that register trigger and preview content semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/hover-card.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/hover-card.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  HoverCard,\n  HoverCardContent as ShadcnHoverCardContent,\n  HoverCardTrigger as ShadcnHoverCardTrigger,\n} from \"@/components/ui/hover-card\"\nimport {\n  MultimodalGroup,\n  useInteractionNode,\n  type InteractionHint,\n} from \"@multimodal-ui/react\"\nimport { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalHoverCardTriggerProps = React.ComponentProps<typeof ShadcnHoverCardTrigger> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：HoverCard trigger 注册 open/focus，用于“查看这个人的信息”等悬浮详情。\n// English: HoverCard trigger registers open/focus for hover-detail surfaces such as profile previews.\nexport const MultimodalHoverCardTrigger = React.forwardRef<\n  React.ElementRef<typeof ShadcnHoverCardTrigger>,\n  MultimodalHoverCardTriggerProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnHoverCardTrigger>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"open\", \"focus\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnHoverCardTrigger ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalHoverCardTrigger.displayName = \"MultimodalHoverCardTrigger\"\n\ntype MultimodalHoverCardContentProps = React.ComponentProps<typeof ShadcnHoverCardContent> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：HoverCard content 注册为 hovercard 语义区域，暴露当前悬浮详情。\n// English: HoverCard content registers as a hovercard semantic region for the visible detail surface.\nexport function MultimodalHoverCardContent({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalHoverCardContentProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"hovercard\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"详情卡片\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnHoverCardContent {...props}>{children}</ShadcnHoverCardContent>\n    </MultimodalGroup>\n  )\n}\n\nexport { HoverCard }\n\n"
+    }
+  ]
+}

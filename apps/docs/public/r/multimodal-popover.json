@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-popover",
+  "type": "registry:component",
+  "title": "Multimodal Popover",
+  "description": "shadcn Popover wrappers that register trigger and popover content semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/popover.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/popover.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Popover,\n  PopoverAnchor,\n  PopoverContent as ShadcnPopoverContent,\n  PopoverTrigger as ShadcnPopoverTrigger,\n} from \"@/components/ui/popover\"\nimport {\n  MultimodalGroup,\n  useInteractionNode,\n  type InteractionHint,\n} from \"@multimodal-ui/react\"\nimport { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalPopoverTriggerProps = React.ComponentProps<typeof ShadcnPopoverTrigger> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Popover trigger 注册 open/press，适合“打开筛选器/更多信息”等短暂浮层。\n// English: Popover trigger registers open/press for transient surfaces such as filters or extra details.\nexport const MultimodalPopoverTrigger = React.forwardRef<\n  React.ElementRef<typeof ShadcnPopoverTrigger>,\n  MultimodalPopoverTriggerProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnPopoverTrigger>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"open\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnPopoverTrigger ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalPopoverTrigger.displayName = \"MultimodalPopoverTrigger\"\n\ntype MultimodalPopoverContentProps = React.ComponentProps<typeof ShadcnPopoverContent> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Popover content 注册为 popover 容器，让其中控件获得局部语义上下文。\n// English: Popover content registers as a popover container so controls inside get local context.\nexport function MultimodalPopoverContent({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalPopoverContentProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"popover\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"浮层\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnPopoverContent {...props}>{children}</ShadcnPopoverContent>\n    </MultimodalGroup>\n  )\n}\n\nexport { Popover, PopoverAnchor }\n\n"
+    }
+  ]
+}

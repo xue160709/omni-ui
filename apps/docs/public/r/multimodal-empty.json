@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-empty",
+  "type": "registry:component",
+  "title": "Multimodal Empty",
+  "description": "shadcn Empty wrapper that registers empty-state semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/empty.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/empty.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Empty as ShadcnEmpty,\n  EmptyContent,\n  EmptyDescription,\n  EmptyHeader,\n  EmptyMedia,\n  EmptyTitle,\n} from \"@/components/ui/empty\"\nimport { MultimodalGroup, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalEmptyProps = React.ComponentProps<typeof ShadcnEmpty> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Empty 注册为空状态区域，让助手能说明当前为什么没有数据以及有哪些后续动作。\n// English: Empty registers as an empty_state region so assistants can explain why there is no data and what actions are available.\nexport function MultimodalEmpty({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalEmptyProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"empty_state\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"空状态\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnEmpty {...props}>{children}</ShadcnEmpty>\n    </MultimodalGroup>\n  )\n}\n\nexport {\n  EmptyContent,\n  EmptyDescription,\n  EmptyHeader,\n  EmptyMedia,\n  EmptyTitle,\n}\n\n"
+    }
+  ]
+}

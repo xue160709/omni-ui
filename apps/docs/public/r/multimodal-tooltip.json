@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-tooltip",
+  "type": "registry:component",
+  "title": "Multimodal Tooltip",
+  "description": "shadcn Tooltip wrappers that register trigger and tooltip content semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/tooltip.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/tooltip.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Tooltip,\n  TooltipContent as ShadcnTooltipContent,\n  TooltipProvider,\n  TooltipTrigger as ShadcnTooltipTrigger,\n} from \"@/components/ui/tooltip\"\nimport {\n  MultimodalGroup,\n  useInteractionNode,\n  type InteractionHint,\n} from \"@multimodal-ui/react\"\nimport { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalTooltipTriggerProps = React.ComponentProps<typeof ShadcnTooltipTrigger> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Tooltip trigger 暴露 focus/press，让用户能说“看看这个提示”或直接触发按钮。\n// English: Tooltip trigger exposes focus/press for \"show this hint\" or direct activation.\nexport const MultimodalTooltipTrigger = React.forwardRef<\n  React.ElementRef<typeof ShadcnTooltipTrigger>,\n  MultimodalTooltipTriggerProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnTooltipTrigger>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnTooltipTrigger ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalTooltipTrigger.displayName = \"MultimodalTooltipTrigger\"\n\ntype MultimodalTooltipContentProps = React.ComponentProps<typeof ShadcnTooltipContent> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Tooltip content 注册为 tooltip 说明区，便于助手读取当前提示文本。\n// English: Tooltip content registers as a tooltip description region for assistant context.\nexport function MultimodalTooltipContent({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalTooltipContentProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"tooltip\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"提示\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnTooltipContent {...props}>{children}</ShadcnTooltipContent>\n    </MultimodalGroup>\n  )\n}\n\nexport { Tooltip, TooltipProvider }\n\n"
+    }
+  ]
+}

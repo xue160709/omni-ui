@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build-registry.mjs && vite build",
-    "build:package-consumer": "MULTIMODAL_PACKAGE_CONSUMER=1 node scripts/build-registry.mjs && MULTIMODAL_PACKAGE_CONSUMER=1 vite build",
+    "build": "vite build",
+    "build:package-consumer": "MULTIMODAL_PACKAGE_CONSUMER=1 vite build",
     "dev": "vite --host 127.0.0.1",
     "test": "vitest run --passWithNoTests",
     "test:package-consumer": "MULTIMODAL_PACKAGE_CONSUMER=1 vitest run --passWithNoTests",

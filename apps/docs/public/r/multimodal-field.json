@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-field",
+  "type": "registry:component",
+  "title": "Multimodal Field",
+  "description": "shadcn Field wrapper that registers label, control, and message semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/field.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/field.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Field as ShadcnField,\n  FieldContent,\n  FieldDescription,\n  FieldError,\n  FieldGroup,\n  FieldLabel,\n  FieldLegend,\n  FieldSeparator,\n  FieldSet,\n  FieldTitle,\n} from \"@/components/ui/field\"\nimport { MultimodalGroup, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalFieldProps = React.ComponentProps<typeof ShadcnField> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Field 注册为 form_field，和新版 shadcn Field/Label/Description 结构对齐。\n// English: Field registers as form_field, matching newer shadcn Field/Label/Description structures.\nexport function MultimodalField({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalFieldProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"form_field\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint)}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnField {...props}>{children}</ShadcnField>\n    </MultimodalGroup>\n  )\n}\n\nexport {\n  FieldContent,\n  FieldDescription,\n  FieldError,\n  FieldGroup,\n  FieldLabel,\n  FieldLegend,\n  FieldSeparator,\n  FieldSet,\n  FieldTitle,\n}\n\n"
+    }
+  ]
+}

@@ -8,14 +8,18 @@
     "apps/*"
   ],
   "scripts": {
-    "build:packages": "npm --workspace @multimodal-ui/core run build && npm --workspace @multimodal-ui/react run build && npm --workspace @multimodal-ui/shadcn run build",
-    "build": "npm run build --workspaces --if-present",
+    "build:runtime": "npm --workspace @multimodal-ui/core run build && npm --workspace @multimodal-ui/react run build",
+    "build:packages": "npm run build:runtime",
+    "build:registry": "npm --workspace @multimodal-ui/shadcn run build",
+    "build:all": "npm run build && npm run build:registry",
+    "build": "npm run build:runtime && npm --workspace apps/docs run build",
     "dev": "npm --workspace apps/docs run dev",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm --workspace @multimodal-ui/core run build && npm run typecheck --workspaces --if-present",
-    "registry:build": "node apps/docs/scripts/build-registry.mjs",
+    "registry:build": "npm run build:registry",
     "verify": "npm run typecheck && npm test && npm run build",
-    "verify:package-consumer": "npm run build:packages && npm --workspace apps/docs run typecheck:package-consumer && npm --workspace apps/docs run test:package-consumer && npm --workspace apps/docs run build:package-consumer"
+    "verify:registry": "npm --workspace @multimodal-ui/shadcn run test && npm run registry:build",
+    "verify:package-consumer": "npm run build:runtime && npm --workspace apps/docs run typecheck:package-consumer && npm --workspace apps/docs run test:package-consumer && npm --workspace apps/docs run build:package-consumer"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",

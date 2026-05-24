@@ -1,0 +1,21 @@
+{
+  "name": "multimodal-navigation-menu",
+  "type": "registry:component",
+  "title": "Multimodal Navigation Menu",
+  "description": "shadcn NavigationMenu wrappers that register trigger and link semantics.",
+  "dependencies": [
+    "@multimodal-ui/react"
+  ],
+  "registryDependencies": [
+    "multimodal-provider",
+    "multimodal-utils"
+  ],
+  "files": [
+    {
+      "path": "registry/new-york/navigation-menu.tsx",
+      "type": "registry:component",
+      "target": "components/multimodal/navigation-menu.tsx",
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  NavigationMenu,\n  NavigationMenuContent,\n  NavigationMenuIndicator,\n  NavigationMenuItem,\n  NavigationMenuLink as ShadcnNavigationMenuLink,\n  NavigationMenuList,\n  NavigationMenuTrigger as ShadcnNavigationMenuTrigger,\n  NavigationMenuViewport,\n  navigationMenuTriggerStyle,\n} from \"@/components/ui/navigation-menu\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalNavigationMenuTriggerProps = React.ComponentProps<typeof ShadcnNavigationMenuTrigger> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：NavigationMenu trigger 注册 open/press，支持“打开产品菜单”等导航分组。\n// English: NavigationMenu trigger registers open/press for navigation groups such as product menus.\nexport const MultimodalNavigationMenuTrigger = React.forwardRef<\n  React.ElementRef<typeof ShadcnNavigationMenuTrigger>,\n  MultimodalNavigationMenuTriggerProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnNavigationMenuTrigger>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"open\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnNavigationMenuTrigger ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalNavigationMenuTrigger.displayName = \"MultimodalNavigationMenuTrigger\"\n\ntype MultimodalNavigationMenuLinkProps = React.ComponentProps<typeof ShadcnNavigationMenuLink> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\nexport const MultimodalNavigationMenuLink = React.forwardRef<\n  React.ElementRef<typeof ShadcnNavigationMenuLink>,\n  MultimodalNavigationMenuLinkProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnNavigationMenuLink>>({\n    id: interactionId,\n    role: \"link\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnNavigationMenuLink ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalNavigationMenuLink.displayName = \"MultimodalNavigationMenuLink\"\n\nexport {\n  NavigationMenu,\n  NavigationMenuContent,\n  NavigationMenuIndicator,\n  NavigationMenuItem,\n  NavigationMenuList,\n  NavigationMenuViewport,\n  navigationMenuTriggerStyle,\n}\n\n"
+    }
+  ]
+}

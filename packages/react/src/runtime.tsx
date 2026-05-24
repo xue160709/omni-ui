@@ -173,6 +173,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       attributeFilter: [
         "aria-label",
         "aria-checked",
+        "aria-expanded",
+        "aria-pressed",
         "aria-selected",
         "aria-disabled",
         "aria-hidden",
@@ -1130,6 +1132,7 @@ function isFormControl(element: HTMLElement): boolean {
     element instanceof HTMLTextAreaElement ||
     element instanceof HTMLSelectElement ||
     element.getAttribute("role") === "textbox" ||
+    element.getAttribute("role") === "radiogroup" ||
     element.getAttribute("role") === "combobox" ||
     element.getAttribute("role") === "slider"
   )
@@ -1137,7 +1140,24 @@ function isFormControl(element: HTMLElement): boolean {
 
 function isActionControl(element: HTMLElement): boolean {
   const role = element.dataset.mmRole ?? element.getAttribute("role")
-  return element instanceof HTMLButtonElement || ["button", "switch", "checkbox", "tab", "option", "menuitem"].includes(role ?? "")
+  return (
+    element instanceof HTMLButtonElement ||
+    [
+      "button",
+      "switch",
+      "checkbox",
+      "radio",
+      "tab",
+      "option",
+      "menuitem",
+      "menuitemcheckbox",
+      "menuitemradio",
+      "context_menu_trigger",
+      "resize_handle",
+      "scroll_area",
+      "row",
+    ].includes(role ?? "")
+  )
 }
 
 function shouldObserveMutation(mutation: MutationRecord): boolean {

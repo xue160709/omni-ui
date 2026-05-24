@@ -1,17 +1,37 @@
 # Multimodal UI
 
-Runtime-first multimodal interaction primitives for React and shadcn/ui.
+Runtime-first multimodal interaction primitives for React.
 
 Multimodal UI turns the current GUI into a compact Interaction Snapshot, resolves visible speech commands such as "click add" or "complete the first item", validates the requested action, and dispatches through the same command handler used by GUI clicks.
+
+The core product is `@multimodal-ui/react`: use it to add multimodal behavior to an existing React app without replacing your UI library. The shadcn registry is optional; it provides editable starter components and recipes for teams that want a faster default UI kit.
 
 ## Packages
 
 - `@multimodal-ui/core`: framework-agnostic types, snapshot creation, action registry, resolver contracts, validation, and feedback primitives.
 - `@multimodal-ui/react`: React runtime, DOM/ARIA extraction, provider, hooks, and default feedback styles.
-- `@multimodal-ui/shadcn`: shadcn registry source for optional wrappers installed into `components/multimodal/*`.
-- `apps/docs`: local mobile TodoList project with bottom tabs, todo detail screens, a floating Chatbot, settings, and registry output.
+- `@multimodal-ui/shadcn`: optional shadcn registry source for editable wrappers and starter recipes installed into `components/multimodal/*`.
+- `apps/docs`: local mobile TodoList project with bottom tabs, todo detail screens, a floating Chatbot, and settings.
 
 For app integration, see [packages/README.md](packages/README.md).
+
+## Two Product Lines
+
+**Runtime integration** is the default path for existing apps:
+
+```text
+Use @multimodal-ui/react with your current Button, Input, Dialog, Table, routes, and state.
+Mark business objects with MultimodalGroup.
+Register domain actions with useInteractionActions.
+```
+
+**UI kit / registry** is the optional path for new projects or shadcn users:
+
+```text
+Install editable source files from the registry into components/multimodal/*.
+Keep using your local components/ui/* and theme tokens.
+Customize the installed code like any other app code.
+```
 
 ## Quick Start
 
@@ -32,7 +52,7 @@ The local app exposes `/`, `/todos`, `/todos/:id`, `/projects`, `/projects/:id`,
 
 You can also set `SILICONFLOW_API_KEY` before starting Vite as a server-side fallback, but local UI usage should go through Settings.
 
-Do not open `apps/docs/index.html` directly with `file://`; the TodoList app and registry output are served by Vite.
+Do not open `apps/docs/index.html` directly with `file://`; the TodoList app is served by Vite.
 
 Try these utterances in the demo:
 
@@ -159,9 +179,9 @@ export default defineMultimodalConfig({
 
 The route rule uses the library-provided `navigation.goto`. The `issue.close` action is still implemented by the app with `useInteractionActions()`.
 
-## shadcn Registry
+## Optional shadcn Registry
 
-The local registry is generated into `apps/docs/public/r`.
+The registry is not required for runtime integration. It is a source-code starter kit for teams that want shadcn-style multimodal components and recipes. Generated registry files are written to `apps/docs/public/r`.
 
 ```bash
 npm run registry:build
@@ -175,6 +195,7 @@ http://127.0.0.1:5173/r/multimodal-provider.json
 ```
 
 The registry installs wrappers into `components/multimodal/*` and does not overwrite `components/ui/*`.
+Installed files are project-owned source code, so developers can edit class names, layout, behavior, and theme usage directly.
 
 ## Resolver Model
 
@@ -272,11 +293,17 @@ const messages = assistant.createChatMessages([{ role: "user", content: text }])
 npm run verify
 ```
 
-The verification command runs typecheck, tests, registry generation, and production build.
+The verification command runs typecheck, tests, runtime package builds, and the docs production build.
+
+Registry verification is separate:
+
+```bash
+npm run verify:registry
+```
 
 ## Version Roadmap
 
 - `v0.1`: runtime-first visible-speak MVP.
-- `v0.2`: richer shadcn wrappers, Dialog/FormField/Card/ListItem aggregation, and DevTools filters.
+- `v0.2`: optional shadcn registry recipes for assistant panels, forms, data views, and starter layouts.
 - `v0.3`: resolver plugins and opt-in LLM intent understanding.
 - `v0.4`: gaze, gesture, keyboard target hints, and multimodal event fusion.
