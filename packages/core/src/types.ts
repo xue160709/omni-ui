@@ -1,3 +1,5 @@
+// 中文：核心类型定义了应用如何把 UI 暴露成可被语音、聊天和规则解析器理解的交互对象。
+// English: Core types describe how an app exposes UI as interaction objects that voice, chat, and rule resolvers can understand.
 export type ExecuteScope =
   | "object"
   | "container"
@@ -50,6 +52,8 @@ export type InteractionHint = {
 
 export type InteractionState = Record<string, unknown>
 
+// 中文：InteractionObject 是 snapshot 的基本单位，既可以代表真实 DOM 控件，也可以代表业务对象或页面容器。
+// English: InteractionObject is the snapshot unit for real DOM controls, virtual business objects, and page containers.
 export type InteractionObject = {
   id: string
   type: InteractionObjectType
@@ -145,6 +149,8 @@ export type ActionParamResolver =
 
 export type ActionAvailability = (context: ActionContext) => boolean
 
+// 中文：业务 action executor 接收已校验过的 action payload，并在应用侧执行真正的状态变更。
+// English: Domain action executors receive validated action payloads and perform the real app-side state change.
 export type ActionExecutor<TAction extends ActionPayload = ActionPayload> = (
   action: TAction,
   context: ActionContext
@@ -184,6 +190,8 @@ export type InteractionSnapshot = {
   actionSpecs: Record<string, RegisteredActionSpec>
 }
 
+// 中文：ResolvedInteraction 是“用户表达 -> 目标对象 + 动作”的解析结果，后续仍需本地策略和状态校验。
+// English: ResolvedInteraction maps an utterance to a target plus action; local policy and state validation still run afterward.
 export type ResolvedInteraction = {
   status: "resolved" | "needs_clarification" | "not_found" | "unsupported"
   utterance: string

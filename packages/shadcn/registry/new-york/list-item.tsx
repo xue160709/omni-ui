@@ -11,6 +11,8 @@ type MultimodalListProps = React.HTMLAttributes<HTMLDivElement> & {
   label?: string
 }
 
+// 中文：List 开启 visible_order 索引，让列表项自动获得“第几个”的别名。
+// English: List enables visible_order indexing so items automatically gain "nth item" aliases.
 export function MultimodalList({
   interactionId,
   interactionLabel,
@@ -41,6 +43,8 @@ type MultimodalListItemProps = React.HTMLAttributes<HTMLDivElement> & {
   entity?: EntityRef
 }
 
+// 中文：ListItem 可挂 entity，让业务 action 能按实体类型绑定到整行对象。
+// English: ListItem can carry an entity so domain actions attach to the whole row by entity type.
 export function MultimodalListItem({
   interactionId,
   interactionLabel,

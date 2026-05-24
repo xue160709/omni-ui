@@ -51,6 +51,8 @@ type RegisteredNode = {
   element: HTMLElement
 }
 
+// 中文：Group 表示业务边界，如列表、列表项、弹窗或表单字段，可把多个原始控件组织成一个语义对象。
+// English: A group represents a business boundary, such as a list, item, dialog, or form field, grouping raw controls semantically.
 type RegisteredGroup = {
   id: string
   role: string
@@ -95,6 +97,8 @@ type RuntimeContextValue = {
   registerActions: (registration: ActionRegistration) => () => void
 }
 
+// 中文：对外暴露的 API 只包含读取 snapshot、解析文本和提交执行，不暴露内部注册表。
+// English: The public API exposes snapshot reads, text resolution, and dispatch only, keeping internal registries private.
 export type InteractionApi = Pick<
   RuntimeContextValue,
   "snapshot" | "lastResolution" | "getSnapshot" | "resolveText" | "dispatchResolution" | "submitUtterance"
@@ -134,6 +138,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     resolvers,
   } = props
   const rootRef = React.useRef<HTMLDivElement | null>(null)
+  // 中文：objectId 到 DOM 的映射只存在本地，用于 primitive 执行和反馈动画，不进入 snapshot。
+  // English: objectId-to-DOM mapping stays local for primitive execution and feedback animation; it is not serialized into snapshots.
   const elementByObjectId = React.useRef(new Map<string, HTMLElement>())
   const snapshotRef = React.useRef<InteractionSnapshot>(emptySnapshot)
   const [version, setVersion] = React.useState(0)
@@ -155,6 +161,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     const root = rootRef.current
     if (!root) return
 
+    // 中文：DOM 变化和表单事件都会推动 stateVersion 递增，确保执行前能发现快照过期。
+    // English: DOM mutations and form events bump stateVersion so dispatch can detect stale snapshots before executing.
     const observer = new MutationObserver((mutations) => {
       if (mutations.some(shouldObserveMutation)) bumpVersion()
     })
@@ -218,6 +226,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   }, [bumpVersion])
 
   const actionSpecs = React.useMemo(() => {
+    // 中文：namespace 只用于组织和 manifest 元数据，真正执行时仍以 action id 查找 spec。
+    // English: namespace is organizational metadata; dispatch still looks up specs by action id.
     const specs: Record<string, RegisteredActionSpec> = {}
     actions.forEach((registration) => {
       Object.entries(registration.actions).forEach(([id, spec]) => {
@@ -262,6 +272,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     const root = rootRef.current
     const rawObjects: InteractionObject[] = []
 
+    // 中文：显式注册节点优先保留开发者提供的 id、role、label 和动作语义。
+    // English: Explicitly registered nodes preserve developer-provided id, role, label, and action semantics.
     nodes.forEach((node) => {
       if (!isElementVisible(node.element)) return
       elementMap.set(node.id, node.element)
@@ -281,6 +293,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     })
 
     if (root) {
+      // 中文：未显式注册的可交互 DOM 会自动进入 snapshot，降低接入成本。
+      // English: Unregistered interactive DOM is auto-discovered into the snapshot to reduce integration cost.
       extractDomNodes(root).forEach(({ object, element }) => {
         elementMap.set(object.id, element)
         rawObjects.push(object)
@@ -339,6 +353,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         ]
       : []
 
+    // 中文：当前 snapshot 是所有注册源和 DOM 源的汇总，也是 resolver 与 dispatch 共用的事实来源。
+    // English: The current snapshot is the shared source of truth for both resolution and dispatch.
     const builtSnapshot = createInteractionSnapshot({
       stateVersion: version,
       manifest: effectiveManifest,
@@ -365,6 +381,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   }, [actionSpecs, device, effectiveManifest, groups, language, nodes, objects, page, version])
 
   const applyFeedback = React.useCallback((targetId: string, phase: string) => {
+    // 中文：反馈通过 data-mm-feedback 暂态属性驱动 CSS，不要求宿主应用维护额外状态。
+    // English: Feedback uses a transient data-mm-feedback attribute so host apps do not need extra state.
     const element = elementByObjectId.current.get(targetId)
     if (!element) return
 
@@ -383,6 +401,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
   const resolveText = React.useCallback(
     async (text: string): Promise<InteractionResolutionResult> => {
+      // 中文：解析总是基于提交瞬间的 snapshot，并记录 lastResolution 方便调试或 UI 展示。
+      // English: Resolution uses the snapshot at submit time and stores lastResolution for debugging or UI display.
       const currentSnapshot = snapshotRef.current
       const resolution = await resolveCandidate(text, currentSnapshot, {
         localResolvers,
@@ -409,6 +429,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       resolution: ResolvedInteraction,
       options: InteractionSubmitOptions = {}
     ): Promise<InteractionSubmitResult> => {
+      // 中文：dispatch 只执行已解析结果；目标、动作或 stateVersion 不满足校验时会返回错误。
+      // English: Dispatch executes resolved results only; invalid target, action, or stateVersion returns an error.
       const currentSnapshot = snapshotRef.current
       const baseResult = {
         snapshot: currentSnapshot,
@@ -425,6 +447,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       }
 
       if (resolution.actionId) {
+        // 中文：业务 action 先走 core 校验，再构造 payload 并交给注册 executor。
+        // English: Domain actions pass core validation first, then build a payload and call the registered executor.
         const validation = validateActionRequest(currentSnapshot, {
           actionId: resolution.actionId,
           targetId: resolution.targetId,
@@ -502,6 +526,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       }
 
       if (resolution.primitiveAction) {
+        // 中文：primitive action 直接作用在 DOM 节点上，只在没有业务 action 时作为低层能力使用。
+        // English: Primitive actions operate on DOM nodes directly and are intended as a low-level fallback.
         const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
         const element = elementByObjectId.current.get(resolution.targetId)
         if (element) {
@@ -725,6 +751,8 @@ export function useInteractionNode<TElement extends HTMLElement>(
 
   React.useEffect(() => {
     if (!element) return undefined
+    // 中文：把语义也写到 data-* 上，自动 DOM 抽取和外部调试工具都能读取。
+    // English: Writes semantics into data-* attributes so auto extraction and external debugging can read them.
     element.dataset.mmNodeId = id
     element.dataset.mmRole = options.role
     if (options.label) element.dataset.mmLabel = options.label
@@ -800,6 +828,8 @@ export function MultimodalGroup({
 
   React.useEffect(() => {
     if (!element) return undefined
+    // 中文：Group 自身不会执行 DOM 操作，但会成为规则/LLM 可定位的语义目标。
+    // English: A group does not execute DOM actions itself, but becomes a semantic target for rules and LLMs.
     element.dataset.mmGroupId = id
     element.dataset.mmRole = role
     if (label) element.dataset.mmLabel = label
@@ -872,6 +902,8 @@ export function useInteractionActions<TAction extends ActionPayload = ActionPayl
   const executeRef = React.useRef(options.execute)
   executeRef.current = options.execute
   const stableExecute = React.useCallback<ActionExecutor>(
+    // 中文：保持 executor 引用稳定，避免仅因闭包变化反复注册 action。
+    // English: Keeps the executor reference stable so actions are not re-registered just because closures changed.
     (action, context) => executeRef.current?.(action as TAction, context),
     []
   )
@@ -948,6 +980,8 @@ function buildGroupObjects(
   rawObjects: InteractionObject[],
   elementMap: Map<string, HTMLElement>
 ): InteractionObject[] {
+  // 中文：列表容器会给子项推断可见序号，从而支持“第一个/第二项”等自然语言。
+  // English: List containers infer visible-order indexes for children, enabling phrases like "first item" or "second item".
   const listGroups = Array.from(groups.values()).filter((group) => group.role === "list")
 
   return Array.from(groups.values()).filter((group) => isElementVisible(group.element)).map((group) => {
@@ -1046,6 +1080,8 @@ function inferGroupState(
   children: string[],
   elementMap: Map<string, HTMLElement>
 ): Record<string, unknown> {
+  // 中文：Group 状态从子控件推断常见业务线索，例如列表项完成状态和表单字段消息。
+  // English: Group state infers common business cues from children, such as item completion and form field messages.
   const state: Record<string, unknown> = {}
   const checkbox = children
     .map((childId) => elementMap.get(childId))
@@ -1135,6 +1171,8 @@ async function resolveCandidate(
     resolverMode: ResolverMode
   }
 ): Promise<ResolvedInteraction> {
+  // 中文：解析策略支持 rule-only、rule-first 和 llm-first；默认先用本地规则，置信度不足再走外部 resolver。
+  // English: Resolution supports rule-only, rule-first, and llm-first; the default tries local rules before external resolvers.
   if (options.resolverMode !== "llm-first" && options.localResolvers?.length) {
     const localResult = await resolveWithResolvers(
       { utterance, snapshot },

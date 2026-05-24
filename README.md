@@ -28,7 +28,7 @@ Open:
 http://127.0.0.1:5173/
 ```
 
-The local app exposes `/`, `/todos`, `/todos/:id`, and `/settings`. Chatbot is a global floating sheet opened from the bottom tab, so it stays available while you move between pages. Visiting `/chat` opens the same floating sheet over Home for compatibility. Enter your SiliconFlow API key in the Settings tab before sending messages.
+The local app exposes `/`, `/todos`, `/todos/:id`, `/projects`, `/projects/:id`, `/calendar`, `/kanban`, `/analytics`, and `/settings`. Chatbot is a global floating sheet opened from the bottom tab, so it stays available while you move between pages. Visiting `/chat` opens the same floating sheet over Home for compatibility. Enter your SiliconFlow API key in the Settings tab before sending messages.
 
 You can also set `SILICONFLOW_API_KEY` before starting Vite as a server-side fallback, but local UI usage should go through Settings.
 

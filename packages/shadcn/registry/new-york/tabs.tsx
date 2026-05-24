@@ -16,6 +16,8 @@ type MultimodalTabsListProps = React.ComponentProps<typeof ShadcnTabsList> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：TabsList 作为 filter_tabs 容器，让一组选项卡在 snapshot 中形成同一语义分组。
+// English: TabsList registers as a filter_tabs container so related tabs appear as one semantic group in snapshots.
 export function MultimodalTabsList({
   interactionId,
   interactionLabel,
@@ -41,6 +43,8 @@ type MultimodalTabsTriggerProps = React.ComponentProps<typeof ShadcnTabsTrigger>
   interactionHint?: InteractionHint
 }
 
+// 中文：TabsTrigger 注册 switchTo/select，适合“切到已完成/只看待处理”等筛选命令。
+// English: TabsTrigger registers switchTo/select for filter commands such as switching to completed or pending.
 export const MultimodalTabsTrigger = React.forwardRef<
   React.ElementRef<typeof ShadcnTabsTrigger>,
   MultimodalTabsTriggerProps

@@ -21,6 +21,8 @@ import type {
   RegisteredActionSpec,
 } from "./types"
 
+// 中文：snapshot id 只需要在当前 runtime 生命周期内递增，便于调试和模型上下文引用。
+// English: Snapshot ids only need to increment within the current runtime lifetime for debugging and model context references.
 let snapshotCounter = 0
 
 export type CreateSnapshotInput = {
@@ -82,6 +84,8 @@ export type LlmSnapshotContext = {
   manifest?: LlmInteractionManifest
 }
 
+// 中文：创建完整交互快照：合并页面、manifest 对象、运行时对象，并附加当前可用业务 action。
+// English: Creates the full interaction snapshot by merging page, manifest objects, runtime objects, and available domain actions.
 export function createInteractionSnapshot(input: CreateSnapshotInput): InteractionSnapshot {
   const snapshotId = `snapshot_${++snapshotCounter}`
   const actionSpecs = input.actionSpecs ?? {}
@@ -127,6 +131,8 @@ export function createInteractionSnapshot(input: CreateSnapshotInput): Interacti
 }
 
 export function compactSnapshotForIntent(snapshot: InteractionSnapshot): InteractionSnapshot {
+  // 中文：本地/LLM 意图解析只需要对象身份、标签、状态和动作，不需要完整页面元数据。
+  // English: Intent resolution needs object identity, labels, state, and actions rather than full page metadata.
   return {
     ...snapshot,
     visibleObjects: snapshot.visibleObjects.map((object) => ({
@@ -149,6 +155,8 @@ export function createLlmSnapshotContext(
   snapshot: InteractionSnapshot,
   options: LlmSnapshotContextOptions = {}
 ): LlmSnapshotContext {
+  // 中文：限制对象数量可以让 prompt 稳定可控，同时显式告诉模型还有多少对象被省略。
+  // English: Limiting object count keeps prompts bounded while explicitly reporting how many objects were omitted.
   const maxObjects = Math.max(0, options.maxObjects ?? 80)
   const visibleObjects = snapshot.visibleObjects.slice(0, maxObjects).map(summarizeObjectForLlm)
   const pageObject = snapshot.page
@@ -179,12 +187,16 @@ export function createLlmSnapshotContext(
 }
 
 function dedupeObjects(objects: InteractionObject[]): InteractionObject[] {
+  // 中文：Map 保留最后一次写入，让更靠后的来源覆盖同 id 对象。
+  // English: Map keeps the last write, allowing later sources to override objects with the same id.
   const byId = new Map<string, InteractionObject>()
   objects.forEach((object) => byId.set(object.id, object))
   return Array.from(byId.values())
 }
 
 function summarizeObjectForLlm(object: InteractionObject): LlmSnapshotContextObject {
+  // 中文：LLM 视图会隐藏已被业务 action 覆盖的 primitiveActions，减少模型误用底层 DOM 操作。
+  // English: The LLM view hides primitiveActions when domain actions exist to reduce accidental low-level DOM dispatch.
   return {
     id: object.id,
     type: object.type,
@@ -205,6 +217,8 @@ function summarizeObjectForLlm(object: InteractionObject): LlmSnapshotContextObj
 }
 
 function sanitizeJsonValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  // 中文：snapshot state 需要安全 JSON 化，避免循环引用或运行时对象污染模型上下文。
+  // English: Snapshot state must be JSON-safe so cycles or runtime objects do not leak into model context.
   if (value == null) return value
   if (typeof value === "string" || typeof value === "boolean") return value
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined

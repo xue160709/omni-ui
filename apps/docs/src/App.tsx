@@ -20,15 +20,33 @@ import {
   multimodalConfig,
 } from "./multimodal.config"
 
-type AppScreen = "home" | "todos" | "todoDetail" | "settings"
+type AppScreen =
+  | "home"
+  | "todos"
+  | "todoDetail"
+  | "projects"
+  | "projectDetail"
+  | "calendar"
+  | "kanban"
+  | "analytics"
+  | "settings"
 type TabId = "home" | "todos" | "chatbot" | "settings"
 type TodoPriority = "low" | "medium" | "high"
+type TodoDue = "今天" | "明天" | "本周"
 type TodoFilter = "all" | "today" | "active" | "completed"
 type ChatStatus = "ready" | "sending" | "error"
 
 type AppRoute = {
   screen: AppScreen
   todoId?: string
+  projectId?: string
+}
+
+type BrowserRouteHistory = {
+  canGoBack: boolean
+  canGoForward: boolean
+  goBack: () => void
+  goForward: () => void
 }
 
 type Todo = {
@@ -36,18 +54,42 @@ type Todo = {
   title: string
   completed: boolean
   priority: TodoPriority
-  due: "今天" | "明天" | "本周"
+  due: TodoDue
+  projectId: string
   description: string
 }
 
+type ProjectStatus = "active" | "planned" | "paused"
+
+type Project = {
+  id: string
+  name: string
+  description: string
+  owner: string
+  due: TodoDue
+  status: ProjectStatus
+  tone: "green" | "amber" | "blue" | "rose"
+}
+
 type TodoAction =
-  | { type: "todo.add"; title: string }
+  | { type: "todo.add"; title: string; projectId?: string; due?: TodoDue }
   | { type: "todo.complete"; todoId: string }
   | { type: "todo.uncomplete"; todoId: string }
   | { type: "todo.delete"; todoId: string }
   | { type: "todo.filter"; filter: TodoFilter }
-  | { type: "todo.update"; todoId: string; title?: string; description?: string; completed?: boolean }
+  | {
+      type: "todo.update"
+      todoId: string
+      title?: string
+      description?: string
+      completed?: boolean
+      due?: TodoDue
+    }
   | { type: "todo.clearCompleted" }
+
+type NavigationHistoryAction =
+  | { type: "navigation.back" }
+  | { type: "navigation.forward" }
 
 type ChatMessage = {
   id: string
@@ -92,6 +134,46 @@ type SpeechRecognitionEventLike = {
 
 const chatModel = "MiniMaxAI/MiniMax-M2.5"
 const todoStorageKey = "todo_items"
+const defaultProjectId = "project_inbox"
+
+const projectCatalog: Project[] = [
+  {
+    id: defaultProjectId,
+    name: "收集箱",
+    description: "临时记录还没有归档的事项。",
+    owner: "个人",
+    due: "今天",
+    status: "active",
+    tone: "blue",
+  },
+  {
+    id: "project_launch",
+    name: "发布准备",
+    description: "文档、回归和发布窗口确认。",
+    owner: "产品",
+    due: "本周",
+    status: "active",
+    tone: "green",
+  },
+  {
+    id: "project_ops",
+    name: "运营节奏",
+    description: "周报、复盘和跨团队同步。",
+    owner: "运营",
+    due: "今天",
+    status: "planned",
+    tone: "amber",
+  },
+  {
+    id: "project_personal",
+    name: "生活整理",
+    description: "个人采购、预约和日常维护。",
+    owner: "个人",
+    due: "明天",
+    status: "active",
+    tone: "rose",
+  },
+]
 
 const initialTodos: Todo[] = [
   {
@@ -100,6 +182,7 @@ const initialTodos: Todo[] = [
     completed: false,
     priority: "medium",
     due: "今天",
+    projectId: "project_personal",
     description: "下班后顺路去超市，优先买低脂牛奶。",
   },
   {
@@ -108,6 +191,7 @@ const initialTodos: Todo[] = [
     completed: false,
     priority: "high",
     due: "今天",
+    projectId: "project_ops",
     description: "整理本周发布进展、风险和下周计划。",
   },
   {
@@ -116,6 +200,7 @@ const initialTodos: Todo[] = [
     completed: true,
     priority: "low",
     due: "本周",
+    projectId: "project_launch",
     description: "确认文档、回归检查和发布说明都已准备。",
   },
 ]
@@ -148,6 +233,34 @@ const appNavigationRoutes = [
     path: "/todos",
   },
   {
+    id: "app.route.projects",
+    label: "项目",
+    aliases: ["项目页", "项目页面", "项目列表", "Projects"],
+    route: { screen: "projects" } satisfies AppRoute,
+    path: "/projects",
+  },
+  {
+    id: "app.route.calendar",
+    label: "日历",
+    aliases: ["日程", "日历页", "日历页面", "Calendar"],
+    route: { screen: "calendar" } satisfies AppRoute,
+    path: "/calendar",
+  },
+  {
+    id: "app.route.kanban",
+    label: "看板",
+    aliases: ["看板页", "看板页面", "Kanban"],
+    route: { screen: "kanban" } satisfies AppRoute,
+    path: "/kanban",
+  },
+  {
+    id: "app.route.analytics",
+    label: "统计",
+    aliases: ["分析", "数据", "统计页", "统计页面", "Analytics"],
+    route: { screen: "analytics" } satisfies AppRoute,
+    path: "/analytics",
+  },
+  {
     id: "app.route.settings",
     label: "设置",
     aliases: ["配置", "设置页面", "配置页面"],
@@ -178,7 +291,7 @@ export function App() {
 }
 
 function AppRuntime() {
-  const [route, navigate] = useBrowserRoute()
+  const [route, navigate, routeHistory] = useBrowserRoute()
   const [todos, setTodos] = useStoredTodos()
   const [filter, setFilter] = React.useState<TodoFilter>("all")
   const [apiKey, setApiKey] = useLocalStorage("siliconflow_api_key", "")
@@ -209,6 +322,19 @@ function AppRuntime() {
           completed: todo.completed,
         },
       })),
+      ...projectCatalog.map((project) => ({
+        id: `app.route.project.${project.id}`,
+        label: `${project.name}项目`,
+        aliases: [`${project.name}`, `${project.name}详情`, `${project.name}项目详情页`],
+        route: { screen: "projectDetail", projectId: project.id } satisfies AppRoute,
+        path: `/projects/${project.id}`,
+        active: route.screen === "projectDetail" && route.projectId === project.id,
+        state: {
+          projectId: project.id,
+          status: project.status,
+          ...createProjectStats(project.id, todos),
+        },
+      })),
     ],
     [route, todos]
   )
@@ -227,6 +353,8 @@ function AppRuntime() {
           due: todo.due,
           priority: todo.priority,
           priorityLabel: priorityLabels[todo.priority],
+          projectId: todo.projectId,
+          projectName: getProjectById(todo.projectId)?.name,
           description: todo.description,
         },
         source: "registered_object",
@@ -234,7 +362,33 @@ function AppRuntime() {
     [todos]
   )
 
-  useInteractionObjects(todoObjects)
+  const projectObjects = React.useMemo<InteractionObject[]>(
+    () =>
+      projectCatalog.map((project) => ({
+        id: `project.entity.${project.id}`,
+        type: "composite",
+        role: "project",
+        label: project.name,
+        aliases: [project.owner, project.due, project.description],
+        entity: { type: "project", id: project.id },
+        state: {
+          status: project.status,
+          owner: project.owner,
+          due: project.due,
+          tone: project.tone,
+          ...createProjectStats(project.id, todos),
+        },
+        source: "registered_object",
+      })),
+    [todos]
+  )
+
+  const appObjects = React.useMemo(
+    () => [...todoObjects, ...projectObjects],
+    [projectObjects, todoObjects]
+  )
+
+  useInteractionObjects(appObjects)
 
   useInteractionRoutes<AppRoute>({
     namespace: "navigation",
@@ -242,6 +396,40 @@ function AppRuntime() {
     execute: (nextRoute) => {
       navigate(nextRoute)
     },
+  })
+
+  const navigationHistoryActionSpecs = React.useMemo(
+    () => ({
+      "navigation.back": {
+        executeScope: "page" as const,
+        availableWhen: ({ target }: ActionContext) => target.state?.canGoBack === true,
+      },
+      "navigation.forward": {
+        executeScope: "page" as const,
+        availableWhen: ({ target }: ActionContext) => target.state?.canGoForward === true,
+      },
+    }),
+    []
+  )
+
+  const executeNavigationHistoryAction = React.useCallback(
+    (action: ActionPayload) => {
+      const navigationAction = action as NavigationHistoryAction
+      if (navigationAction.type === "navigation.back") {
+        routeHistory.goBack()
+        return
+      }
+      if (navigationAction.type === "navigation.forward") {
+        routeHistory.goForward()
+      }
+    },
+    [routeHistory]
+  )
+
+  useInteractionActions({
+    namespace: "navigation-history",
+    actions: navigationHistoryActionSpecs,
+    execute: executeNavigationHistoryAction,
   })
 
   const executeTodoAction = React.useCallback(
@@ -256,13 +444,18 @@ function AppRuntime() {
       if (todoAction.type === "todo.add") {
         const title = todoAction.title.trim()
         if (!title) return
+        const projectId = isKnownProjectId(todoAction.projectId)
+          ? todoAction.projectId
+          : defaultProjectId
+        const due = isTodoDue(todoAction.due) ? todoAction.due : "今天"
         setTodos((current) => [
           {
             id: `todo_${Date.now()}`,
             title,
             completed: false,
             priority: "medium",
-            due: "今天",
+            due,
+            projectId,
             description: "",
           },
           ...current,
@@ -279,9 +472,10 @@ function AppRuntime() {
         const hasTitle = typeof todoAction.title === "string" && todoAction.title.trim().length > 0
         const hasDescription = typeof todoAction.description === "string"
         const hasCompleted = typeof todoAction.completed === "boolean"
+        const hasDue = isTodoDue(todoAction.due)
 
-        if (!hasTitle && !hasDescription && !hasCompleted) {
-          throw new Error("todo.update 需要至少提供 title、description 或 completed。")
+        if (!hasTitle && !hasDescription && !hasCompleted && !hasDue) {
+          throw new Error("todo.update 需要至少提供 title、description、completed 或 due。")
         }
 
         setTodos((current) =>
@@ -292,6 +486,7 @@ function AppRuntime() {
                   title: hasTitle ? todoAction.title!.trim() : todo.title,
                   description: hasDescription ? todoAction.description! : todo.description,
                   completed: hasCompleted ? todoAction.completed! : todo.completed,
+                  due: hasDue ? todoAction.due! : todo.due,
                 }
               : todo
           )
@@ -330,12 +525,14 @@ function AppRuntime() {
   const todoActionSpecs = React.useMemo(
     () => ({
       "todo.add": {
-        attachTo: { id: "todo.composer" },
         executeScope: "page" as const,
-        paramsFrom: ({ candidate }: ActionContext) => {
+        paramsFrom: ({ target, candidate }: ActionContext) => {
           const params = candidate?.params ?? {}
+          const due = inferTodoDueParam(params, candidate?.utterance)
           return {
             title: String(params.title ?? params.name ?? params.text ?? ""),
+            projectId: target.state?.projectId ?? target.state?.selectedProjectId,
+            ...(due ? { due } : {}),
           }
         },
       },
@@ -377,6 +574,7 @@ function AppRuntime() {
             "content",
           ])
           const completed = inferTodoCompletedParam(params, candidate?.utterance)
+          const due = inferTodoDueParam(params, candidate?.utterance)
           const mappedParams: Record<string, unknown> = {
             todoId: target.entity?.id,
           }
@@ -384,6 +582,7 @@ function AppRuntime() {
           if (title !== undefined) mappedParams.title = title
           if (description !== undefined) mappedParams.description = description
           if (completed !== undefined) mappedParams.completed = completed
+          if (due !== undefined) mappedParams.due = due
 
           return mappedParams
         },
@@ -405,6 +604,7 @@ function AppRuntime() {
   return (
     <MobileApp
       route={route}
+      routeHistory={routeHistory}
       todos={todos}
       filter={filter}
       apiKey={apiKey}
@@ -439,6 +639,23 @@ function inferTodoCompletedParam(
   return parseTodoCompletedValue(utterance)
 }
 
+function inferTodoDueParam(
+  params: Record<string, unknown>,
+  utterance: string | undefined
+): TodoDue | undefined {
+  const explicit = parseTodoDueValue(
+    params.due ??
+      params.date ??
+      params.deadline ??
+      params.time ??
+      params.schedule ??
+      params.when
+  )
+  if (explicit !== undefined) return explicit
+
+  return parseTodoDueValue(utterance)
+}
+
 function parseTodoCompletedValue(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value
   if (typeof value !== "string") return undefined
@@ -456,8 +673,22 @@ function parseTodoCompletedValue(value: unknown): boolean | undefined {
   return undefined
 }
 
+function parseTodoDueValue(value: unknown): TodoDue | undefined {
+  if (typeof value !== "string") return undefined
+
+  const text = value.trim().toLowerCase()
+  if (!text) return undefined
+
+  if (/明天|tomorrow/.test(text)) return "明天"
+  if (/本周|这周|周内|this\s*week|week/.test(text)) return "本周"
+  if (/今天|今日|today/.test(text)) return "今天"
+
+  return undefined
+}
+
 function MobileApp(props: {
   route: AppRoute
+  routeHistory: BrowserRouteHistory
   todos: Todo[]
   filter: TodoFilter
   apiKey: string
@@ -470,8 +701,8 @@ function MobileApp(props: {
 }) {
   const pageMeta = getPageMeta(props.route, props.todos)
   const pageState = React.useMemo(
-    () => createTodoPageState(props.route, props.todos, props.filter),
-    [props.filter, props.route, props.todos]
+    () => createTodoPageState(props.route, props.todos, props.filter, props.routeHistory),
+    [props.filter, props.route, props.routeHistory, props.todos]
   )
 
   return (
@@ -506,6 +737,36 @@ function MobileApp(props: {
               onTodoAction={props.onTodoAction}
             />
           ) : null}
+          {props.route.screen === "projects" ? (
+            <ProjectsScreen
+              todos={props.todos}
+              onNavigate={props.onNavigate}
+            />
+          ) : null}
+          {props.route.screen === "projectDetail" ? (
+            <ProjectDetailScreen
+              project={getProjectById(props.route.projectId)}
+              todos={props.todos}
+              onNavigate={props.onNavigate}
+              onTodoAction={props.onTodoAction}
+            />
+          ) : null}
+          {props.route.screen === "calendar" ? (
+            <CalendarScreen
+              todos={props.todos}
+              onNavigate={props.onNavigate}
+            />
+          ) : null}
+          {props.route.screen === "kanban" ? (
+            <KanbanScreen
+              todos={props.todos}
+              onNavigate={props.onNavigate}
+              onTodoAction={props.onTodoAction}
+            />
+          ) : null}
+          {props.route.screen === "analytics" ? (
+            <AnalyticsScreen todos={props.todos} />
+          ) : null}
           {props.route.screen === "settings" ? (
             <SettingsScreen apiKey={props.apiKey} onApiKeyChange={props.onApiKeyChange} />
           ) : null}
@@ -536,6 +797,13 @@ function HomeScreen(props: {
   const active = props.todos.filter((todo) => !todo.completed)
   const today = props.todos.filter((todo) => todo.due === "今天")
   const nextTodo = active[0]
+  const completionRate = getCompletionRate(props.todos)
+  const shortcuts: Array<{ label: string; meta: string; route: AppRoute; icon: TabIconName }> = [
+    { label: "项目", meta: `${projectCatalog.length} 个空间`, route: { screen: "projects" }, icon: "folder" },
+    { label: "日历", meta: `${today.length} 项今天`, route: { screen: "calendar" }, icon: "calendar" },
+    { label: "看板", meta: `${active.length} 项流转`, route: { screen: "kanban" }, icon: "kanban" },
+    { label: "统计", meta: `${completionRate}% 完成`, route: { screen: "analytics" }, icon: "chart" },
+  ]
 
   return (
     <div className="page-flow">
@@ -548,6 +816,27 @@ function HomeScreen(props: {
           <Metric label="今天" value={today.length} />
           <Metric label="未完成" value={active.length} />
           <Metric label="已完成" value={props.todos.length - active.length} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-header">
+          <h2>工作台</h2>
+        </div>
+        <div className="shortcut-grid">
+          {shortcuts.map((shortcut) => (
+            <button
+              key={shortcut.label}
+              type="button"
+              className="shortcut-card"
+              aria-label={shortcut.label}
+              onClick={() => props.onNavigate(shortcut.route)}
+            >
+              <TabIcon name={shortcut.icon} />
+              <span>{shortcut.label}</span>
+              <small>{shortcut.meta}</small>
+            </button>
+          ))}
         </div>
       </section>
 
@@ -669,6 +958,7 @@ function TodoListItem(props: {
   onTodoAction: (action: TodoAction) => void
 }) {
   const { todo } = props
+  const project = getProjectById(todo.projectId)
 
   return (
     <MultimodalGroup
@@ -681,6 +971,8 @@ function TodoListItem(props: {
         completed: todo.completed,
         due: todo.due,
         priority: todo.priority,
+        projectId: todo.projectId,
+        projectName: project?.name,
         description: todo.description,
       }}
     >
@@ -705,6 +997,7 @@ function TodoListItem(props: {
           <span className="task-description">{todo.description || "暂无详情"}</span>
           <span className="task-meta">
             <span>{todo.due}</span>
+            <span>{project?.name ?? "未归档"}</span>
             <span className={`priority priority-${todo.priority}`}>
               {priorityLabels[todo.priority]}
             </span>
@@ -755,6 +1048,7 @@ function TodoDetailScreen(props: {
       </div>
     )
   }
+  const project = getProjectById(props.todo.projectId)
 
   return (
     <MultimodalGroup
@@ -766,6 +1060,8 @@ function TodoDetailScreen(props: {
         completed: props.todo.completed,
         due: props.todo.due,
         priority: props.todo.priority,
+        projectId: props.todo.projectId,
+        projectName: project?.name,
         description: props.todo.description,
       }}
     >
@@ -784,6 +1080,7 @@ function TodoDetailScreen(props: {
           <div className="detail-status">
             <span>{props.todo.completed ? "已完成" : "进行中"}</span>
             <span>{props.todo.due}</span>
+            <span>{project?.name ?? "未归档"}</span>
           </div>
 
           <form
@@ -833,6 +1130,471 @@ function TodoDetailScreen(props: {
           </form>
         </section>
       </div>
+    </MultimodalGroup>
+  )
+}
+
+function ProjectsScreen(props: {
+  todos: Todo[]
+  onNavigate: (route: AppRoute) => void
+}) {
+  const summaries = projectCatalog.map((project) => ({
+    project,
+    stats: createProjectStats(project.id, props.todos),
+  }))
+  const activeProjectCount = summaries.filter((item) => item.stats.activeCount > 0).length
+
+  return (
+    <div className="page-flow">
+      <section className="hero-panel">
+        <div>
+          <p className="section-kicker">项目总览</p>
+          <h2>{activeProjectCount} 个项目有未完成事项</h2>
+        </div>
+        <div className="metric-row" aria-label="项目统计">
+          <Metric label="项目" value={projectCatalog.length} />
+          <Metric label="任务" value={props.todos.length} />
+          <Metric label="未完成" value={props.todos.filter((todo) => !todo.completed).length} />
+        </div>
+      </section>
+
+      <MultimodalGroup id="project.list" role="list" label="项目列表" indexBy="visible_order">
+        <div className="project-list">
+          {summaries.map(({ project, stats }) => (
+            <MultimodalGroup
+              key={project.id}
+              id={`project.item.${project.id}`}
+              role="list_item"
+              label={project.name}
+              aliases={[project.owner, project.due]}
+              entity={{ type: "project", id: project.id }}
+              state={{
+                status: project.status,
+                owner: project.owner,
+                due: project.due,
+                ...stats,
+              }}
+            >
+              <button
+                type="button"
+                className={`project-card project-card-${project.tone}`}
+                onClick={() => props.onNavigate({ screen: "projectDetail", projectId: project.id })}
+              >
+                <span className="project-card-top">
+                  <strong>{project.name}</strong>
+                  <span>{project.due}</span>
+                </span>
+                <span className="project-description">{project.description}</span>
+                <span className="project-card-meta">
+                  <span>{project.owner}</span>
+                  <span>{stats.activeCount} 未完成</span>
+                  <span>{stats.completionRate}%</span>
+                </span>
+                <span className="progress-track" aria-hidden="true">
+                  <span style={{ width: `${stats.completionRate}%` }} />
+                </span>
+              </button>
+            </MultimodalGroup>
+          ))}
+        </div>
+      </MultimodalGroup>
+    </div>
+  )
+}
+
+function ProjectDetailScreen(props: {
+  project?: Project
+  todos: Todo[]
+  onNavigate: (route: AppRoute) => void
+  onTodoAction: (action: TodoAction) => void
+}) {
+  const [draft, setDraft] = React.useState("")
+
+  if (!props.project) {
+    return (
+      <div className="page-flow">
+        <section className="panel">
+          <div className="empty-state">
+            <strong>项目不存在</strong>
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => props.onNavigate({ screen: "projects" })}
+            >
+              返回项目
+            </button>
+          </div>
+        </section>
+      </div>
+    )
+  }
+
+  const projectTodos = props.todos.filter((todo) => todo.projectId === props.project!.id)
+  const stats = createProjectStats(props.project.id, props.todos)
+
+  return (
+    <MultimodalGroup
+      id={`project.detail.${props.project.id}`}
+      role="detail"
+      label={props.project.name}
+      entity={{ type: "project", id: props.project.id }}
+      state={{
+        status: props.project.status,
+        owner: props.project.owner,
+        due: props.project.due,
+        ...stats,
+      }}
+    >
+      <div className="page-flow">
+        <button
+          type="button"
+          className="back-button"
+          aria-label="返回项目"
+          onClick={() => props.onNavigate({ screen: "projects" })}
+        >
+          <TabIcon name="back" />
+          项目
+        </button>
+
+        <section className={`project-hero project-hero-${props.project.tone}`}>
+          <div>
+            <p className="section-kicker">{props.project.owner}</p>
+            <h2>{props.project.name}</h2>
+            <p>{props.project.description}</p>
+          </div>
+          <div className="project-card-meta">
+            <span>{props.project.due}</span>
+            <span>{stats.activeCount} 未完成</span>
+            <span>{stats.completionRate}% 完成</span>
+          </div>
+          <span className="progress-track" aria-hidden="true">
+            <span style={{ width: `${stats.completionRate}%` }} />
+          </span>
+        </section>
+
+        <MultimodalGroup
+          id="todo.composer"
+          role="composer"
+          label={`${props.project.name}新增待办`}
+          aliases={["新增待办", "添加事项", `${props.project.name}添加事项`]}
+          state={{ projectId: props.project.id, projectName: props.project.name }}
+        >
+          <form
+            className="composer-panel"
+            onSubmit={(event) => {
+              event.preventDefault()
+              props.onTodoAction({
+                type: "todo.add",
+                title: draft,
+                projectId: props.project!.id,
+              })
+              setDraft("")
+            }}
+          >
+            <label htmlFor={`project-task-${props.project.id}`}>新增事项</label>
+            <div className="composer-row">
+              <input
+                id={`project-task-${props.project.id}`}
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="补充验收记录"
+              />
+              <button type="submit" className="icon-button" aria-label="添加项目事项">
+                <TabIcon name="plus" />
+              </button>
+            </div>
+          </form>
+        </MultimodalGroup>
+
+        <MultimodalGroup id={`project.todo.list.${props.project.id}`} role="list" label={`${props.project.name}事项`} indexBy="visible_order">
+          <div className="todo-list">
+            {projectTodos.length > 0 ? (
+              projectTodos.map((todo) => (
+                <TodoListItem
+                  key={todo.id}
+                  todo={todo}
+                  onOpen={() => props.onNavigate({ screen: "todoDetail", todoId: todo.id })}
+                  onTodoAction={props.onTodoAction}
+                />
+              ))
+            ) : (
+              <div className="empty-state" role="status">
+                <strong>暂无项目事项</strong>
+                <span>新增一条事项后会出现在这里。</span>
+              </div>
+            )}
+          </div>
+        </MultimodalGroup>
+      </div>
+    </MultimodalGroup>
+  )
+}
+
+function CalendarScreen(props: {
+  todos: Todo[]
+  onNavigate: (route: AppRoute) => void
+}) {
+  const buckets: Array<{ id: string; due: TodoDue; label: string; note: string }> = [
+    { id: "today", due: "今天", label: "今天", note: "需要立刻处理" },
+    { id: "tomorrow", due: "明天", label: "明天", note: "提前排好节奏" },
+    { id: "week", due: "本周", label: "本周", note: "留出收尾时间" },
+  ]
+
+  return (
+    <div className="page-flow">
+      <section className="hero-panel">
+        <div>
+          <p className="section-kicker">日程视图</p>
+          <h2>{props.todos.filter((todo) => todo.due === "今天" && !todo.completed).length} 项今天截止</h2>
+        </div>
+        <div className="metric-row" aria-label="日历统计">
+          {buckets.map((bucket) => (
+            <Metric
+              key={bucket.id}
+              label={bucket.label}
+              value={props.todos.filter((todo) => todo.due === bucket.due).length}
+            />
+          ))}
+        </div>
+      </section>
+
+      <MultimodalGroup id="calendar.buckets" role="list" label="日历任务" indexBy="visible_order">
+        <div className="timeline-list">
+          {buckets.map((bucket) => {
+            const bucketTodos = props.todos.filter((todo) => todo.due === bucket.due)
+
+            return (
+              <MultimodalGroup
+                key={bucket.id}
+                id={`calendar.bucket.${bucket.id}`}
+                role="list"
+                label={`${bucket.label}任务`}
+                state={{ due: bucket.due, count: bucketTodos.length }}
+              >
+                <section className="timeline-section">
+                  <div className="timeline-date">
+                    <strong>{bucket.label}</strong>
+                    <span>{bucket.note}</span>
+                  </div>
+                  <div className="mini-task-list">
+                    {bucketTodos.length > 0 ? (
+                      bucketTodos.map((todo) => (
+                        <MiniTodoCard
+                          key={todo.id}
+                          scope={`calendar.${bucket.id}`}
+                          todo={todo}
+                          onOpen={() => props.onNavigate({ screen: "todoDetail", todoId: todo.id })}
+                        />
+                      ))
+                    ) : (
+                      <div className="empty-state compact" role="status">
+                        <strong>没有事项</strong>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </MultimodalGroup>
+            )
+          })}
+        </div>
+      </MultimodalGroup>
+    </div>
+  )
+}
+
+function KanbanScreen(props: {
+  todos: Todo[]
+  onNavigate: (route: AppRoute) => void
+  onTodoAction: (action: TodoAction) => void
+}) {
+  const columns: Array<{ id: string; label: string; todos: Todo[] }> = [
+    {
+      id: "today",
+      label: "今天",
+      todos: props.todos.filter((todo) => !todo.completed && todo.due === "今天"),
+    },
+    {
+      id: "tomorrow",
+      label: "明天",
+      todos: props.todos.filter((todo) => !todo.completed && todo.due === "明天"),
+    },
+    {
+      id: "week",
+      label: "本周",
+      todos: props.todos.filter((todo) => !todo.completed && todo.due === "本周"),
+    },
+    {
+      id: "done",
+      label: "已完成",
+      todos: props.todos.filter((todo) => todo.completed),
+    },
+  ]
+
+  return (
+    <div className="page-flow">
+      <MultimodalGroup id="kanban.board" role="board" label="任务看板">
+        <div className="kanban-board">
+          {columns.map((column) => (
+            <MultimodalGroup
+              key={column.id}
+              id={`kanban.column.${column.id}`}
+              role="list"
+              label={`${column.label}列`}
+              indexBy="visible_order"
+              state={{ count: column.todos.length }}
+            >
+              <section className="kanban-column">
+                <div className="kanban-column-header">
+                  <h2>{column.label}</h2>
+                  <span>{column.todos.length}</span>
+                </div>
+                <div className="mini-task-list">
+                  {column.todos.length > 0 ? (
+                    column.todos.map((todo) => (
+                      <MiniTodoCard
+                        key={todo.id}
+                        scope={`kanban.${column.id}`}
+                        todo={todo}
+                        onOpen={() => props.onNavigate({ screen: "todoDetail", todoId: todo.id })}
+                        onTodoAction={props.onTodoAction}
+                      />
+                    ))
+                  ) : (
+                    <div className="empty-state compact" role="status">
+                      <strong>空列</strong>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </MultimodalGroup>
+          ))}
+        </div>
+      </MultimodalGroup>
+    </div>
+  )
+}
+
+function AnalyticsScreen(props: { todos: Todo[] }) {
+  const completionRate = getCompletionRate(props.todos)
+  const activeTodos = props.todos.filter((todo) => !todo.completed)
+  const priorityRows = (Object.keys(priorityLabels) as TodoPriority[]).map((priority) => ({
+    priority,
+    label: priorityLabels[priority],
+    count: props.todos.filter((todo) => todo.priority === priority).length,
+  }))
+  const projectRows = projectCatalog.map((project) => ({
+    project,
+    stats: createProjectStats(project.id, props.todos),
+  }))
+
+  return (
+    <div className="page-flow">
+      <section className="hero-panel">
+        <div>
+          <p className="section-kicker">效率统计</p>
+          <h2>{completionRate}% 已完成</h2>
+        </div>
+        <div className="progress-track large" aria-hidden="true">
+          <span style={{ width: `${completionRate}%` }} />
+        </div>
+        <div className="metric-row" aria-label="完成统计">
+          <Metric label="总数" value={props.todos.length} />
+          <Metric label="未完成" value={activeTodos.length} />
+          <Metric label="高优先级" value={props.todos.filter((todo) => todo.priority === "high").length} />
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-header">
+          <h2>优先级</h2>
+        </div>
+        <div className="bar-list">
+          {priorityRows.map((row) => (
+            <div key={row.priority} className="bar-row">
+              <span>{row.label}</span>
+              <div className="progress-track" aria-hidden="true">
+                <span style={{ width: `${getPartRate(row.count, props.todos.length)}%` }} />
+              </div>
+              <strong>{row.count}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="section-header">
+          <h2>项目进度</h2>
+        </div>
+        <div className="bar-list">
+          {projectRows.map(({ project, stats }) => (
+            <div key={project.id} className="bar-row">
+              <span>{project.name}</span>
+              <div className="progress-track" aria-hidden="true">
+                <span style={{ width: `${stats.completionRate}%` }} />
+              </div>
+              <strong>{stats.totalCount}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function MiniTodoCard(props: {
+  scope: string
+  todo: Todo
+  onOpen: () => void
+  onTodoAction?: (action: TodoAction) => void
+}) {
+  const project = getProjectById(props.todo.projectId)
+  const aliases = project?.name
+    ? [props.todo.due, priorityLabels[props.todo.priority], project.name]
+    : [props.todo.due, priorityLabels[props.todo.priority]]
+
+  return (
+    <MultimodalGroup
+      id={`${props.scope}.todo.${props.todo.id}`}
+      role="list_item"
+      label={props.todo.title}
+      aliases={aliases}
+      entity={{ type: "todo", id: props.todo.id }}
+      state={{
+        completed: props.todo.completed,
+        due: props.todo.due,
+        priority: props.todo.priority,
+        projectId: props.todo.projectId,
+        projectName: project?.name,
+      }}
+    >
+      <article className="mini-task-card">
+        <button type="button" className="mini-task-main" onClick={props.onOpen}>
+          <span className={props.todo.completed ? "done task-title" : "task-title"}>
+            {props.todo.title}
+          </span>
+          <span className="task-meta">
+            <span>{project?.name ?? "未归档"}</span>
+            <span className={`priority priority-${props.todo.priority}`}>
+              {priorityLabels[props.todo.priority]}
+            </span>
+          </span>
+        </button>
+        {props.onTodoAction ? (
+          <button
+            type="button"
+            className="mini-action"
+            aria-label={props.todo.completed ? `恢复 ${props.todo.title}` : `完成 ${props.todo.title}`}
+            onClick={() =>
+              props.onTodoAction?.({
+                type: props.todo.completed ? "todo.uncomplete" : "todo.complete",
+                todoId: props.todo.id,
+              })
+            }
+          >
+            <TabIcon name={props.todo.completed ? "refresh" : "check"} />
+          </button>
+        ) : null}
+      </article>
     </MultimodalGroup>
   )
 }
@@ -910,6 +1672,8 @@ function FloatingChatbot(props: {
       actionReplies: {
         "navigation.goto": ({ result }: LocalInteractionReplyContext) =>
           `已打开${result.target?.label ?? "目标"}。`,
+        "navigation.back": "已返回上一页。",
+        "navigation.forward": "已前进到下一页。",
         "todo.complete": ({ targetLabel }: LocalInteractionReplyContext) =>
           `已将${targetLabel}标记为完成。`,
         "todo.uncomplete": ({ targetLabel }: LocalInteractionReplyContext) =>
@@ -934,8 +1698,10 @@ function FloatingChatbot(props: {
         "当用户用自然语言表达待办已完成、没完成、修改、删除、新增或筛选时，请根据 snapshot 判断 targetId、actionId 和 params，并返回 interaction_action JSON，由应用本地执行。",
         "完成/已完成/完成了/标记完成是状态切换，请使用 todo.complete；未完成/取消完成/恢复是状态切换，请使用 todo.uncomplete；不要用 todo.update 表达完成状态。",
         "当用户说“全部”“所有”“每个”等批量请求时，请返回 interaction_actions JSON，并在 resolutions 中为每一个需要变化的 todo 逐项列出 action；例如把全部任务设为完成时，只对 state.completed 为 false 的 todo 返回 todo.complete。",
-        "todo.update 只用于修改标题或详情，不要求用户先导航到详情页；更新详情时使用 params.description，保留标题时不要覆盖 title。",
+        "新增或修改待办日期时，params.due 只使用 今天、明天、本周；用户说“明天新增/明天帮我增加”时，todo.add 必须带 params.due=\"明天\"。",
+        "todo.update 用于修改标题、详情或日期，不要求用户先导航到详情页；更新详情时使用 params.description，更新日期时使用 params.due，保留标题时不要覆盖 title。",
         "如果用户要进入某个待办详情页，请使用 navigation.goto 指向对应 app.route.todo.*；如果用户要修改详情内容，请优先使用 todo.update 而不是只回复文字。",
+        "用户说返回上一页、回上一页、后退时使用 navigation.back；用户说前进、下一页、去下一页时使用 navigation.forward。",
         "interaction_actions 示例：{\"type\":\"interaction_actions\",\"resolutions\":[{\"status\":\"resolved\",\"utterance\":\"把全部任务都设置成完成\",\"targetId\":\"todo_1\",\"actionId\":\"todo.complete\",\"confidence\":0.92},{\"status\":\"resolved\",\"utterance\":\"把全部任务都设置成完成\",\"targetId\":\"todo_2\",\"actionId\":\"todo.complete\",\"confidence\":0.92}],\"reply\":\"已将全部未完成任务标记为完成。\"}。",
         "MiniMax tool call 也可以使用：<minimax:tool_call><invoke name=\"todo.update\"><parameter name=\"targetId\">todo_1</parameter><parameter name=\"description\">新详情</parameter></invoke></minimax:tool_call>。",
         "如果用户说法不完整，例如只说“改一下”，不要猜测目标，直接自然语言追问。",
@@ -1363,10 +2129,23 @@ function Metric(props: { label: string; value: number }) {
   )
 }
 
-function TabIcon(props: {
-  name: "home" | "list" | "chat" | "settings" | "plus" | "close" | "back"
-}) {
-  const paths: Record<typeof props.name, React.ReactNode> = {
+type TabIconName =
+  | "home"
+  | "list"
+  | "chat"
+  | "settings"
+  | "plus"
+  | "close"
+  | "back"
+  | "folder"
+  | "calendar"
+  | "kanban"
+  | "chart"
+  | "check"
+  | "refresh"
+
+function TabIcon(props: { name: TabIconName }) {
+  const paths: Record<TabIconName, React.ReactNode> = {
     home: <path d="M3 10.8 12 4l9 6.8V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />,
     list: <path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />,
     chat: <path d="M4 5h16v11H8l-4 4z" />,
@@ -1376,6 +2155,12 @@ function TabIcon(props: {
     plus: <path d="M12 5v14M5 12h14" />,
     close: <path d="m6 6 12 12M18 6 6 18" />,
     back: <path d="M15 18 9 12l6-6" />,
+    folder: <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,
+    calendar: <path d="M7 3v4M17 3v4M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />,
+    kanban: <path d="M4 5h16M6 9h4v10H6zM14 9h4v6h-4z" />,
+    chart: <path d="M4 19V5M4 19h16M8 16v-5M12 16V8M16 16v-8" />,
+    check: <path d="m5 13 4 4L19 7" />,
+    refresh: <path d="M20 12a8 8 0 0 1-13.6 5.7L4 15M4 15v5h5M4 12A8 8 0 0 1 17.6 6.3L20 9M20 9V4h-5" />,
   }
 
   return (
@@ -1383,6 +2168,36 @@ function TabIcon(props: {
       {paths[props.name]}
     </svg>
   )
+}
+
+function getProjectById(projectId: string | undefined): Project | undefined {
+  return projectCatalog.find((project) => project.id === projectId)
+}
+
+function isKnownProjectId(projectId: string | undefined): projectId is string {
+  return Boolean(projectId && getProjectById(projectId))
+}
+
+function createProjectStats(projectId: string, todos: Todo[]) {
+  const projectTodos = todos.filter((todo) => todo.projectId === projectId)
+  const completedCount = projectTodos.filter((todo) => todo.completed).length
+
+  return {
+    totalCount: projectTodos.length,
+    activeCount: projectTodos.length - completedCount,
+    completedCount,
+    completionRate: getCompletionRate(projectTodos),
+  }
+}
+
+function getCompletionRate(todos: Todo[]): number {
+  if (todos.length === 0) return 0
+  return Math.round((todos.filter((todo) => todo.completed).length / todos.length) * 100)
+}
+
+function getPartRate(count: number, total: number): number {
+  if (total === 0) return 0
+  return Math.round((count / total) * 100)
 }
 
 function getVisibleTodos(todos: Todo[], filter: TodoFilter): Todo[] {
@@ -1394,23 +2209,46 @@ function getVisibleTodos(todos: Todo[], filter: TodoFilter): Todo[] {
   })
 }
 
-function createTodoPageState(route: AppRoute, todos: Todo[], filter: TodoFilter) {
+function createTodoPageState(
+  route: AppRoute,
+  todos: Todo[],
+  filter: TodoFilter,
+  routeHistory: BrowserRouteHistory
+) {
   const activeTodos = todos.filter((todo) => !todo.completed)
   const visibleTodos = getVisibleTodos(todos, filter)
   const selectedTodo = route.todoId ? todos.find((todo) => todo.id === route.todoId) : undefined
+  const selectedProject = route.projectId ? getProjectById(route.projectId) : undefined
 
   return {
     currentScreen: route.screen,
     filter,
+    canGoBack: routeHistory.canGoBack,
+    canGoForward: routeHistory.canGoForward,
+    navigation: {
+      canGoBack: routeHistory.canGoBack,
+      canGoForward: routeHistory.canGoForward,
+    },
     summary: {
       totalCount: todos.length,
       activeCount: activeTodos.length,
       completedCount: todos.length - activeTodos.length,
       todayCount: todos.filter((todo) => todo.due === "今天").length,
       visibleCount: visibleTodos.length,
+      projectCount: projectCatalog.length,
+      completionRate: getCompletionRate(todos),
     },
     selectedTodoId: selectedTodo?.id,
+    selectedProjectId: selectedProject?.id,
     visibleTodoIds: visibleTodos.map((todo) => todo.id),
+    projects: projectCatalog.map((project) => ({
+      id: project.id,
+      name: project.name,
+      status: project.status,
+      owner: project.owner,
+      due: project.due,
+      ...createProjectStats(project.id, todos),
+    })),
     todos: todos.map((todo) => ({
       id: todo.id,
       title: todo.title,
@@ -1418,6 +2256,8 @@ function createTodoPageState(route: AppRoute, todos: Todo[], filter: TodoFilter)
       due: todo.due,
       priority: todo.priority,
       priorityLabel: priorityLabels[todo.priority],
+      projectId: todo.projectId,
+      projectName: getProjectById(todo.projectId)?.name,
       description: todo.description,
     })),
   }
@@ -1429,6 +2269,27 @@ function getPageMeta(route: AppRoute, todos: Todo[]) {
   }
   if (route.screen === "settings") {
     return { id: "page.settings", title: "设置", eyebrow: "siliconflow api", path: "/settings" }
+  }
+  if (route.screen === "projects") {
+    return { id: "page.projects", title: "项目", eyebrow: "project spaces", path: "/projects" }
+  }
+  if (route.screen === "projectDetail") {
+    const project = getProjectById(route.projectId)
+    return {
+      id: "page.project.detail",
+      title: project?.name ?? "项目详情",
+      eyebrow: "project detail",
+      path: route.projectId ? `/projects/${route.projectId}` : "/projects",
+    }
+  }
+  if (route.screen === "calendar") {
+    return { id: "page.calendar", title: "日历", eyebrow: "calendar", path: "/calendar" }
+  }
+  if (route.screen === "kanban") {
+    return { id: "page.kanban", title: "看板", eyebrow: "kanban board", path: "/kanban" }
+  }
+  if (route.screen === "analytics") {
+    return { id: "page.analytics", title: "统计", eyebrow: "analytics", path: "/analytics" }
   }
   if (route.screen === "todoDetail") {
     const todo = todos.find((item) => item.id === route.todoId)
@@ -1445,6 +2306,9 @@ function getPageMeta(route: AppRoute, todos: Todo[]) {
 function isRouteActive(currentRoute: AppRoute, targetRoute: AppRoute): boolean {
   if (targetRoute.screen === "todos") {
     return currentRoute.screen === "todos" || currentRoute.screen === "todoDetail"
+  }
+  if (targetRoute.screen === "projects") {
+    return currentRoute.screen === "projects" || currentRoute.screen === "projectDetail"
   }
   return currentRoute.screen === targetRoute.screen
 }
@@ -1487,28 +2351,115 @@ function isCancelText(text: string): boolean {
   return /^(取消|算了|不用|不要|否|no)$/i.test(text.trim())
 }
 
-function useBrowserRoute(): [AppRoute, (route: AppRoute) => void] {
+function useBrowserRoute(): [AppRoute, (route: AppRoute) => void, BrowserRouteHistory] {
   const [route, setRoute] = React.useState<AppRoute>(() => routeFromPath(window.location.pathname))
+  const [historyAvailability, setHistoryAvailability] = React.useState({
+    canGoBack: false,
+    canGoForward: false,
+  })
+  const routeRef = React.useRef(route)
+  const historyRef = React.useRef<{
+    back: AppRoute[]
+    forward: AppRoute[]
+  }>({
+    back: [],
+    forward: [],
+  })
+
+  const syncHistoryAvailability = React.useCallback(() => {
+    setHistoryAvailability({
+      canGoBack: historyRef.current.back.length > 0,
+      canGoForward: historyRef.current.forward.length > 0,
+    })
+  }, [])
 
   React.useEffect(() => {
-    const onPopState = () => setRoute(routeFromPath(window.location.pathname))
+    routeRef.current = route
+  }, [route])
+
+  React.useEffect(() => {
+    const onPopState = () => {
+      const nextRoute = routeFromPath(window.location.pathname)
+      routeRef.current = nextRoute
+      setRoute(nextRoute)
+    }
     window.addEventListener("popstate", onPopState)
     return () => window.removeEventListener("popstate", onPopState)
   }, [])
 
-  const navigate = React.useCallback((nextRoute: AppRoute) => {
+  const navigate = React.useCallback(
+    (nextRoute: AppRoute) => {
+      const nextPath = pathForRoute(nextRoute)
+      if (pathForRoute(routeRef.current) === nextPath) return
+
+      historyRef.current.back.push(routeRef.current)
+      historyRef.current.forward = []
+      if (window.location.pathname !== nextPath) {
+        window.history.pushState(null, "", nextPath)
+      }
+      routeRef.current = nextRoute
+      setRoute(nextRoute)
+      syncHistoryAvailability()
+    },
+    [syncHistoryAvailability]
+  )
+
+  const goBack = React.useCallback(() => {
+    const previousRoute = historyRef.current.back.pop()
+    if (!previousRoute) {
+      syncHistoryAvailability()
+      return
+    }
+
+    historyRef.current.forward.push(routeRef.current)
+    const previousPath = pathForRoute(previousRoute)
+    if (window.location.pathname !== previousPath) {
+      window.history.replaceState(null, "", previousPath)
+    }
+    routeRef.current = previousRoute
+    setRoute(previousRoute)
+    syncHistoryAvailability()
+  }, [syncHistoryAvailability])
+
+  const goForward = React.useCallback(() => {
+    const nextRoute = historyRef.current.forward.pop()
+    if (!nextRoute) {
+      syncHistoryAvailability()
+      return
+    }
+
+    historyRef.current.back.push(routeRef.current)
     const nextPath = pathForRoute(nextRoute)
     if (window.location.pathname !== nextPath) {
-      window.history.pushState(null, "", nextPath)
+      window.history.replaceState(null, "", nextPath)
     }
+    routeRef.current = nextRoute
     setRoute(nextRoute)
-  }, [])
+    syncHistoryAvailability()
+  }, [syncHistoryAvailability])
 
-  return [route, navigate]
+  const routeHistory = React.useMemo<BrowserRouteHistory>(
+    () => ({
+      canGoBack: historyAvailability.canGoBack,
+      canGoForward: historyAvailability.canGoForward,
+      goBack,
+      goForward,
+    }),
+    [goBack, goForward, historyAvailability.canGoBack, historyAvailability.canGoForward]
+  )
+
+  return [route, navigate, routeHistory]
 }
 
 function routeFromPath(pathname: string): AppRoute {
   if (pathname === "/settings") return { screen: "settings" }
+  if (pathname === "/projects") return { screen: "projects" }
+  if (pathname.startsWith("/projects/")) {
+    return { screen: "projectDetail", projectId: decodeURIComponent(pathname.slice("/projects/".length)) }
+  }
+  if (pathname === "/calendar") return { screen: "calendar" }
+  if (pathname === "/kanban") return { screen: "kanban" }
+  if (pathname === "/analytics") return { screen: "analytics" }
   if (pathname === "/todos") return { screen: "todos" }
   if (pathname.startsWith("/todos/")) {
     return { screen: "todoDetail", todoId: decodeURIComponent(pathname.slice("/todos/".length)) }
@@ -1518,6 +2469,11 @@ function routeFromPath(pathname: string): AppRoute {
 
 function pathForRoute(route: AppRoute): string {
   if (route.screen === "settings") return "/settings"
+  if (route.screen === "projects") return "/projects"
+  if (route.screen === "projectDetail") return `/projects/${encodeURIComponent(route.projectId ?? "")}`
+  if (route.screen === "calendar") return "/calendar"
+  if (route.screen === "kanban") return "/kanban"
+  if (route.screen === "analytics") return "/analytics"
   if (route.screen === "todos") return "/todos"
   if (route.screen === "todoDetail") return `/todos/${encodeURIComponent(route.todoId ?? "")}`
   return "/"
@@ -1566,6 +2522,10 @@ function normalizeStoredTodo(value: unknown): Todo | undefined {
 
   const record = value as Record<string, unknown>
   if (typeof record.id !== "string" || typeof record.title !== "string") return undefined
+  const projectId =
+    typeof record.projectId === "string" && isKnownProjectId(record.projectId)
+      ? record.projectId
+      : defaultProjectId
 
   return {
     id: record.id,
@@ -1573,6 +2533,7 @@ function normalizeStoredTodo(value: unknown): Todo | undefined {
     completed: typeof record.completed === "boolean" ? record.completed : false,
     priority: isTodoPriority(record.priority) ? record.priority : "medium",
     due: isTodoDue(record.due) ? record.due : "今天",
+    projectId,
     description: typeof record.description === "string" ? record.description : "",
   }
 }
@@ -1581,7 +2542,7 @@ function isTodoPriority(value: unknown): value is TodoPriority {
   return value === "low" || value === "medium" || value === "high"
 }
 
-function isTodoDue(value: unknown): value is Todo["due"] {
+function isTodoDue(value: unknown): value is TodoDue {
   return value === "今天" || value === "明天" || value === "本周"
 }
 

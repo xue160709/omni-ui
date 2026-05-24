@@ -8,6 +8,8 @@ import type {
   ValidationResult,
 } from "./types"
 
+// 中文：判断 action spec 是否可挂到某个对象上，优先使用显式 attachTo，再按执行作用域兜底。
+// English: Checks whether an action spec attaches to an object, using attachTo first and executeScope as fallback.
 export function actionMatchesObject(
   spec: RegisteredActionSpec,
   object: InteractionObject
@@ -30,6 +32,8 @@ export function getAvailableActionsForObject(
   snapshot: InteractionSnapshot,
   candidate?: ActionContext["candidate"]
 ): string[] {
+  // 中文：availableWhen 在 snapshot 构建阶段执行，确保对象只暴露当前真正可用的业务 action。
+  // English: availableWhen runs during snapshot creation so objects expose only currently valid domain actions.
   return Object.values(actionSpecs)
     .filter((spec) => actionMatchesObject(spec, object))
     .filter((spec) => {
@@ -50,6 +54,8 @@ export function attachDomainActions(
   actionSpecs: Record<string, RegisteredActionSpec>,
   snapshotBase: Omit<InteractionSnapshot, "visibleObjects">
 ): InteractionObject[] {
+  // 中文：先构造临时 snapshot，让 availableWhen 能看到完整对象集合。
+  // English: Builds a provisional snapshot so availableWhen can inspect the full object set.
   const provisionalSnapshot: InteractionSnapshot = {
     ...snapshotBase,
     visibleObjects: objects,
@@ -69,6 +75,8 @@ export function validateActionRequest(
   snapshot: InteractionSnapshot,
   context: DispatchContext
 ): ValidationResult {
+  // 中文：所有执行前都校验 stateVersion，避免用户话音落地时界面已经换了目标。
+  // English: Every dispatch validates stateVersion so a command cannot execute against a stale UI target.
   if (context.baseStateVersion !== snapshot.stateVersion) {
     return {
       ok: false,
@@ -128,6 +136,8 @@ export function buildActionPayload(
   snapshot: InteractionSnapshot,
   context: DispatchContext
 ): ActionPayload {
+  // 中文：payload 合并解析器参数和 action spec 映射参数，解析器参数先进入，映射参数可覆盖。
+  // English: Payload merges resolver params with spec-mapped params; mapped params can override earlier resolver values.
   const spec = snapshot.actionSpecs[context.actionId]
   const target = snapshot.visibleObjects.find((object) => object.id === context.targetId)
 
@@ -176,6 +186,8 @@ export function resolveParamPaths(
   return params
 }
 
+// 中文：只支持安全的点路径读取，不执行表达式，也不解析数组/函数调用。
+// English: Supports only safe dot-path reads; expressions, arrays, and function calls are intentionally unsupported.
 export function readPath(source: unknown, path: string): unknown {
   if (!path || path.includes("[") || path.includes("(")) return undefined
 

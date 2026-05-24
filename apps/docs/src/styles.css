@@ -241,6 +241,148 @@ textarea:focus {
   line-height: 1.5;
 }
 
+.shortcut-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.shortcut-card {
+  min-height: 104px;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--foreground);
+  padding: 12px;
+  text-align: left;
+}
+
+.shortcut-card .tab-icon {
+  color: var(--primary);
+}
+
+.shortcut-card span,
+.project-card strong {
+  font-weight: 850;
+}
+
+.shortcut-card small,
+.project-description {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.project-list,
+.timeline-list,
+.bar-list {
+  display: grid;
+  gap: 10px;
+}
+
+.project-card,
+.project-hero {
+  width: 100%;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--foreground);
+  padding: 14px;
+  text-align: left;
+}
+
+.project-card-green,
+.project-hero-green {
+  border-color: rgb(4 120 87 / 0.28);
+  background: linear-gradient(180deg, #ffffff 0%, #edfdf7 100%);
+}
+
+.project-card-amber,
+.project-hero-amber {
+  border-color: rgb(180 83 9 / 0.28);
+  background: linear-gradient(180deg, #ffffff 0%, #fff7ed 100%);
+}
+
+.project-card-blue,
+.project-hero-blue {
+  border-color: rgb(37 99 235 / 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%);
+}
+
+.project-card-rose,
+.project-hero-rose {
+  border-color: rgb(190 18 60 / 0.22);
+  background: linear-gradient(180deg, #ffffff 0%, #fff1f2 100%);
+}
+
+.project-card-top,
+.project-card-meta,
+.kanban-column-header,
+.bar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.project-card-top span,
+.project-card-meta span,
+.kanban-column-header span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.72);
+  color: var(--muted-foreground);
+  padding: 0 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.project-card-meta {
+  justify-content: start;
+  flex-wrap: wrap;
+}
+
+.project-hero h2,
+.kanban-column-header h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.project-hero p {
+  margin: 6px 0 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.progress-track {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 0.08);
+}
+
+.progress-track span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #047857 0%, #2563eb 100%);
+}
+
+.progress-track.large {
+  height: 12px;
+}
+
 .composer-panel,
 .settings-form,
 .detail-form {
@@ -439,6 +581,106 @@ textarea:focus {
   background: var(--accent-soft) !important;
 }
 
+.timeline-section,
+.kanban-column {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.timeline-date {
+  display: grid;
+  gap: 4px;
+  border-left: 4px solid var(--primary);
+  padding-left: 10px;
+}
+
+.timeline-date strong {
+  font-size: 16px;
+}
+
+.timeline-date span {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.mini-task-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mini-task-card {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  padding: 9px;
+}
+
+.mini-task-main {
+  min-width: 0;
+  min-height: 52px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  padding: 0;
+  text-align: left;
+}
+
+.mini-action {
+  width: 42px;
+  min-height: 42px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--primary);
+}
+
+.kanban-board {
+  display: grid;
+  gap: 10px;
+}
+
+.kanban-column {
+  background: #f8fafc;
+}
+
+.kanban-column-header h2 {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.bar-row {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: minmax(76px, 1fr) minmax(90px, 1.5fr) 34px;
+}
+
+.bar-row span {
+  min-width: 0;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.bar-row strong {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
 .empty-state {
   min-height: 120px;
   display: grid;
@@ -454,6 +696,11 @@ textarea:focus {
 
 .empty-state strong {
   color: var(--foreground);
+}
+
+.empty-state.compact {
+  min-height: 72px;
+  padding: 12px;
 }
 
 .back-button {

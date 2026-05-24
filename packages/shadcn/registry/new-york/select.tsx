@@ -19,6 +19,8 @@ type MultimodalSelectTriggerProps = React.ComponentProps<typeof ShadcnSelectTrig
   interactionHint?: InteractionHint
 }
 
+// 中文：Select trigger 注册为 combobox，允许按选项名称或序号进行选择。
+// English: Select trigger registers as a combobox, allowing selection by option label or index.
 export const MultimodalSelectTrigger = React.forwardRef<
   React.ElementRef<typeof ShadcnSelectTrigger>,
   MultimodalSelectTriggerProps
@@ -42,6 +44,8 @@ type MultimodalSelectItemProps = React.ComponentProps<typeof ShadcnSelectItem> &
   interactionHint?: InteractionHint
 }
 
+// 中文：Select item 注册为 option，供打开的下拉列表中进行精确目标匹配。
+// English: Select item registers as an option for precise target matching inside an open list.
 export const MultimodalSelectItem = React.forwardRef<
   React.ElementRef<typeof ShadcnSelectItem>,
   MultimodalSelectItemProps

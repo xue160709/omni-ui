@@ -6,6 +6,8 @@ import type {
   ResolvedInteraction,
 } from "./types"
 
+// 中文：本地规则 target 描述“从匹配文本里拿哪个槽位，并到 snapshot 的哪类对象里找”。
+// English: A local rule target says which matched slot to read and which kind of snapshot object to search.
 export type LocalRuleTarget =
   | "route.byLabel"
   | "object.byLabel"
@@ -56,6 +58,8 @@ type PatternMatch = {
   text: string
 }
 
+// 中文：配置化 resolver 面向应用层常用命令，先做确定性匹配，再交给运行时执行统一校验。
+// English: The configured resolver handles app-specific common commands deterministically before runtime validation.
 export function createConfiguredRuleResolver(
   options: ConfiguredRuleResolverOptions
 ): IntentResolver {
@@ -122,6 +126,8 @@ function matchRulePatterns(utterance: string, patterns: string[]): PatternMatch 
   return undefined
 }
 
+// 中文：把“打开{route}”这类模板编译成命名捕获组，便于后续解析 target 和 params。
+// English: Compiles templates such as "open {route}" into named capture groups for target and param resolution.
 function compilePattern(pattern: string): RegExp {
   let source = "^"
   let cursor = 0
@@ -144,6 +150,8 @@ function resolveRuleTarget(
   target: LocalRuleTarget,
   match: PatternMatch
 ): InteractionObject | undefined {
+  // 中文：字符串 target 是最常用的简写；对象 target 用于指定 slot、role 或 entityType 等细节。
+  // English: String targets are the common shorthand; object targets add detail such as slot, role, or entityType.
   if (target === "page.current" || (typeof target === "object" && target.kind === "page")) {
     return snapshot.page
   }
@@ -222,6 +230,8 @@ function findObjectByName(
     return true
   })
 
+  // 中文：先精确匹配 label/alias，再允许包含匹配，以兼顾可靠性和自然表达。
+  // English: Exact label/alias matches run before containment matches to balance reliability and natural phrasing.
   return (
     objects.find((object) =>
       getObjectNames(object).some((name) => normalizeSpeech(name) === query)
@@ -260,6 +270,8 @@ function resolveRuleParams(
 
   const output: Record<string, unknown> = {}
   Object.entries(params).forEach(([key, value]) => {
+    // 中文：以 `$slot` 开头的字符串会从模板捕获值中读取，其他值按常量透传。
+    // English: Strings beginning with `$slot` read from captured template values; other values pass through as constants.
     if (typeof value === "string" && value.startsWith("$")) {
       output[key] = match.values[value.slice(1)] ?? ""
       return
@@ -270,6 +282,8 @@ function resolveRuleParams(
 }
 
 function readSlot(match: PatternMatch, preferred?: string): string {
+  // 中文：按常见槽位名兜底读取，降低简单规则的配置成本。
+  // English: Falls back through common slot names so simple rules need less configuration.
   if (preferred && match.values[preferred]) return match.values[preferred]
   return (
     match.values.target ??

@@ -54,6 +54,8 @@ export type CreateAnthropicResolverOptions = {
   maxTokens?: number
 }
 
+// 中文：resolver schema 是模型输出的最小契约，运行时还会继续做策略和状态校验。
+// English: The resolver schema is the model's minimal output contract; runtime policy and state validation still follow.
 export const LLM_RESOLVER_SCHEMA = {
   type: "object",
   required: ["status", "utterance", "confidence"],
@@ -87,6 +89,8 @@ export const LLM_RESOLVER_SCHEMA = {
 export const DEFAULT_LLM_RESOLVER_SYSTEM_PROMPT =
   "You resolve natural-language UI commands against the provided Interaction Snapshot. Return only one JSON object matching the schema. Use only targetId, actionId, and primitiveAction values present in the snapshot. Prefer domain actionId when available. If the request is ambiguous, return needs_clarification."
 
+// 中文：通用 LLM resolver 只负责把 provider 输出归一化成 ResolvedInteraction，不直接执行任何操作。
+// English: The generic LLM resolver only normalizes provider output into ResolvedInteraction and never executes actions directly.
 export function createLlmResolver(options: CreateLlmResolverOptions): IntentResolver {
   return {
     id: options.id ?? "llm",
@@ -112,6 +116,8 @@ export function createLlmResolver(options: CreateLlmResolverOptions): IntentReso
   }
 }
 
+// 中文：OpenAI 适配器默认调用 chat/completions，并要求 JSON object 响应以降低解析失败率。
+// English: The OpenAI adapter uses chat/completions by default and requests a JSON object to reduce parse failures.
 export function createOpenAIResolver(options: CreateOpenAIResolverOptions = {}): IntentResolver {
   return createLlmResolver({
     id: options.id ?? "openai",
@@ -153,6 +159,8 @@ export function createOpenAIResolver(options: CreateOpenAIResolverOptions = {}):
   })
 }
 
+// 中文：Anthropic 适配器保持同一套 prompt/schema，便于不同 provider 之间替换。
+// English: The Anthropic adapter keeps the same prompt/schema so providers can be swapped with minimal app changes.
 export function createAnthropicResolver(options: CreateAnthropicResolverOptions = {}): IntentResolver {
   return createLlmResolver({
     id: options.id ?? "anthropic",
@@ -192,6 +200,8 @@ export function createAnthropicResolver(options: CreateAnthropicResolverOptions 
 }
 
 export function createLlmResolverPrompt(input: LlmResolverInput): string {
+  // 中文：prompt 里包含压缩后的 snapshot，而不是完整 DOM 或源码。
+  // English: The prompt includes a compact snapshot rather than the full DOM or source code.
   return JSON.stringify(
     {
       utterance: input.utterance,
@@ -208,6 +218,8 @@ export function normalizeLlmOutput(
   fallbackUtterance: string,
   resolverId = "llm"
 ): ResolvedInteraction {
+  // 中文：provider 可能返回字符串或对象；这里统一解析、裁剪置信度并补齐 fallback 字段。
+  // English: Providers may return strings or objects; this normalizes parsing, clamps confidence, and fills fallback fields.
   const parsed = typeof output === "string" ? parseJsonObject(output) : output
 
   if (!parsed || typeof parsed !== "object") {
@@ -297,6 +309,8 @@ async function requestJson(
   init: RequestInit,
   provider: string
 ): Promise<unknown> {
+  // 中文：HTTP 错误会附带截断后的响应体，便于定位 provider 配置或鉴权问题。
+  // English: HTTP errors include a truncated response body to help diagnose provider configuration or auth issues.
   if (!fetcher) {
     throw new Error(`${provider} resolver requires a fetch implementation.`)
   }
@@ -354,6 +368,8 @@ function truncate(value: string, maxLength = 400): string {
 }
 
 function parseJsonObject(output: string): unknown {
+  // 中文：优先解析完整 JSON，失败后再抽取第一个对象片段，兼容模型额外输出。
+  // English: Parses full JSON first, then falls back to the first object fragment to tolerate extra model text.
   try {
     return JSON.parse(output)
   } catch {

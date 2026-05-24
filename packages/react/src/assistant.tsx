@@ -64,6 +64,8 @@ const defaultModelActionPolicy: ModelActionPolicy = {
   requireConfirmationForRisk: ["medium", "high"],
 }
 
+// 中文：assistant hook 把本地快路径、模型 action 解析和本地执行校验串成一个可复用聊天入口。
+// English: This assistant hook chains local fast-path handling, model action parsing, and local execution validation into one reusable chat entry.
 export function useInteractionAssistant(
   options: UseInteractionAssistantOptions = {}
 ): InteractionAssistantApi {
@@ -86,6 +88,8 @@ export function useInteractionAssistant(
       const resolved = await interaction.resolveText(text)
 
       if (!shouldSubmitResolvedInteraction(resolved.resolution, localPolicy)) {
+        // 中文：本地解析需要澄清时可以直接生成回复；否则交给外部模型继续处理。
+        // English: Local clarification can produce a reply immediately; other misses fall through to an external model.
         if (
           localPolicy?.mode !== "allowlist" &&
           resolved.resolution.status === "needs_clarification"
@@ -137,6 +141,8 @@ export function useInteractionAssistant(
       const currentOptions = optionsRef.current
       const parsed = parseInteractionAssistantModelReply(content, utterance)
 
+      // 中文：模型可以返回单个 action、批量 action，或普通消息；只有 action 会进入本地 dispatch。
+      // English: Model replies may contain one action, a batch of actions, or a plain message; only actions enter local dispatch.
       if (parsed.type !== "interaction_action") {
         if (parsed.type === "interaction_actions") {
           const results: InteractionSubmitResult[] = []
@@ -233,6 +239,8 @@ async function submitModelResolution(
   currentOptions: UseInteractionAssistantOptions,
   interaction: InteractionApi
 ): Promise<LocalAssistantSubmitResult> {
+  // 中文：模型给出的候选动作会重新按当前 snapshot 归一化并校验，防止 stale target 或越权 action。
+  // English: Model-proposed actions are normalized and validated against the current snapshot to prevent stale targets or unauthorized actions.
   const snapshot = interaction.getSnapshot()
   const resolution = normalizeModelResolutionTarget(parsedResolution, snapshot)
   const modelPolicy = currentOptions.modelActionPolicy ?? defaultModelActionPolicy
@@ -284,6 +292,8 @@ function normalizeModelResolutionTarget(
   resolution: ResolvedInteraction,
   snapshot: InteractionSnapshot
 ): ResolvedInteraction {
+  // 中文：有些模型会返回 entity id 而不是 object id，这里把它映射回当前可见对象。
+  // English: Some models return an entity id instead of an object id; this maps it back to the visible object.
   if (!resolution.targetId) {
     const target = inferTargetFromAction(resolution, snapshot)
     return target
@@ -305,8 +315,8 @@ function normalizeModelResolutionTarget(
   return target
     ? {
         ...resolution,
-      targetId: target.id,
-    }
+        targetId: target.id,
+      }
     : resolution
 }
 
@@ -314,6 +324,8 @@ function inferTargetFromAction(
   resolution: ResolvedInteraction,
   snapshot: InteractionSnapshot
 ) {
+  // 中文：当 action 自身只可能附着到一个目标时，可从 action spec 推断缺失的 targetId。
+  // English: When an action spec points to a single target class, it can infer a missing targetId.
   if (!resolution.actionId) return undefined
   const spec = snapshot.actionSpecs[resolution.actionId]
   if (!spec) return undefined

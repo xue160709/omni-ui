@@ -11,6 +11,8 @@ type MultimodalButtonProps = React.ComponentProps<typeof ShadcnButton> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：Button 注册为可 press 的按钮目标，适合“点击/确认/打开”这类自然语言命令。
+// English: Button registers as a pressable target for natural-language commands such as click, confirm, or open.
 export const MultimodalButton = React.forwardRef<
   React.ElementRef<typeof ShadcnButton>,
   MultimodalButtonProps

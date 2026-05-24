@@ -20,6 +20,8 @@ type MultimodalCommandProps = React.ComponentProps<typeof Command> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：Command group 表达整个命令面板的语义边界，便于搜索框和结果项归属同一上下文。
+// English: Command group defines the command palette boundary so the search box and results share one context.
 export function MultimodalCommand({
   interactionId,
   interactionLabel,
@@ -45,6 +47,8 @@ type MultimodalCommandInputProps = React.ComponentProps<typeof ShadcnCommandInpu
   interactionHint?: InteractionHint
 }
 
+// 中文：Command input 使用 search 语义，和普通文本输入区分开。
+// English: Command input uses search semantics to distinguish it from generic text editing.
 export const MultimodalCommandInput = React.forwardRef<
   React.ElementRef<typeof ShadcnCommandInput>,
   MultimodalCommandInputProps
@@ -68,6 +72,8 @@ type MultimodalCommandItemProps = React.ComponentProps<typeof ShadcnCommandItem>
   interactionHint?: InteractionHint
 }
 
+// 中文：Command item 暴露 selectResult/select，表示选择搜索或命令结果。
+// English: Command item exposes selectResult/select to represent choosing a search or command result.
 export const MultimodalCommandItem = React.forwardRef<
   React.ElementRef<typeof ShadcnCommandItem>,
   MultimodalCommandItemProps

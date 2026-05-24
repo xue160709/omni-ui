@@ -1,3 +1,5 @@
+/* 中文：运行时反馈样式通过 data-mm-feedback 挂在真实目标元素上，不依赖具体组件库。 */
+/* English: Runtime feedback styles attach to real targets via data-mm-feedback and stay independent of component libraries. */
 [data-mm-feedback="voice-target"] {
   outline: 2px solid hsl(var(--ring, 210 90% 55%));
   outline-offset: 3px;

@@ -11,6 +11,8 @@ type MultimodalSwitchProps = React.ComponentProps<typeof ShadcnSwitch> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：Switch 使用 turnOn/turnOff/toggle 语义，比普通按钮更准确地表达开关状态。
+// English: Switch uses turnOn, turnOff, and toggle semantics to express switch state more precisely than a generic button.
 export const MultimodalSwitch = React.forwardRef<
   React.ElementRef<typeof ShadcnSwitch>,
   MultimodalSwitchProps

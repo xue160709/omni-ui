@@ -21,6 +21,8 @@ type MultimodalCardProps = React.ComponentProps<typeof ShadcnCard> & {
   entity?: EntityRef
 }
 
+// 中文：Card 注册整张卡片为 composite 目标，适合详情卡、统计卡或业务对象卡片。
+// English: Card registers the whole card as a composite target for detail, metric, or business-object cards.
 export function MultimodalCard({
   interactionId,
   interactionLabel,

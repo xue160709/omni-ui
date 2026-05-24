@@ -7,6 +7,8 @@ import type {
   ResolvedInteraction,
 } from "./types"
 
+// 中文：内置规则解析器先支持常见中文序数，用于“第一个/第二项”这类低延迟命令。
+// English: The built-in rule resolver understands common Chinese ordinals for low-latency commands such as "the first item".
 const ordinalWords: Record<string, number> = {
   一: 1,
   二: 2,
@@ -34,6 +36,8 @@ export const ruleResolver: IntentResolver = {
   resolve: resolveWithRules,
 }
 
+// 中文：按顺序调用多个 resolver，优先返回高置信度结果；如果某个 resolver 要求澄清，则立即交回用户。
+// English: Runs resolvers in order, preferring high-confidence results; clarification requests short-circuit back to the user.
 export async function resolveWithResolvers(
   context: IntentResolverContext,
   resolvers: IntentResolver[],
@@ -70,6 +74,8 @@ export async function resolveWithResolvers(
   }
 }
 
+// 中文：内置规则解析流程：先猜意图，再解析序号/文本目标，最后为目标挑选动作。
+// English: Built-in resolution flow: infer intent, resolve ordinal/text target, then choose an action for that target.
 function resolveWithRules({
   utterance,
   snapshot,
@@ -128,6 +134,8 @@ function resolveWithRules({
   }
 }
 
+// 中文：通过中文动词快速推断用户意图，作为无配置规则时的本地兜底。
+// English: Infers intent from Chinese verbs as a local fallback when no configured rules match.
 export function inferIntent(text: string): string {
   if (/确认|确定|好的|好/.test(text)) return "confirm"
   if (/^(点击|点一下|点|按一下|按)/.test(text)) return "click"
@@ -145,6 +153,8 @@ export function inferIntent(text: string): string {
   return "click"
 }
 
+// 中文：解析“第 2 个”和“第二项”两种序号表达，序号从 1 开始。
+// English: Parses both digit and Chinese-word ordinals; the returned index is one-based.
 export function extractOrdinal(text: string): number | undefined {
   const digitMatch = text.match(/第\s*(\d+)\s*(个|项|条|行)?/)
   if (digitMatch) return Number(digitMatch[1])
@@ -159,6 +169,8 @@ export function findObjectByOrdinal(
   snapshot: InteractionSnapshot,
   ordinal: number
 ): InteractionObject | undefined {
+  // 中文：业务列表项优先按 state.index 排序，避免 DOM 顺序变化影响“第几个”的语义。
+  // English: Business list items are sorted by state.index so "nth item" is stable even if DOM order shifts.
   const listItem = snapshot.visibleObjects
     .filter((object) => object.role === "list_item" || object.type === "composite")
     .sort((a, b) => Number(a.state?.index ?? 9999) - Number(b.state?.index ?? 9999))
@@ -180,6 +192,8 @@ export function findObjectBySpokenText(
 
   const objects = snapshot.visibleObjects.filter((object) => object.type !== "page")
 
+  // 中文：先做精确命中，再做包含关系命中，减少短词误匹配。
+  // English: Exact matches run before containment matches to reduce false positives from short phrases.
   return (
     objects.find((object) =>
       getSpokenNames(object).some((name) => normalizeSpeech(name) === query)
@@ -229,6 +243,8 @@ function resolveDialogIntent(
 ): ResolvedInteraction | undefined {
   if (intent !== "cancel" && intent !== "confirm") return undefined
 
+  // 中文：弹窗上下文采用 modal_first 策略，“确认/取消”优先落到最上层弹窗内的按钮。
+  // English: Dialog context uses a modal-first policy so "confirm/cancel" targets the topmost dialog button.
   const modalContext = [...snapshot.contextStack].reverse().find((context) => context.type === "modal")
   if (!modalContext) return undefined
 
@@ -257,6 +273,8 @@ function resolveDialogIntent(
 }
 
 function extractTargetText(text: string, intent: string): string {
+  // 中文：只去掉命令动词，保留业务名词，便于后续按 label/alias 找对象。
+  // English: Removes command verbs while preserving business nouns for later label/alias matching.
   const commandWords: Record<string, RegExp> = {
     click: /^(点击|点一下|点|按一下|按)/,
     open: /^(打开|开启|开)/,
@@ -317,6 +335,8 @@ function chooseAction(
   const actions = object.actions ?? []
   const primitiveActions = object.primitiveActions ?? []
 
+  // 中文：优先选择业务 action；只有没有匹配时才回退到 DOM primitive，确保业务逻辑可统一校验。
+  // English: Domain actions are preferred; DOM primitives are fallback paths so business logic stays centrally validated.
   const domain = (suffixes: string[]) =>
     actions.find((action) =>
       suffixes.some((suffix) =>
@@ -432,6 +452,8 @@ function getSpokenNames(object: InteractionObject): string[] {
 }
 
 function normalizeSpeech(value: string): string {
+  // 中文：语音文本归一化会去掉常见标点和指示词，让“点这个提交”能命中“提交”。
+  // English: Speech normalization removes common punctuation and deixis so phrases like "click this submit" match "submit".
   return value
     .toLowerCase()
     .replace(/[，。！？、,.!?:：；;\s"'“”‘’]/g, "")

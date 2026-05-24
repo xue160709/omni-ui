@@ -12,6 +12,8 @@ type MultimodalFormFieldProps = React.HTMLAttributes<HTMLDivElement> & {
   entity?: EntityRef
 }
 
+// 中文：FormField 把 label、control、message 包成一个对象，便于“清空邮箱字段”这类命令定位。
+// English: FormField wraps label, control, and message into one object for commands such as clearing an email field.
 export function MultimodalFormField({
   interactionId,
   interactionLabel,

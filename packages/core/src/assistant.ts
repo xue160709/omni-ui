@@ -86,6 +86,8 @@ export type CreateAssistantSnapshotContextOptions = {
   includeRecentEvents?: boolean
 }
 
+// 中文：本地快路径只在策略允许时自动提交解析结果，否则让上层继续走模型或追问。
+// English: The local fast path submits a resolution only when policy allows it; otherwise callers can fall back to model or clarification.
 export function shouldSubmitResolvedInteraction(
   resolution: ResolvedInteraction,
   policy: LocalExecutionPolicy = {}
@@ -98,6 +100,8 @@ export function validateResolvedInteractionPolicy(
   policy: InteractionActionPolicy = {},
   context: InteractionActionPolicyContext = {}
 ): ValidationResult {
+  // 中文：policy 是模型/本地解析之外的第二道门，控制置信度、动作类型、allowlist 和风险确认。
+  // English: Policy is a second gate after resolution, covering confidence, action type, allowlists, and risk confirmation.
   if (policy.mode === "off") {
     return {
       ok: false,
@@ -194,6 +198,8 @@ export function createInteractionAssistantSystemPrompt(
   snapshotContext: LlmSnapshotContext,
   options: InteractionAssistantPromptOptions = {}
 ): string {
+  // 中文：系统提示要求模型返回结构化 action，而不是用自然语言假装已经执行。
+  // English: The system prompt asks the model for structured actions instead of natural-language claims of execution.
   const role =
     options.role ??
     "你是一个有用的应用助手，回答要简洁、具体，并优先依据当前 Interaction Snapshot。"
@@ -218,6 +224,8 @@ export function parseInteractionAssistantModelReply(
   content: string,
   fallbackUtterance: string
 ): InteractionAssistantModelReply {
+  // 中文：兼容纯 JSON、Markdown fenced JSON 和工具调用 XML 片段，便于接入不同模型输出形态。
+  // English: Accepts plain JSON, fenced JSON, and XML-like tool calls so different model output styles can interoperate.
   const parsed = parseJsonValue(content)
   const reply =
     (parsed ? parseModelReplyValue(parsed, fallbackUtterance) : undefined) ??
@@ -300,6 +308,8 @@ function normalizeModelResolution(
     typeof actionId === "string" ||
     typeof resolutionSource.primitiveAction === "string"
 
+  // 中文：模型必须给出可执行 action；缺少 action 的对象选择不会被当成执行请求。
+  // English: A model reply must name an executable action; target-only selections are not treated as dispatch requests.
   if (!hasExecutableResolution) return undefined
 
   const targetId =
@@ -334,6 +344,8 @@ export function createLocalInteractionReply(
   result: InteractionSubmitResult,
   options: LocalInteractionReplyOptions = {}
 ): InteractionAssistantReply | undefined {
+  // 中文：统一把执行结果转成用户可读回复，应用可以用 actionReplies 覆盖默认文案。
+  // English: Converts execution results into user-facing replies, with actionReplies for app-specific wording.
   const resolution = result.resolution
 
   if (result.ok && result.executed) {
@@ -425,6 +437,8 @@ function normalizeReply(
 
 function parseJsonValue(content: string): unknown | undefined {
   const text = stripMarkdownFence(content.trim())
+  // 中文：除了完整内容，也尝试抽取最外层对象/数组，容忍模型前后夹杂少量说明文字。
+  // English: Besides the full content, tries the outermost object/array to tolerate small bits of surrounding prose.
   const candidates = [text]
   const start = text.indexOf("{")
   const end = text.lastIndexOf("}")
@@ -454,6 +468,8 @@ function parseToolCall(
   content: string,
   fallbackUtterance: string
 ): InteractionAssistantModelAction | InteractionAssistantModelBatchAction | undefined {
+  // 中文：解析类 XML 的 invoke/parameter 输出，兼容一些工具调用风格的模型响应。
+  // English: Parses XML-like invoke/parameter output for model responses that mimic tool calls.
   const text = stripMarkdownFence(content.trim())
   const invokePattern =
     /(?:<\s*)?invoke\s+[^>]*name=["']([^"']+)["'][^>]*>([\s\S]*?)<\/invoke>/gi

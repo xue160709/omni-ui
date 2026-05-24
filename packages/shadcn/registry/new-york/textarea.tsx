@@ -11,6 +11,8 @@ type MultimodalTextareaProps = React.ComponentProps<typeof ShadcnTextarea> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：Textarea 和 Input 使用同一套 textbox 语义，让长文本字段也能被语音或助手定位。
+// English: Textarea shares textbox semantics with Input so long-form fields can be targeted by voice or assistants.
 export const MultimodalTextarea = React.forwardRef<
   React.ElementRef<typeof ShadcnTextarea>,
   MultimodalTextareaProps

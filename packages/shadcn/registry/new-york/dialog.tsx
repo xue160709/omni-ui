@@ -19,6 +19,8 @@ type MultimodalDialogContentProps = React.ComponentProps<typeof DialogContent> &
   interactionHint?: InteractionHint
 }
 
+// 中文：Dialog content 注册为 dialog group，runtime 会把它加入 modal-first 上下文。
+// English: Dialog content registers as a dialog group, which the runtime adds to the modal-first context.
 export function MultimodalDialogContent({
   interactionId,
   interactionLabel,

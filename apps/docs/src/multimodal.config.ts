@@ -34,6 +34,18 @@ export const assistantModelActionPolicy = {
 export const multimodalConfig = defineMultimodalConfig({
   rules: [
     {
+      id: "navigation.back",
+      patterns: ["返回上一页", "回上一页", "回到上一页", "后退", "返回上页"],
+      target: "page.current",
+      actionId: "navigation.back",
+    },
+    {
+      id: "navigation.forward",
+      patterns: ["前进", "下一页", "前进下一页", "去下一页", "回到下一页"],
+      target: "page.current",
+      actionId: "navigation.forward",
+    },
+    {
       id: "navigation.goto",
       patterns: ["打开{route}", "去{route}", "进入{route}", "回到{route}"],
       target: "route.byLabel",

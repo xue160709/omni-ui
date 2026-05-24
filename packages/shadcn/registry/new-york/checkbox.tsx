@@ -11,6 +11,8 @@ type MultimodalCheckboxProps = React.ComponentProps<typeof ShadcnCheckbox> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：Checkbox 注册 check/uncheck/toggle，便于“勾选/取消勾选”命令映射到真实控件。
+// English: Checkbox registers check, uncheck, and toggle so commands map to the real control.
 export const MultimodalCheckbox = React.forwardRef<
   React.ElementRef<typeof ShadcnCheckbox>,
   MultimodalCheckboxProps

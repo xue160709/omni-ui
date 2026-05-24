@@ -42,6 +42,235 @@ describe("mobile todo app", () => {
     expect(screen.getByLabelText("详情")).not.toBeNull()
   })
 
+  it("opens the expanded workspace pages from home", () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "项目" }))
+
+    expect(window.location.pathname).toBe("/projects")
+    expect(screen.getByRole("heading", { level: 1, name: "项目" })).not.toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: /生活整理/ }))
+
+    expect(window.location.pathname).toBe("/projects/project_personal")
+    expect(screen.getByRole("heading", { level: 1, name: "生活整理" })).not.toBeNull()
+    expect(screen.getByText("买牛奶")).not.toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "首页" }))
+    fireEvent.click(screen.getByRole("button", { name: "日历" }))
+    expect(window.location.pathname).toBe("/calendar")
+    expect(screen.getByRole("heading", { level: 1, name: "日历" })).not.toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "首页" }))
+    fireEvent.click(screen.getByRole("button", { name: "看板" }))
+    expect(window.location.pathname).toBe("/kanban")
+    expect(screen.getByRole("heading", { level: 1, name: "看板" })).not.toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "首页" }))
+    fireEvent.click(screen.getByRole("button", { name: "统计" }))
+    expect(window.location.pathname).toBe("/analytics")
+    expect(screen.getByRole("heading", { level: 1, name: "统计" })).not.toBeNull()
+  })
+
+  it("adds a todo from a project detail page", async () => {
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "项目" }))
+    fireEvent.click(screen.getByRole("button", { name: /发布准备/ }))
+    fireEvent.change(screen.getByLabelText("新增事项"), {
+      target: { value: "补充验收记录" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "添加项目事项" }))
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /补充验收记录/ })).not.toBeNull()
+    })
+
+    const stored = JSON.parse(window.localStorage.getItem("todo_items") ?? "[]") as Array<{
+      title: string
+      projectId: string
+    }>
+    expect(stored.find((todo) => todo.title === "补充验收记录")?.projectId).toBe(
+      "project_launch"
+    )
+  })
+
+  it("infers the project composer target for model todo.add actions", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "interaction_action",
+                  resolution: {
+                    status: "resolved",
+                    utterance: "帮我在生活整理项目里增加买鸡蛋",
+                    actionId: "todo.add",
+                    confidence: 0.92,
+                    params: { title: "买鸡蛋" },
+                  },
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "项目" }))
+    fireEvent.click(screen.getByRole("button", { name: /生活整理/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "帮我在生活整理项目里增加买鸡蛋" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已添加待办：买鸡蛋。")).not.toBeNull()
+      expect(screen.getByRole("button", { name: /买鸡蛋/ })).not.toBeNull()
+    })
+
+    const stored = JSON.parse(window.localStorage.getItem("todo_items") ?? "[]") as Array<{
+      title: string
+      projectId: string
+    }>
+    expect(stored.find((todo) => todo.title === "买鸡蛋")?.projectId).toBe("project_personal")
+  })
+
+  it("keeps tomorrow dates when adding todos from the calendar assistant", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "interaction_actions",
+                  resolutions: [
+                    {
+                      status: "resolved",
+                      utterance: "明天帮我增加两个事情，第一是去拜访客户，第二是回学校拿东西",
+                      actionId: "todo.add",
+                      confidence: 0.92,
+                      params: { title: "去拜访客户" },
+                    },
+                    {
+                      status: "resolved",
+                      utterance: "明天帮我增加两个事情，第一是去拜访客户，第二是回学校拿东西",
+                      actionId: "todo.add",
+                      confidence: 0.92,
+                      params: { title: "回学校拿东西" },
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "日历" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "明天帮我增加两个事情，第一是去拜访客户，第二是回学校拿东西" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已执行 2 个操作。")).not.toBeNull()
+      expect(screen.getByRole("button", { name: /去拜访客户/ })).not.toBeNull()
+      expect(screen.getByRole("button", { name: /回学校拿东西/ })).not.toBeNull()
+    })
+
+    const stored = JSON.parse(window.localStorage.getItem("todo_items") ?? "[]") as Array<{
+      title: string
+      due: string
+    }>
+    expect(stored.find((todo) => todo.title === "去拜访客户")?.due).toBe("明天")
+    expect(stored.find((todo) => todo.title === "回学校拿东西")?.due).toBe("明天")
+  })
+
+  it("updates existing todo due dates from model actions", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  type: "interaction_actions",
+                  resolutions: [
+                    {
+                      status: "resolved",
+                      utterance: "把去拜访客户和回学校拿东西改到明天",
+                      targetId: "todo_1",
+                      actionId: "todo.update",
+                      confidence: 0.92,
+                      params: { due: "明天" },
+                    },
+                    {
+                      status: "resolved",
+                      utterance: "把去拜访客户和回学校拿东西改到明天",
+                      targetId: "todo_2",
+                      actionId: "todo.update",
+                      confidence: 0.92,
+                      params: { due: "明天" },
+                    },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "日历" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "把买牛奶和写周报改到明天" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已执行 2 个操作。")).not.toBeNull()
+    })
+
+    const stored = JSON.parse(window.localStorage.getItem("todo_items") ?? "[]") as Array<{
+      id: string
+      due: string
+    }>
+    expect(stored.find((todo) => todo.id === "todo_1")?.due).toBe("明天")
+    expect(stored.find((todo) => todo.id === "todo_2")?.due).toBe("明天")
+  })
+
   it("updates todo details", async () => {
     render(<App />)
 
@@ -169,6 +398,9 @@ describe("mobile todo app", () => {
     expect(body.messages[0].content).toContain('"manifest"')
     expect(body.messages[0].content).toContain('"navigation.goto"')
     expect(body.messages[0].content).toContain('"app.route.settings"')
+    expect(body.messages[0].content).toContain('"app.route.projects"')
+    expect(body.messages[0].content).toContain('"app.route.kanban"')
+    expect(body.messages[0].content).toContain('"project.entity.project_launch"')
   })
 
   it("falls back to the LLM for todo commands outside the local JSON allowlist", async () => {
@@ -660,6 +892,48 @@ describe("mobile todo app", () => {
       expect(window.location.pathname).toBe("/todos")
       expect(screen.getByRole("heading", { level: 1, name: "待办" })).not.toBeNull()
       expect(screen.getByText("已打开待办。")).not.toBeNull()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("moves backward and forward locally from chatbot messages", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "打开日历" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/calendar")
+      expect(screen.getByRole("heading", { level: 1, name: "日历" })).not.toBeNull()
+      expect(screen.getByText("已打开日历。")).not.toBeNull()
+    })
+
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "返回上一页" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/")
+      expect(screen.getByRole("heading", { level: 1, name: "首页" })).not.toBeNull()
+      expect(screen.getByText("已返回上一页。")).not.toBeNull()
+    })
+
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "前进下一页" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/calendar")
+      expect(screen.getByRole("heading", { level: 1, name: "日历" })).not.toBeNull()
+      expect(screen.getByText("已前进到下一页。")).not.toBeNull()
     })
     expect(fetchMock).not.toHaveBeenCalled()
   })

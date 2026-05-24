@@ -11,6 +11,8 @@ type MultimodalInputProps = React.ComponentProps<typeof ShadcnInput> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：Input 注册为 textbox，并暴露聚焦、写入、追加和清空文本的 primitive 动作。
+// English: Input registers as a textbox and exposes focus, set, append, and clear primitive text actions.
 export const MultimodalInput = React.forwardRef<
   React.ElementRef<typeof ShadcnInput>,
   MultimodalInputProps

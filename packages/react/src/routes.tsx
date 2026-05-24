@@ -37,6 +37,8 @@ export type UseInteractionRoutesOptions<TRoute = unknown> = {
   ) => void | Promise<void>
 }
 
+// 中文：把应用路由注册为 manifest route、snapshot object 和 navigation action 三件事，供本地规则和 LLM 共用。
+// English: Registers app routes as manifest routes, snapshot objects, and a navigation action shared by rules and LLMs.
 export function useInteractionRoutes<TRoute = unknown>(
   options: UseInteractionRoutesOptions<TRoute>
 ): void {
@@ -48,6 +50,8 @@ export function useInteractionRoutes<TRoute = unknown>(
   const executeScope = options.executeScope ?? "app"
 
   const routeObjects = React.useMemo<InteractionObject[]>(
+    // 中文：路由对象即使页面未渲染也可被解析器发现，用于跨页面导航。
+    // English: Route objects can be discovered by resolvers even when their pages are not currently rendered.
     () =>
       options.routes.map((route) => ({
         id: route.id,
@@ -101,6 +105,8 @@ export function useInteractionRoutes<TRoute = unknown>(
       [actionId]: {
         attachTo: { role },
         executeScope,
+        // 中文：从被命中的 route object 提取业务路由参数，交给应用的 execute 回调。
+        // English: Reads route params from the matched route object before invoking the app's execute callback.
         paramsFrom: ({ target }: ActionContext) => ({
           routeId: String(target.state?.routeId ?? target.id),
           path: typeof target.state?.path === "string" ? target.state.path : undefined,

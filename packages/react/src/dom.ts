@@ -18,6 +18,8 @@ const interactiveSelector = [
   "[data-mm-role]",
 ].join(",")
 
+// 中文：从 Provider 根节点内自动抽取可交互 DOM，跳过显式注册过的节点以避免重复对象。
+// English: Extracts interactive DOM under the provider root, skipping explicitly registered nodes to avoid duplicate objects.
 export function extractDomNodes(root: HTMLElement): ExtractedDomNode[] {
   const elements = Array.from(root.querySelectorAll<HTMLElement>(interactiveSelector))
     .filter((element) => !element.closest("[data-mm-ignore='true']"))
@@ -46,6 +48,8 @@ export function extractDomNodes(root: HTMLElement): ExtractedDomNode[] {
   })
 }
 
+// 中文：标签来源按显式 data/ARIA、labelledby、表单 label、placeholder、文本内容依次兜底。
+// English: Label lookup falls back through explicit data/ARIA, labelledby, form label, placeholder, and visible text.
 export function getElementLabel(element: HTMLElement): string | undefined {
   const explicit = element.dataset.mmLabel ?? element.getAttribute("aria-label")
   if (explicit?.trim()) return explicit.trim()
@@ -70,6 +74,8 @@ export function getElementLabel(element: HTMLElement): string | undefined {
   return text || undefined
 }
 
+// 中文：primitiveActions 表示无需业务 executor 也能安全尝试的基础 DOM 操作。
+// English: primitiveActions are basic DOM operations that can be attempted without a domain executor.
 export function inferPrimitiveActions(role: string, element?: HTMLElement): PrimitiveAction[] {
   if (role === "button" || role === "link") return ["press"]
   if (role === "switch") return ["turnOn", "turnOff", "toggle"]
@@ -85,6 +91,8 @@ export function inferPrimitiveActions(role: string, element?: HTMLElement): Prim
   return []
 }
 
+// 中文：把 DOM/ARIA 的当前状态转换成 snapshot 可序列化状态，供规则和模型判断可用性。
+// English: Converts current DOM/ARIA state into JSON-friendly snapshot state for rules and models.
 export function getElementState(element: HTMLElement): Record<string, unknown> {
   const state: Record<string, unknown> = {
     enabled: !isDisabled(element),
@@ -130,6 +138,8 @@ export function getElementState(element: HTMLElement): Record<string, unknown> {
   return state
 }
 
+// 中文：优先尊重 data-mm-role 和 ARIA role，再按原生元素推断语义角色。
+// English: Respects data-mm-role and ARIA role first, then infers semantics from native elements.
 export function inferRole(element: HTMLElement): string {
   const role = element.dataset.mmRole ?? element.getAttribute("role")
   if (role) return role
@@ -148,6 +158,8 @@ export function inferRole(element: HTMLElement): string {
   return "generic"
 }
 
+// 中文：执行 primitive 时尽量触发真实 DOM 事件，让 React/shadcn 的状态更新路径保持一致。
+// English: Primitive execution dispatches real DOM events where possible so React/shadcn state updates stay on their normal path.
 export function applyPrimitiveAction(
   element: HTMLElement,
   action: PrimitiveAction,
@@ -217,6 +229,8 @@ export function applyPrimitiveAction(
   }
 }
 
+// 中文：可见性判断覆盖 hidden/aria-hidden、关闭的 details、display/visibility，避免快照暴露不可操作目标。
+// English: Visibility checks cover hidden/aria-hidden, closed details, and display/visibility so snapshots omit unusable targets.
 export function isElementVisible(element: HTMLElement): boolean {
   if (element.hidden || element.getAttribute("aria-hidden") === "true") return false
   if (element.closest("[hidden], [aria-hidden='true']")) return false

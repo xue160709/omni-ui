@@ -11,6 +11,8 @@ type MultimodalSliderProps = React.ComponentProps<typeof ShadcnSlider> & {
   interactionHint?: InteractionHint
 }
 
+// 中文：Slider 暴露 setValue/increase/decrease，支持“调高音量/降低阈值”这类相对控制。
+// English: Slider exposes setValue, increase, and decrease for relative controls such as raising volume or lowering a threshold.
 export const MultimodalSlider = React.forwardRef<
   React.ElementRef<typeof ShadcnSlider>,
   MultimodalSliderProps
