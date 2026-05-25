@@ -1,4 +1,6 @@
 import {
+  NAVIGATION_BACK_ACTION_ID,
+  NAVIGATION_FORWARD_ACTION_ID,
   NAVIGATION_GOTO_ACTION_ID,
   defineMultimodalConfig,
   type LocalExecutionPolicy,
@@ -37,13 +39,13 @@ export const multimodalConfig = defineMultimodalConfig({
       id: "navigation.back",
       patterns: ["返回上一页", "回上一页", "回到上一页", "后退", "返回上页"],
       target: "page.current",
-      actionId: "navigation.back",
+      actionId: NAVIGATION_BACK_ACTION_ID,
     },
     {
       id: "navigation.forward",
       patterns: ["前进", "下一页", "前进下一页", "去下一页", "回到下一页"],
       target: "page.current",
-      actionId: "navigation.forward",
+      actionId: NAVIGATION_FORWARD_ACTION_ID,
     },
     {
       id: "navigation.goto",

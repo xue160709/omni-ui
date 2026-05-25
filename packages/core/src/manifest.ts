@@ -9,6 +9,8 @@ import type {
 // 中文：默认导航 action 由库提供，应用只需要注册路由和执行函数。
 // English: The default navigation action is provided by the library; apps only register routes and executors.
 export const NAVIGATION_GOTO_ACTION_ID = "navigation.goto"
+export const NAVIGATION_BACK_ACTION_ID = "navigation.back"
+export const NAVIGATION_FORWARD_ACTION_ID = "navigation.forward"
 
 export type AppManifestRoute<TRoute = unknown> = {
   id: string

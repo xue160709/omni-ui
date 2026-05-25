@@ -1,5 +1,7 @@
 # Multimodal UI
 
+[English](README.md) | [中文](README_CN.md)
+
 Runtime-first multimodal interaction primitives for React.
 
 Multimodal UI turns the current GUI into a compact Interaction Snapshot, resolves visible speech commands such as "click add" or "complete the first item", validates the requested action, and dispatches through the same command handler used by GUI clicks.
@@ -13,7 +15,7 @@ The core product is `@multimodal-ui/react`: use it to add multimodal behavior to
 - `@multimodal-ui/shadcn`: optional shadcn registry source for editable wrappers and starter recipes installed into `components/multimodal/*`.
 - `apps/docs`: local mobile TodoList project with bottom tabs, todo detail screens, a floating Chatbot, and settings.
 
-For app integration, see [packages/README.md](packages/README.md).
+Start here for the project overview. For step-by-step app integration, see [packages/README.md](packages/README.md). Package-specific npm README files live in [packages/react/README.md](packages/react/README.md), [packages/core/README.md](packages/core/README.md), and [packages/shadcn/README.md](packages/shadcn/README.md).
 
 ## Two Product Lines
 
@@ -197,6 +199,12 @@ http://127.0.0.1:5173/r/multimodal-provider.json
 The registry installs wrappers into `components/multimodal/*` and does not overwrite `components/ui/*`.
 Installed files are project-owned source code, so developers can edit class names, layout, behavior, and theme usage directly.
 
+Install local registry items with the shadcn CLI while the docs app is running:
+
+```bash
+npx shadcn@latest add http://127.0.0.1:5173/r/multimodal-provider.json
+```
+
 ## Resolver Model
 
 By default, the runtime uses the built-in rule resolver. It is offline and handles visible-speak commands against the current Interaction Snapshot.
@@ -210,7 +218,8 @@ LLM prompts receive the user utterance, a compact Interaction Snapshot, a compac
 Provider helpers read API keys from environment variables. Set `OPENAI_API_KEY` + `OPENAI_MODEL` or `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`; optional base URLs can come from `OPENAI_BASE_URL` or `ANTHROPIC_BASE_URL`.
 
 ```ts
-import { createOpenAIResolver } from "@multimodal-ui/react"
+// Server-only code. Do not bundle this file into the browser.
+import { createOpenAIResolver } from "@multimodal-ui/core"
 
 const resolver = createOpenAIResolver()
 ```
@@ -259,33 +268,45 @@ useInteractionRoutes({
 })
 ```
 
-`useInteractionAssistant()` wraps the common chatbot path: try a deterministic local fast path first, generate a local reply when something executed, and build an Interaction Snapshot system prompt for LLM fallback. LLM action replies still pass through a separate model action policy before the validated dispatcher runs them.
+`useAssistantConversation()` wraps the common chatbot path: message state, deterministic local fast path, LLM fallback, risky-action confirmation, and local replies. The hook is provider-agnostic; pass any `callModel(messages)` implementation for OpenAI-compatible APIs, Anthropic, or your own gateway.
 
 ```tsx
-const assistant = useInteractionAssistant({
-  localFastPath: {
-    mode: "allowlist",
-    actionIds: ["navigation.*"],
-    allowPrimitiveActions: false,
-  },
-  modelActionPolicy: {
-    mode: "allowlist",
-    actionIds: ["navigation.*", "todo.complete", "todo.update"],
-    allowPrimitiveActions: false,
-    requireConfirmationForRisk: ["medium", "high"],
-  },
-  localReply: {
-    actionReplies: {
-      "navigation.goto": ({ result }) => `Opened ${result.target?.label}.`,
+const conversation = useAssistantConversation({
+  assistantOptions: {
+    localFastPath: {
+      mode: "allowlist",
+      actionIds: ["navigation.*"],
+      allowPrimitiveActions: false,
     },
+    modelActionPolicy: {
+      mode: "allowlist",
+      actionIds: ["navigation.*", "todo.complete", "todo.update"],
+      allowPrimitiveActions: false,
+      requireConfirmationForRisk: ["medium", "high"],
+    },
+    localReply: {
+      actionReplies: {
+        "navigation.goto": ({ result }) => `Opened ${result.target?.label}.`,
+      },
+    },
+  },
+  callModel: async (messages) => {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages }),
+    })
+    const data = await response.json()
+    return data.content
   },
 })
 
-const local = await assistant.trySubmitLocal(text)
-const messages = assistant.createChatMessages([{ role: "user", content: text }])
+await conversation.submitMessage()
 ```
 
 `localFastPath` is app-owned JSON for commands that can skip the LLM, such as route changes or closing a dialog. `modelActionPolicy` is the separate gate for action JSON returned by the LLM. Both policies support exact values and prefix wildcards such as `navigation.*`; `localExecution` remains as a backwards-compatible alias for `localFastPath`.
+
+Your `/api/chat` endpoint can call an OpenAI-compatible `/chat/completions` API, Anthropic Messages, or any provider that returns the assistant text. Browser code should send messages to your server, not provider API keys directly.
 
 ## Verification
 
@@ -307,3 +328,5 @@ npm run verify:registry
 - `v0.2`: optional shadcn registry recipes for assistant panels, forms, data views, and starter layouts.
 - `v0.3`: resolver plugins and opt-in LLM intent understanding.
 - `v0.4`: gaze, gesture, keyboard target hints, and multimodal event fusion.
+
+Roadmap items after `v0.2` are directional and may move as the API stabilizes.

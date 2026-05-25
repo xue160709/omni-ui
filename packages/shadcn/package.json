@@ -6,7 +6,7 @@
   "private": false,
   "files": ["registry"],
   "scripts": {
-    "build": "node ../../apps/docs/scripts/build-registry.mjs",
+    "build": "node scripts/build-registry.mjs",
     "test": "vitest run"
   },
   "peerDependencies": {

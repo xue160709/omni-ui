@@ -3,14 +3,13 @@ import {
   MultimodalPage,
   MultimodalProvider,
   useInteractionActions,
-  useInteractionAssistant,
+  useAssistantConversation,
+  useInteractionNavigationHistory,
   useInteractionObjects,
   useInteractionRoutes,
   type ActionContext,
   type ActionPayload,
-  type AssistantChatMessage,
   type InteractionObject,
-  type InteractionSubmitResult,
   type LocalInteractionReplyContext,
 } from "@multimodal-ui/react"
 import * as React from "react"
@@ -34,7 +33,6 @@ type TabId = "home" | "todos" | "chatbot" | "settings"
 type TodoPriority = "low" | "medium" | "high"
 type TodoDue = "今天" | "明天" | "本周"
 type TodoFilter = "all" | "today" | "active" | "completed"
-type ChatStatus = "ready" | "sending" | "error"
 
 type AppRoute = {
   screen: AppScreen
@@ -86,24 +84,6 @@ type TodoAction =
       due?: TodoDue
     }
   | { type: "todo.clearCompleted" }
-
-type NavigationHistoryAction =
-  | { type: "navigation.back" }
-  | { type: "navigation.forward" }
-
-type ChatMessage = {
-  id: string
-  role: "assistant" | "user"
-  content: string
-  state?: ChatStatus
-}
-
-type PendingModelAction = {
-  content: string
-  utterance: string
-  actionId: string
-  targetLabel?: string
-}
 
 type SiliconFlowResponse = {
   choices?: Array<{
@@ -398,38 +378,9 @@ function AppRuntime() {
     },
   })
 
-  const navigationHistoryActionSpecs = React.useMemo(
-    () => ({
-      "navigation.back": {
-        executeScope: "page" as const,
-        availableWhen: ({ target }: ActionContext) => target.state?.canGoBack === true,
-      },
-      "navigation.forward": {
-        executeScope: "page" as const,
-        availableWhen: ({ target }: ActionContext) => target.state?.canGoForward === true,
-      },
-    }),
-    []
-  )
-
-  const executeNavigationHistoryAction = React.useCallback(
-    (action: ActionPayload) => {
-      const navigationAction = action as NavigationHistoryAction
-      if (navigationAction.type === "navigation.back") {
-        routeHistory.goBack()
-        return
-      }
-      if (navigationAction.type === "navigation.forward") {
-        routeHistory.goForward()
-      }
-    },
-    [routeHistory]
-  )
-
-  useInteractionActions({
-    namespace: "navigation-history",
-    actions: navigationHistoryActionSpecs,
-    execute: executeNavigationHistoryAction,
+  useInteractionNavigationHistory({
+    goBack: routeHistory.goBack,
+    goForward: routeHistory.goForward,
   })
 
   const executeTodoAction = React.useCallback(
@@ -1665,30 +1616,40 @@ function FloatingChatbot(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const interactionAssistant = useInteractionAssistant({
-    localFastPath: assistantLocalFastPathPolicy,
-    modelActionPolicy: assistantModelActionPolicy,
-    localReply: {
-      actionReplies: {
-        "navigation.goto": ({ result }: LocalInteractionReplyContext) =>
-          `已打开${result.target?.label ?? "目标"}。`,
-        "navigation.back": "已返回上一页。",
-        "navigation.forward": "已前进到下一页。",
-        "todo.complete": ({ targetLabel }: LocalInteractionReplyContext) =>
-          `已将${targetLabel}标记为完成。`,
-        "todo.uncomplete": ({ targetLabel }: LocalInteractionReplyContext) =>
-          `已将${targetLabel}恢复为未完成。`,
-        "todo.delete": ({ targetLabel }: LocalInteractionReplyContext) =>
-          `已删除${targetLabel}。`,
-        "todo.add": ({ action }: LocalInteractionReplyContext) =>
-          `已添加待办：${String(action?.title ?? "") || "新事项"}。`,
-        "todo.filter": ({ action }: LocalInteractionReplyContext) => {
-          const filter = action?.filter as TodoFilter | undefined
-          return `已切换到${filter ? `「${filterLabels[filter]}」` : "指定"}筛选。`
-        },
-        "todo.clearCompleted": "已清除已完成待办。",
+  const conversation = useAssistantConversation({
+    initialDraft: "你好，请介绍一下你自己",
+    initialMessages: [
+      {
+        id: "assistant_welcome",
+        role: "assistant",
+        content: "你好，我可以帮你拆任务、写计划，也可以直接回答问题。",
+        state: "ready",
       },
-    },
+    ],
+    assistantOptions: {
+      localFastPath: assistantLocalFastPathPolicy,
+      modelActionPolicy: assistantModelActionPolicy,
+      localReply: {
+        actionReplies: {
+          "navigation.goto": ({ result }: LocalInteractionReplyContext) =>
+            `已打开${result.target?.label ?? "目标"}。`,
+          "navigation.back": "已返回上一页。",
+          "navigation.forward": "已前进到下一页。",
+          "todo.complete": ({ targetLabel }: LocalInteractionReplyContext) =>
+            `已将${targetLabel}标记为完成。`,
+          "todo.uncomplete": ({ targetLabel }: LocalInteractionReplyContext) =>
+            `已将${targetLabel}恢复为未完成。`,
+          "todo.delete": ({ targetLabel }: LocalInteractionReplyContext) =>
+            `已删除${targetLabel}。`,
+          "todo.add": ({ action }: LocalInteractionReplyContext) =>
+            `已添加待办：${String(action?.title ?? "") || "新事项"}。`,
+          "todo.filter": ({ action }: LocalInteractionReplyContext) => {
+            const filter = action?.filter as TodoFilter | undefined
+            return `已切换到${filter ? `「${filterLabels[filter]}」` : "指定"}筛选。`
+          },
+          "todo.clearCompleted": "已清除已完成待办。",
+        },
+      },
     prompt: {
       role: "你是一个有用的待办应用助手，回答要简洁、具体、可执行。",
       instructions: [
@@ -1710,267 +1671,57 @@ function FloatingChatbot(props: {
     snapshot: {
       maxObjects: 100,
     },
+    },
+    callModel: async (messages) => {
+      if (!props.apiKey.trim()) {
+        throw new Error("请先在设置页填写 API Key。")
+      }
+
+      const requestBody = {
+        model: chatModel,
+        messages,
+      }
+
+      console.log("[LLM input]", requestBody)
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-siliconflow-api-key": props.apiKey.trim(),
+        },
+        body: JSON.stringify(requestBody),
+      })
+      const data = await parseChatResponse(response)
+      const content = data.choices?.[0]?.message?.content?.trim() ?? ""
+      console.log("[LLM output]", { data, content })
+      return content
+    },
+    loadingMessage: "正在生成回复...",
+    confirmingMessage: "正在执行确认操作...",
+    canceledMessage: "已取消待确认操作。",
+    emptyModelMessage: "没有返回内容。",
+    formatPendingAction: (action) => {
+      const target = action.targetLabel ? `（「${action.targetLabel}」）` : ""
+      return `这个操作需要确认：${action.actionId}${target}。`
+    },
   })
-  const [draft, setDraft] = React.useState("你好，请介绍一下你自己")
-  const [status, setStatus] = React.useState<ChatStatus>("ready")
   const [isListening, setIsListening] = React.useState(false)
-  const nextMessageId = React.useRef(1)
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null)
   const chatLogRef = React.useRef<HTMLDivElement | null>(null)
-  const [pendingModelAction, setPendingModelAction] = React.useState<PendingModelAction | null>(null)
-  const [messages, setMessages] = React.useState<ChatMessage[]>([
-    {
-      id: "assistant_welcome",
-      role: "assistant",
-      content: "你好，我可以帮你拆任务、写计划，也可以直接回答问题。",
-      state: "ready",
-    },
-  ])
 
   React.useEffect(() => {
     chatLogRef.current?.scrollTo?.({ top: chatLogRef.current.scrollHeight, behavior: "smooth" })
-  }, [messages, props.open])
-
-  const confirmPendingModelAction = React.useCallback(
-    async (message = "确认执行") => {
-      if (!pendingModelAction || status === "sending") return
-
-      const pending = pendingModelAction
-      const userMessage: ChatMessage = {
-        id: `user_${nextMessageId.current++}`,
-        role: "user",
-        content: message,
-        state: "ready",
-      }
-      const pendingId = `assistant_${nextMessageId.current++}`
-
-      setPendingModelAction(null)
-      setMessages((current) => [
-        ...current,
-        userMessage,
-        { id: pendingId, role: "assistant", content: "正在执行确认操作...", state: "sending" },
-      ])
-      setDraft("")
-      setStatus("sending")
-
-      try {
-        const modelInteraction = await interactionAssistant.trySubmitModelReply(
-          pending.content,
-          pending.utterance,
-          { confirmedActionId: pending.actionId }
-        )
-        const replyContent = modelInteraction.reply?.content
-
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === pendingId
-              ? {
-                  ...item,
-                  content: replyContent || modelInteraction.content || "没有返回内容。",
-                  state: modelInteraction.reply?.state === "error" ? "error" : "ready",
-                }
-              : item
-          )
-        )
-        setStatus(modelInteraction.reply?.state === "error" ? "error" : "ready")
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : "请求失败"
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === pendingId ? { ...item, content: errorMessage, state: "error" } : item
-          )
-        )
-        setStatus("error")
-      }
-    },
-    [interactionAssistant, pendingModelAction, status]
-  )
-
-  const cancelPendingModelAction = React.useCallback(
-    (message = "取消") => {
-      if (!pendingModelAction) return
-
-      const userMessage: ChatMessage = {
-        id: `user_${nextMessageId.current++}`,
-        role: "user",
-        content: message,
-        state: "ready",
-      }
-
-      setPendingModelAction(null)
-      setMessages((current) => [
-        ...current,
-        userMessage,
-        {
-          id: `assistant_${nextMessageId.current++}`,
-          role: "assistant",
-          content: "已取消待确认操作。",
-          state: "ready",
-        },
-      ])
-      setDraft("")
-      setStatus("ready")
-    },
-    [pendingModelAction]
-  )
-
-  const submitMessage = React.useCallback(
-    async (message: string) => {
-      const trimmed = message.trim()
-      if (!trimmed || status === "sending") return
-
-      if (pendingModelAction && isCancelText(trimmed)) {
-        cancelPendingModelAction(trimmed)
-        return
-      }
-
-      if (pendingModelAction && isConfirmationText(trimmed)) {
-        await confirmPendingModelAction(trimmed)
-        return
-      }
-
-      if (pendingModelAction) {
-        setPendingModelAction(null)
-      }
-
-      const userMessage: ChatMessage = {
-        id: `user_${nextMessageId.current++}`,
-        role: "user",
-        content: trimmed,
-        state: "ready",
-      }
-
-      const localInteraction = await interactionAssistant.trySubmitLocal(trimmed)
-
-      if (localInteraction.reply) {
-        const reply = localInteraction.reply
-        setMessages((current) => [
-          ...current,
-          userMessage,
-          {
-            id: `assistant_${nextMessageId.current++}`,
-            role: "assistant",
-            content: reply.content,
-            state: reply.state === "error" ? "error" : "ready",
-          },
-        ])
-        setDraft("")
-        setStatus(reply.state === "error" ? "error" : "ready")
-        return
-      }
-
-      if (!props.apiKey.trim()) {
-        setMessages((current) => [
-          ...current,
-          userMessage,
-          {
-            id: `assistant_${nextMessageId.current++}`,
-            role: "assistant",
-            content: "请先在设置页填写 API Key。",
-            state: "error",
-          },
-        ])
-        setStatus("error")
-        return
-      }
-
-      const pendingId = `assistant_${nextMessageId.current++}`
-      const apiMessages = interactionAssistant.createChatMessages([
-        ...messages
-          .filter((item) => item.state !== "sending" && item.state !== "error")
-          .map((item): AssistantChatMessage => ({ role: item.role, content: item.content })),
-        { role: "user", content: trimmed },
-      ])
-      const requestBody = {
-        model: chatModel,
-        messages: apiMessages,
-      }
-
-      setMessages((current) => [
-        ...current,
-        userMessage,
-        { id: pendingId, role: "assistant", content: "正在生成回复...", state: "sending" },
-      ])
-      setDraft("")
-      setStatus("sending")
-
-      try {
-        console.log("[LLM input]", requestBody)
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-siliconflow-api-key": props.apiKey.trim(),
-          },
-          body: JSON.stringify(requestBody),
-        })
-        const data = await parseChatResponse(response)
-        const content = data.choices?.[0]?.message?.content?.trim()
-        console.log("[LLM output]", { data, content })
-        const modelInteraction = await interactionAssistant.trySubmitModelReply(
-          content ?? "",
-          trimmed
-        )
-        const pendingAction = createPendingModelAction(content ?? "", trimmed, modelInteraction.result)
-        const replyContent = modelInteraction.reply?.content
-
-        if (pendingAction) {
-          setPendingModelAction(pendingAction)
-        }
-
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === pendingId
-              ? {
-                  ...item,
-                  content: pendingAction
-                    ? formatPendingModelAction(pendingAction)
-                    : replyContent || modelInteraction.content || content || "没有返回内容。",
-                  state: pendingAction
-                    ? "ready"
-                    : modelInteraction.reply?.state === "error"
-                      ? "error"
-                      : "ready",
-                }
-              : item
-          )
-        )
-        setStatus(pendingAction ? "ready" : modelInteraction.reply?.state === "error" ? "error" : "ready")
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "请求失败"
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === pendingId ? { ...item, content: message, state: "error" } : item
-          )
-        )
-        setStatus("error")
-      }
-    },
-    [
-      cancelPendingModelAction,
-      confirmPendingModelAction,
-      interactionAssistant,
-      messages,
-      pendingModelAction,
-      props.apiKey,
-      status,
-    ]
-  )
+  }, [conversation.messages, props.open])
 
   function startSpeechInput() {
     const Recognition = getSpeechRecognition()
 
     if (!Recognition) {
-      setMessages((current) => [
-        ...current,
-        {
-          id: `assistant_${nextMessageId.current++}`,
-          role: "assistant",
-          content: "当前浏览器不支持语音输入。",
-          state: "error",
-        },
-      ])
-      setStatus("error")
+      conversation.addMessage({
+        role: "assistant",
+        content: "当前浏览器不支持语音输入。",
+        state: "error",
+      })
       return
     }
 
@@ -1984,11 +1735,12 @@ function FloatingChatbot(props: {
         .map((result) => result[0]?.transcript ?? "")
         .join("")
         .trim()
-      if (transcript) setDraft((current) => (current ? `${current} ${transcript}` : transcript))
+      if (transcript) {
+        conversation.setDraft((current) => (current ? `${current} ${transcript}` : transcript))
+      }
     }
     recognition.onerror = () => {
       setIsListening(false)
-      setStatus("error")
     }
     recognition.onend = () => setIsListening(false)
     recognitionRef.current = recognition
@@ -2017,7 +1769,7 @@ function FloatingChatbot(props: {
       </div>
 
       <div className="chat-log" ref={chatLogRef} role="log" aria-live="polite">
-        {messages.map((message) => (
+        {conversation.messages.map((message) => (
           <article key={message.id} className={`chat-message chat-message-${message.role}`}>
             <span className="message-role">{message.role === "user" ? "你" : "Assistant"}</span>
             <p className={message.state === "error" ? "message-error" : undefined}>
@@ -2027,25 +1779,25 @@ function FloatingChatbot(props: {
         ))}
       </div>
 
-      {pendingModelAction ? (
+      {conversation.pendingModelAction ? (
         <div className="pending-confirmation" role="status" aria-live="polite">
           <div>
             <span className="message-role">待确认</span>
-            <p>{formatPendingModelAction(pendingModelAction)}</p>
+            <p>{conversation.formatPendingAction(conversation.pendingModelAction)}</p>
           </div>
           <div className="confirmation-actions">
             <button
               type="button"
               className="button button-secondary"
-              onClick={() => cancelPendingModelAction()}
+              onClick={() => conversation.cancelPendingModelAction()}
             >
               取消
             </button>
             <button
               type="button"
               className="button button-primary"
-              onClick={() => void confirmPendingModelAction()}
-              disabled={status === "sending"}
+              onClick={() => void conversation.confirmPendingModelAction()}
+              disabled={conversation.status === "sending"}
             >
               确认执行
             </button>
@@ -2057,14 +1809,14 @@ function FloatingChatbot(props: {
         className="chat-composer"
         onSubmit={(event) => {
           event.preventDefault()
-          void submitMessage(draft)
+          void conversation.submitMessage()
         }}
       >
         <label htmlFor="chat-message">消息</label>
         <textarea
           id="chat-message"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          value={conversation.draft}
+          onChange={(event) => conversation.setDraft(event.target.value)}
           placeholder="输入消息"
           rows={3}
         />
@@ -2077,8 +1829,8 @@ function FloatingChatbot(props: {
           >
             {isListening ? "聆听中" : "语音输入"}
           </button>
-          <button type="submit" className="button button-primary" disabled={status === "sending"}>
-            {status === "sending" ? "发送中" : "发送"}
+          <button type="submit" className="button button-primary" disabled={conversation.status === "sending"}>
+            {conversation.status === "sending" ? "发送中" : "发送"}
           </button>
         </div>
       </form>
@@ -2317,38 +2069,6 @@ function tabFromRoute(route: AppRoute): TabId {
   if (route.screen === "settings") return "settings"
   if (route.screen === "todos" || route.screen === "todoDetail") return "todos"
   return "home"
-}
-
-function createPendingModelAction(
-  content: string,
-  utterance: string,
-  result?: InteractionSubmitResult
-): PendingModelAction | null {
-  if (!result?.validation || result.validation.ok) return null
-  if (result.validation.code !== "confirmation_required") return null
-
-  const actionId = result.resolution.actionId
-  if (!actionId) return null
-
-  return {
-    content,
-    utterance,
-    actionId,
-    targetLabel: result.target?.label,
-  }
-}
-
-function formatPendingModelAction(action: PendingModelAction): string {
-  const target = action.targetLabel ? `（「${action.targetLabel}」）` : ""
-  return `这个操作需要确认：${action.actionId}${target}。`
-}
-
-function isConfirmationText(text: string): boolean {
-  return /^(确认|确定|好的|好|执行|继续|是的|yes|ok)$/i.test(text.trim())
-}
-
-function isCancelText(text: string): boolean {
-  return /^(取消|算了|不用|不要|否|no)$/i.test(text.trim())
 }
 
 function useBrowserRoute(): [AppRoute, (route: AppRoute) => void, BrowserRouteHistory] {

@@ -2,17 +2,23 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import * as React from "react"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  NAVIGATION_BACK_ACTION_ID,
+  NAVIGATION_FORWARD_ACTION_ID,
   MultimodalGroup,
+  MultimodalPage,
   MultimodalProvider,
   createLlmResolver,
+  useAssistantConversation,
   useInteractionAssistant,
   useInteractionApi,
   useInteractionActions,
+  useInteractionNavigationHistory,
   useInteractionRoutes,
   useInteractionSnapshot,
   useSubmitUtterance,
   type ActionContext,
   type ActionPayload,
+  type LocalInteractionRule,
   type ResolvedInteraction,
 } from "../src"
 
@@ -357,6 +363,50 @@ function RouteHarness() {
   )
 }
 
+const navigationHistoryRules = [
+  {
+    id: "navigation.back",
+    patterns: ["返回上一页"],
+    target: "page.current",
+    actionId: NAVIGATION_BACK_ACTION_ID,
+  },
+  {
+    id: "navigation.forward",
+    patterns: ["前进下一页"],
+    target: "page.current",
+    actionId: NAVIGATION_FORWARD_ACTION_ID,
+  },
+] satisfies LocalInteractionRule[]
+
+function NavigationHistoryHarness() {
+  const [screen, setScreen] = React.useState<"home" | "details">("details")
+  const submitUtterance = useSubmitUtterance()
+
+  useInteractionNavigationHistory({
+    goBack: () => setScreen("home"),
+    goForward: () => setScreen("details"),
+  })
+
+  return (
+    <MultimodalPage
+      id={`page.${screen}`}
+      title={screen === "home" ? "首页" : "详情"}
+      state={{
+        canGoBack: screen === "details",
+        canGoForward: screen === "home",
+      }}
+    >
+      <button type="button" onClick={() => void submitUtterance("返回上一页")}>
+        voice back
+      </button>
+      <button type="button" onClick={() => void submitUtterance("前进下一页")}>
+        voice forward
+      </button>
+      <div data-testid="history-screen">{screen}</div>
+    </MultimodalPage>
+  )
+}
+
 function AssistantHarness() {
   const assistant = useInteractionAssistant({
     localReply: {
@@ -390,6 +440,25 @@ function AssistantHarness() {
         assistant route
       </button>
       <div data-testid="assistant-reply">{reply}</div>
+    </>
+  )
+}
+
+function AssistantConversationHarness() {
+  const conversation = useAssistantConversation({
+    initialDraft: "你好",
+    callModel: async () => "你好，我是模型回复。",
+  })
+
+  return (
+    <>
+      <button type="button" onClick={() => void conversation.submitMessage()}>
+        conversation submit
+      </button>
+      <div data-testid="conversation-status">{conversation.status}</div>
+      <div data-testid="conversation-messages">
+        {conversation.messages.map((message) => message.content).join("|")}
+      </div>
     </>
   )
 }
@@ -916,6 +985,26 @@ describe("MultimodalProvider", () => {
     })
   })
 
+  it("registers navigation history actions against the current page", async () => {
+    render(
+      <MultimodalProvider localRules={navigationHistoryRules}>
+        <NavigationHistoryHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "voice back" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("history-screen").textContent).toBe("home")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "voice forward" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("history-screen").textContent).toBe("details")
+    })
+  })
+
   it("lets assistant surfaces try local interaction before chat fallback", async () => {
     render(
       <MultimodalProvider>
@@ -927,6 +1016,23 @@ describe("MultimodalProvider", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("assistant-reply").textContent).toBe("true:已打开首页。")
+    })
+  })
+
+  it("manages assistant conversation model fallback state", async () => {
+    render(
+      <MultimodalProvider>
+        <AssistantConversationHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "conversation submit" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("conversation-status").textContent).toBe("ready")
+      expect(screen.getByTestId("conversation-messages").textContent).toContain(
+        "你好|你好，我是模型回复。"
+      )
     })
   })
 

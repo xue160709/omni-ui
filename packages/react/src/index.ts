@@ -2,6 +2,7 @@
 // English: The React package re-exports core APIs so apps can depend on @multimodal-ui/react for common integrations.
 export * from "@multimodal-ui/core"
 export * from "./assistant"
+export * from "./assistant-conversation"
 export * from "./routes"
 export * from "./runtime"
 import "./styles.css"

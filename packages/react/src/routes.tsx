@@ -1,4 +1,6 @@
 import {
+  NAVIGATION_BACK_ACTION_ID,
+  NAVIGATION_FORWARD_ACTION_ID,
   NAVIGATION_GOTO_ACTION_ID,
   type ActionContext,
   type ActionPayload,
@@ -126,4 +128,92 @@ export function useInteractionRoutes<TRoute = unknown>(
       return executeRef.current(item.route, item, action, context)
     },
   })
+}
+
+export type NavigationHistoryActionPayload = ActionPayload & {
+  type:
+    | typeof NAVIGATION_BACK_ACTION_ID
+    | typeof NAVIGATION_FORWARD_ACTION_ID
+    | string
+}
+
+export type NavigationHistoryAvailability =
+  | boolean
+  | ((context: ActionContext) => boolean)
+
+export type NavigationHistoryExecutor = (
+  action: NavigationHistoryActionPayload,
+  context: ActionContext
+) => void | Promise<void>
+
+export type UseInteractionNavigationHistoryOptions = {
+  namespace?: string
+  backActionId?: string
+  forwardActionId?: string
+  executeScope?: ExecuteScope
+  canGoBack?: NavigationHistoryAvailability
+  canGoForward?: NavigationHistoryAvailability
+  goBack: NavigationHistoryExecutor
+  goForward: NavigationHistoryExecutor
+}
+
+// 中文：把浏览器/应用历史注册成通用 navigation.back / navigation.forward 动作，具体历史实现仍由应用拥有。
+// English: Registers browser/app history as generic navigation.back / navigation.forward actions while the app owns the actual history implementation.
+export function useInteractionNavigationHistory(
+  options: UseInteractionNavigationHistoryOptions
+): void {
+  const namespace = options.namespace ?? "navigation-history"
+  const backActionId = options.backActionId ?? NAVIGATION_BACK_ACTION_ID
+  const forwardActionId = options.forwardActionId ?? NAVIGATION_FORWARD_ACTION_ID
+  const executeScope = options.executeScope ?? "page"
+  const optionsRef = React.useRef(options)
+  optionsRef.current = options
+
+  const actions = React.useMemo(
+    () => ({
+      [backActionId]: {
+        executeScope,
+        availableWhen: (context: ActionContext) =>
+          resolveNavigationHistoryAvailability(
+            optionsRef.current.canGoBack,
+            context,
+            "canGoBack"
+          ),
+      },
+      [forwardActionId]: {
+        executeScope,
+        availableWhen: (context: ActionContext) =>
+          resolveNavigationHistoryAvailability(
+            optionsRef.current.canGoForward,
+            context,
+            "canGoForward"
+          ),
+      },
+    }),
+    [backActionId, executeScope, forwardActionId]
+  )
+
+  useInteractionActions<NavigationHistoryActionPayload>({
+    namespace,
+    actions,
+    execute: (action, context) => {
+      if (action.type === backActionId) {
+        return optionsRef.current.goBack(action, context)
+      }
+
+      if (action.type === forwardActionId) {
+        return optionsRef.current.goForward(action, context)
+      }
+    },
+  })
+}
+
+function resolveNavigationHistoryAvailability(
+  value: NavigationHistoryAvailability | undefined,
+  context: ActionContext,
+  stateKey: "canGoBack" | "canGoForward"
+): boolean {
+  if (typeof value === "function") return value(context)
+  if (typeof value === "boolean") return value
+  return context.target.state?.[stateKey] === true
 }
