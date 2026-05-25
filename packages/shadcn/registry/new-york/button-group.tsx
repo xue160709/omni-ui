@@ -6,7 +6,7 @@ import {
   ButtonGroupSeparator,
   ButtonGroupText,
 } from "@/components/ui/button-group"
-import { MultimodalGroup, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type InteractionHint } from "@omni-ui/react"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalButtonGroupProps = React.ComponentProps<typeof ShadcnButtonGroup> & {

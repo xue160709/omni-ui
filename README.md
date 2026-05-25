@@ -1,18 +1,18 @@
-# Multimodal UI
+# OmniUI
 
 [English](README.md) | [中文](README_CN.md)
 
-Runtime-first multimodal interaction primitives for React.
+OmniUI: Multimodal components for AI-native interfaces.
 
-Multimodal UI turns the current GUI into a compact Interaction Snapshot, resolves visible speech commands such as "click add" or "complete the first item", validates the requested action, and dispatches through the same command handler used by GUI clicks.
+OmniUI turns the current GUI into a compact Interaction Snapshot, resolves visible speech commands such as "click add" or "complete the first item", validates the requested action, and dispatches through the same command handler used by GUI clicks.
 
-The core product is `@multimodal-ui/react`: use it to add multimodal behavior to an existing React app without replacing your UI library. The shadcn registry is optional; it provides editable starter components and recipes for teams that want a faster default UI kit.
+The core product is `@omni-ui/react`: use it to add multimodal behavior to an existing React app without replacing your UI library. The shadcn registry is optional; it provides editable starter components and recipes for teams that want a faster default UI kit.
 
 ## Packages
 
-- `@multimodal-ui/core`: framework-agnostic types, snapshot creation, action registry, resolver contracts, validation, and feedback primitives.
-- `@multimodal-ui/react`: React runtime, DOM/ARIA extraction, provider, hooks, and default feedback styles.
-- `@multimodal-ui/shadcn`: optional shadcn registry source for editable wrappers and starter recipes installed into `components/multimodal/*`.
+- `@omni-ui/core`: framework-agnostic types, snapshot creation, action registry, resolver contracts, validation, and feedback primitives.
+- `@omni-ui/react`: React runtime, DOM/ARIA extraction, provider, hooks, and default feedback styles.
+- `@omni-ui/shadcn`: optional shadcn registry source for editable wrappers and starter recipes installed into `components/multimodal/*`.
 - `apps/docs`: local mobile TodoList project with bottom tabs, todo detail screens, a floating Chatbot, and settings.
 
 Start here for the project overview. For step-by-step app integration, see [packages/README.md](packages/README.md). Package-specific npm README files live in [packages/react/README.md](packages/react/README.md), [packages/core/README.md](packages/core/README.md), and [packages/shadcn/README.md](packages/shadcn/README.md).
@@ -22,7 +22,7 @@ Start here for the project overview. For step-by-step app integration, see [pack
 **Runtime integration** is the default path for existing apps:
 
 ```text
-Use @multimodal-ui/react with your current Button, Input, Dialog, Table, routes, and state.
+Use @omni-ui/react with your current Button, Input, Dialog, Table, routes, and state.
 Mark business objects with MultimodalGroup.
 Register domain actions with useInteractionActions.
 ```
@@ -76,7 +76,7 @@ import {
   MultimodalPage,
   MultimodalGroup,
   useInteractionActions,
-} from "@multimodal-ui/react"
+} from "@omni-ui/react"
 
 const multimodalConfig = defineMultimodalConfig({
   rules: [
@@ -133,7 +133,7 @@ useInteractionActions({
 })
 ```
 
-`todo.complete` is app-owned. Multimodal UI does not ship Todo, CRM, inbox, or other domain actions. Apps register their own domain actions and execute them through the same reducer/service used by GUI clicks.
+`todo.complete` is app-owned. OmniUI does not ship Todo, CRM, inbox, or other domain actions. Apps register their own domain actions and execute them through the same reducer/service used by GUI clicks.
 
 ## App Manifest and Local Rules
 
@@ -159,7 +159,7 @@ useInteractionRoutes({
 Apps can add deterministic local rules in a JSON/TS config:
 
 ```ts
-import { defineMultimodalConfig } from "@multimodal-ui/react"
+import { defineMultimodalConfig } from "@omni-ui/react"
 
 export default defineMultimodalConfig({
   rules: [
@@ -219,7 +219,7 @@ Provider helpers read API keys from environment variables. Set `OPENAI_API_KEY` 
 
 ```ts
 // Server-only code. Do not bundle this file into the browser.
-import { createOpenAIResolver } from "@multimodal-ui/core"
+import { createOpenAIResolver } from "@omni-ui/core"
 
 const resolver = createOpenAIResolver()
 ```
@@ -235,7 +235,7 @@ const resolution = await resolver.resolve({ utterance, snapshot })
 The runtime is not tied to a specific dialog UI. Any input surface can call the API directly:
 
 ```tsx
-import { useInteractionApi } from "@multimodal-ui/react"
+import { useInteractionApi } from "@omni-ui/react"
 
 function MyInput() {
   const interaction = useInteractionApi()

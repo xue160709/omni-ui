@@ -4,7 +4,7 @@
   "title": "Multimodal Sonner",
   "description": "shadcn Sonner wrapper that registers a toast region.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/sonner.tsx",
       "type": "registry:component",
       "target": "components/multimodal/sonner.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Toaster as ShadcnToaster } from \"@/components/ui/sonner\"\nimport { MultimodalGroup, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalToasterProps = React.ComponentProps<typeof ShadcnToaster> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Toaster 注册为 toast_region，让助手能描述或定位当前通知区域。\n// English: Toaster registers as a toast_region so assistants can describe or target the notification area.\nexport function MultimodalToaster({\n  interactionId = \"multimodal.toast.region\",\n  interactionLabel,\n  interactionHint,\n  ...props\n}: MultimodalToasterProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"toast_region\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"通知\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnToaster {...props} />\n    </MultimodalGroup>\n  )\n}\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Toaster as ShadcnToaster } from \"@/components/ui/sonner\"\nimport { MultimodalGroup, type InteractionHint } from \"@omni-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalToasterProps = React.ComponentProps<typeof ShadcnToaster> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Toaster 注册为 toast_region，让助手能描述或定位当前通知区域。\n// English: Toaster registers as a toast_region so assistants can describe or target the notification area.\nexport function MultimodalToaster({\n  interactionId = \"multimodal.toast.region\",\n  interactionLabel,\n  interactionHint,\n  ...props\n}: MultimodalToasterProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"toast_region\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"通知\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnToaster {...props} />\n    </MultimodalGroup>\n  )\n}\n"
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { NativeSelect as ShadcnNativeSelect } from "@/components/ui/native-select"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalNativeSelectProps = React.ComponentProps<typeof ShadcnNativeSelect> & {

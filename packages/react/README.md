@@ -1,16 +1,16 @@
-# @multimodal-ui/react
+# @omni-ui/react
 
-React runtime for Multimodal UI.
+React runtime for OmniUI.
 
 Use this package when you want to add voice, chat, keyboard, or other multimodal command surfaces to an existing React app without replacing your current UI library.
 
 ## Install
 
 ```bash
-npm install @multimodal-ui/react
+npm install @omni-ui/react
 ```
 
-`@multimodal-ui/react` depends on `@multimodal-ui/core` and re-exports the common core APIs, so most React apps only need this package.
+`@omni-ui/react` depends on `@omni-ui/core` and re-exports the common core APIs, so most React apps only need this package.
 
 ## Basic Usage
 
@@ -21,7 +21,7 @@ import {
   MultimodalPage,
   MultimodalGroup,
   useInteractionActions,
-} from "@multimodal-ui/react"
+} from "@omni-ui/react"
 
 const multimodalConfig = defineMultimodalConfig({
   rules: [

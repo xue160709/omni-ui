@@ -9,7 +9,7 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { MultimodalGroup, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type InteractionHint } from "@omni-ui/react"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalEmptyProps = React.ComponentProps<typeof ShadcnEmpty> & {

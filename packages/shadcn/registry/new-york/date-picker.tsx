@@ -4,7 +4,7 @@ import * as React from "react"
 import { Button as ShadcnButton } from "@/components/ui/button"
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar"
 import { Popover } from "@/components/ui/popover"
-import { MultimodalGroup, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type InteractionHint } from "@omni-ui/react"
 import { MultimodalPopoverContent, MultimodalPopoverTrigger } from "./popover"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 

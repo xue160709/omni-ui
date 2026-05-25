@@ -9,7 +9,7 @@ import {
   type InteractionHint,
   type UseInteractionAssistantOptions,
   useAssistantConversation,
-} from "@multimodal-ui/react"
+} from "@omni-ui/react"
 import { MultimodalButton } from "./button"
 import { MultimodalTextarea } from "./textarea"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"

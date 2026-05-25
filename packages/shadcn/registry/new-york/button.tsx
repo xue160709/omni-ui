@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Button as ShadcnButton } from "@/components/ui/button"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalButtonProps = React.ComponentProps<typeof ShadcnButton> & {

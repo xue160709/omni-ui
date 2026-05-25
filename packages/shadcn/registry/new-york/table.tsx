@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow as ShadcnTableRow,
 } from "@/components/ui/table"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalTableProps = React.ComponentProps<typeof Table> & {

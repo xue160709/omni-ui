@@ -5,7 +5,7 @@ import {
   ScrollArea as ShadcnScrollArea,
   ScrollBar,
 } from "@/components/ui/scroll-area"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalScrollAreaProps = React.ComponentProps<typeof ShadcnScrollArea> & {

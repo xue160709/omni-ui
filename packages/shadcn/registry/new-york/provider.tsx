@@ -33,5 +33,5 @@ export {
   type UseInteractionNavigationHistoryOptions,
   type UseInteractionAssistantOptions,
   type UseInteractionRoutesOptions,
-} from "@multimodal-ui/react"
-import "@multimodal-ui/react/styles.css"
+} from "@omni-ui/react"
+import "@omni-ui/react/styles.css"

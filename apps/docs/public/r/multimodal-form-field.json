@@ -4,7 +4,7 @@
   "title": "Multimodal Form Field",
   "description": "Semantic FormField group for label + control + message.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/form-field.tsx",
       "type": "registry:component",
       "target": "components/multimodal/form-field.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { MultimodalGroup, type EntityRef, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalFormFieldProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n  label?: string\n  entity?: EntityRef\n}\n\n// 中文：FormField 把 label、control、message 包成一个对象，便于“清空邮箱字段”这类命令定位。\n// English: FormField wraps label, control, and message into one object for commands such as clearing an email field.\nexport function MultimodalFormField({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  label,\n  entity,\n  children,\n  ...props\n}: MultimodalFormFieldProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"form_field\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, label)}\n      aliases={resolveInteractionAliases(interactionHint)}\n      entity={entity}\n      {...props}\n    >\n      {children}\n    </MultimodalGroup>\n  )\n}\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { MultimodalGroup, type EntityRef, type InteractionHint } from \"@omni-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalFormFieldProps = React.HTMLAttributes<HTMLDivElement> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n  label?: string\n  entity?: EntityRef\n}\n\n// 中文：FormField 把 label、control、message 包成一个对象，便于“清空邮箱字段”这类命令定位。\n// English: FormField wraps label, control, and message into one object for commands such as clearing an email field.\nexport function MultimodalFormField({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  label,\n  entity,\n  children,\n  ...props\n}: MultimodalFormFieldProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"form_field\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, label)}\n      aliases={resolveInteractionAliases(interactionHint)}\n      entity={entity}\n      {...props}\n    >\n      {children}\n    </MultimodalGroup>\n  )\n}\n"
     }
   ]
 }

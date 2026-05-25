@@ -1,8 +1,8 @@
-# @multimodal-ui/shadcn
+# @omni-ui/shadcn
 
-Optional shadcn registry source for Multimodal UI.
+Optional shadcn registry source for OmniUI.
 
-Use `@multimodal-ui/react` directly when you are adding multimodal behavior to an existing React app. Use this registry when you want editable shadcn-style wrappers and starter recipes installed into your project.
+Use `@omni-ui/react` directly when you are adding multimodal behavior to an existing React app. Use this registry when you want editable shadcn-style wrappers and starter recipes installed into your project.
 
 The registry installs source files into `components/multimodal/*`. It does not replace or overwrite your existing `components/ui/*`.
 

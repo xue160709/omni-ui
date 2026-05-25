@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Calendar as ShadcnCalendar } from "@/components/ui/calendar"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 
 type MultimodalCalendarProps = React.ComponentProps<typeof ShadcnCalendar> & {
   interactionId?: string

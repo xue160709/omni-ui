@@ -4,7 +4,7 @@
   "title": "Multimodal Alert",
   "description": "shadcn Alert wrapper that registers warning, error, and status message semantics.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/alert.tsx",
       "type": "registry:component",
       "target": "components/multimodal/alert.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Alert as ShadcnAlert,\n  AlertAction,\n  AlertDescription,\n  AlertTitle,\n} from \"@/components/ui/alert\"\nimport { MultimodalGroup, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalAlertProps = React.ComponentProps<typeof ShadcnAlert> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Alert 注册为 alert 区域，让助手能解释当前警告、错误或成功提示。\n// English: Alert registers as an alert region so assistants can describe current warnings, errors, or success states.\nexport function MultimodalAlert({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalAlertProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"alert\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint)}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnAlert {...props}>{children}</ShadcnAlert>\n    </MultimodalGroup>\n  )\n}\n\nexport { AlertAction, AlertDescription, AlertTitle }\n\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  Alert as ShadcnAlert,\n  AlertAction,\n  AlertDescription,\n  AlertTitle,\n} from \"@/components/ui/alert\"\nimport { MultimodalGroup, type InteractionHint } from \"@omni-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalAlertProps = React.ComponentProps<typeof ShadcnAlert> & {\n  interactionId: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Alert 注册为 alert 区域，让助手能解释当前警告、错误或成功提示。\n// English: Alert registers as an alert region so assistants can describe current warnings, errors, or success states.\nexport function MultimodalAlert({\n  interactionId,\n  interactionLabel,\n  interactionHint,\n  children,\n  ...props\n}: MultimodalAlertProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"alert\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint)}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnAlert {...props}>{children}</ShadcnAlert>\n    </MultimodalGroup>\n  )\n}\n\nexport { AlertAction, AlertDescription, AlertTitle }\n\n"
     }
   ]
 }

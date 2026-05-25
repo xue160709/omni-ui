@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Input as ShadcnInput } from "@/components/ui/input"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalInputProps = React.ComponentProps<typeof ShadcnInput> & {

@@ -5,7 +5,7 @@ import {
   RadioGroup,
   RadioGroupItem as ShadcnRadioGroupItem,
 } from "@/components/ui/radio-group"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalRadioGroupProps = React.ComponentProps<typeof RadioGroup> & {

@@ -10,7 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { MultimodalGroup, type EntityRef, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type EntityRef, type InteractionHint } from "@omni-ui/react"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalCardProps = React.ComponentProps<typeof ShadcnCard> & {

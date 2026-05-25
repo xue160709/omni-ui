@@ -14,7 +14,7 @@ import {
   type LocalInteractionReplyOptions,
   type ModelActionPolicy,
   type ResolvedInteraction,
-} from "@multimodal-ui/core"
+} from "@omni-ui/core"
 import * as React from "react"
 import { useInteractionApi, type InteractionApi } from "./runtime"
 

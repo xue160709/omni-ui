@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import type { InteractionHint } from "@multimodal-ui/react"
+import type { InteractionHint } from "@omni-ui/react"
 
 // 中文：合并 shadcn 原始 ref 和 Multimodal 注册 ref，让包装组件仍保持普通 ref 透传能力。
 // English: Merges the original shadcn ref with the Multimodal registration ref so wrappers still forward refs normally.

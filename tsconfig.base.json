@@ -17,8 +17,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@multimodal-ui/core": ["packages/core/src/index.ts"],
-      "@multimodal-ui/react": ["packages/react/src/index.ts"]
+      "@omni-ui/core": ["packages/core/src/index.ts"],
+      "@omni-ui/react": ["packages/react/src/index.ts"]
     }
   }
 }

@@ -6,7 +6,7 @@ import {
   type ActionPayload,
   type ExecuteScope,
   type InteractionObject,
-} from "@multimodal-ui/core"
+} from "@omni-ui/core"
 import * as React from "react"
 import { useInteractionActions, useInteractionManifest, useInteractionObjects } from "./runtime"
 

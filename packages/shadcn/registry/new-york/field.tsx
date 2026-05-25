@@ -13,7 +13,7 @@ import {
   FieldSet,
   FieldTitle,
 } from "@/components/ui/field"
-import { MultimodalGroup, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type InteractionHint } from "@omni-ui/react"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalFieldProps = React.ComponentProps<typeof ShadcnField> & {

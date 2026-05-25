@@ -9,7 +9,7 @@
       "title": "Multimodal Provider",
       "description": "Runtime provider, utterance submission, and snapshot hooks.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ]
     },
     {
@@ -24,7 +24,7 @@
       "title": "Multimodal Button",
       "description": "shadcn Button wrapper that registers button semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -37,7 +37,7 @@
       "title": "Multimodal Button Group",
       "description": "shadcn ButtonGroup wrapper that registers grouped button semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -50,7 +50,7 @@
       "title": "Multimodal Input",
       "description": "shadcn Input wrapper that registers textbox semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -63,7 +63,7 @@
       "title": "Multimodal Input OTP",
       "description": "shadcn InputOTP wrapper that registers one-time-code textbox semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -76,7 +76,7 @@
       "title": "Multimodal Input Group",
       "description": "shadcn InputGroup wrappers that register grouped input and action semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -89,7 +89,7 @@
       "title": "Multimodal Checkbox",
       "description": "shadcn Checkbox wrapper that registers check/uncheck semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -102,7 +102,7 @@
       "title": "Multimodal Radio Group",
       "description": "shadcn RadioGroup wrappers that register radiogroup and radio option semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -115,7 +115,7 @@
       "title": "Multimodal Switch",
       "description": "shadcn Switch wrapper that registers turnOn/turnOff semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -128,7 +128,7 @@
       "title": "Multimodal Toggle",
       "description": "shadcn Toggle wrapper that registers toggle button semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -141,7 +141,7 @@
       "title": "Multimodal Toggle Group",
       "description": "shadcn ToggleGroup wrappers that register grouped toggle option semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -154,7 +154,7 @@
       "title": "Multimodal Slider",
       "description": "shadcn Slider wrapper that registers value control semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -167,7 +167,7 @@
       "title": "Multimodal Tabs",
       "description": "shadcn Tabs wrappers that register tab list and trigger semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -180,7 +180,7 @@
       "title": "Multimodal Accordion",
       "description": "shadcn Accordion wrappers that register expandable section semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -193,7 +193,7 @@
       "title": "Multimodal Collapsible",
       "description": "shadcn Collapsible wrappers that register expandable region semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -206,7 +206,7 @@
       "title": "Multimodal Textarea",
       "description": "shadcn Textarea wrapper that registers textbox semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -219,7 +219,7 @@
       "title": "Multimodal Select",
       "description": "shadcn Select wrappers that register combobox and option semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -232,7 +232,7 @@
       "title": "Multimodal Native Select",
       "description": "shadcn NativeSelect wrapper that registers native option selection semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -245,7 +245,7 @@
       "title": "Multimodal Command",
       "description": "shadcn Command wrappers that register search and command item semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -258,7 +258,7 @@
       "title": "Multimodal Combobox",
       "description": "Searchable combobox recipe built from Popover and Command semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -273,7 +273,7 @@
       "title": "Multimodal Dropdown Menu",
       "description": "shadcn DropdownMenu wrappers that register trigger and menu item semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -286,7 +286,7 @@
       "title": "Multimodal Context Menu",
       "description": "shadcn ContextMenu wrappers that register trigger and menu item semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -299,7 +299,7 @@
       "title": "Multimodal Menubar",
       "description": "shadcn Menubar wrappers that register desktop menu semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -312,7 +312,7 @@
       "title": "Multimodal Navigation Menu",
       "description": "shadcn NavigationMenu wrappers that register trigger and link semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -325,7 +325,7 @@
       "title": "Multimodal Breadcrumb",
       "description": "shadcn Breadcrumb wrappers that register hierarchy navigation semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -338,7 +338,7 @@
       "title": "Multimodal Sidebar",
       "description": "shadcn Sidebar wrappers that register app-shell navigation semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -351,7 +351,7 @@
       "title": "Multimodal Popover",
       "description": "shadcn Popover wrappers that register trigger and popover content semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -364,7 +364,7 @@
       "title": "Multimodal Tooltip",
       "description": "shadcn Tooltip wrappers that register trigger and tooltip content semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -377,7 +377,7 @@
       "title": "Multimodal Hover Card",
       "description": "shadcn HoverCard wrappers that register trigger and preview content semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -390,7 +390,7 @@
       "title": "Multimodal Sheet",
       "description": "shadcn Sheet wrappers that register drawer trigger and modal panel semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -403,7 +403,7 @@
       "title": "Multimodal Drawer",
       "description": "shadcn Drawer wrappers that register mobile drawer trigger and panel semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -416,7 +416,7 @@
       "title": "Multimodal Calendar",
       "description": "shadcn Calendar wrapper that registers date picker region semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -429,7 +429,7 @@
       "title": "Multimodal Carousel",
       "description": "shadcn Carousel wrappers that register slide navigation and item semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -442,7 +442,7 @@
       "title": "Multimodal Date Picker",
       "description": "Date picker recipe built from Popover and Calendar semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -456,7 +456,7 @@
       "title": "Multimodal Sonner",
       "description": "shadcn Sonner wrapper that registers a toast region.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -469,7 +469,7 @@
       "title": "Multimodal Toast",
       "description": "Legacy shadcn Toaster wrapper that registers a toast region.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -482,7 +482,7 @@
       "title": "Multimodal Card",
       "description": "shadcn Card wrapper that registers a whole-card interaction group.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -495,7 +495,7 @@
       "title": "Multimodal Alert",
       "description": "shadcn Alert wrapper that registers warning, error, and status message semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -508,7 +508,7 @@
       "title": "Multimodal Empty",
       "description": "shadcn Empty wrapper that registers empty-state semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -521,7 +521,7 @@
       "title": "Multimodal Dialog",
       "description": "shadcn Dialog wrappers that register modal context semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -534,7 +534,7 @@
       "title": "Multimodal Alert Dialog",
       "description": "shadcn AlertDialog wrappers that register confirm and cancel semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -547,7 +547,7 @@
       "title": "Multimodal Form Field",
       "description": "Semantic FormField group for label + control + message.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -560,7 +560,7 @@
       "title": "Multimodal Field",
       "description": "shadcn Field wrapper that registers label, control, and message semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -573,7 +573,7 @@
       "title": "Multimodal List Item",
       "description": "Semantic list and list item groups with visible-order aliases.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -586,7 +586,7 @@
       "title": "Multimodal Item",
       "description": "shadcn Item wrappers that register item group and item semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -599,7 +599,7 @@
       "title": "Multimodal Assistant Panel",
       "description": "Starter assistant panel that tries local actions before optional model fallback.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -614,7 +614,7 @@
       "title": "Multimodal Form",
       "description": "Starter form, section, and action groups for semantic business forms.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -627,7 +627,7 @@
       "title": "Multimodal Table",
       "description": "shadcn Table wrappers that register table and row semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -640,7 +640,7 @@
       "title": "Multimodal Scroll Area",
       "description": "shadcn ScrollArea wrapper that registers scroll up/down/top/bottom semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -653,7 +653,7 @@
       "title": "Multimodal Progress",
       "description": "shadcn Progress wrapper that registers readable progressbar state.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -666,7 +666,7 @@
       "title": "Multimodal Resizable",
       "description": "shadcn Resizable wrappers that register panel and resize handle semantics.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -679,7 +679,7 @@
       "title": "Multimodal Pagination",
       "description": "shadcn Pagination wrappers that register page navigation links.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",
@@ -692,7 +692,7 @@
       "title": "Multimodal Data Table",
       "description": "Editable data view recipe with visible-order row semantics and row actions.",
       "dependencies": [
-        "@multimodal-ui/react"
+        "@omni-ui/react"
       ],
       "registryDependencies": [
         "multimodal-provider",

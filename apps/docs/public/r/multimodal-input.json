@@ -4,7 +4,7 @@
   "title": "Multimodal Input",
   "description": "shadcn Input wrapper that registers textbox semantics.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/input.tsx",
       "type": "registry:component",
       "target": "components/multimodal/input.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Input as ShadcnInput } from \"@/components/ui/input\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalInputProps = React.ComponentProps<typeof ShadcnInput> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Input 注册为 textbox，并暴露聚焦、写入、追加和清空文本的 primitive 动作。\n// English: Input registers as a textbox and exposes focus, set, append, and clear primitive text actions.\nexport const MultimodalInput = React.forwardRef<\n  React.ElementRef<typeof ShadcnInput>,\n  MultimodalInputProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnInput>>({\n    id: interactionId,\n    role: \"textbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"setText\", \"appendText\", \"clear\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnInput ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalInput.displayName = \"MultimodalInput\"\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Input as ShadcnInput } from \"@/components/ui/input\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalInputProps = React.ComponentProps<typeof ShadcnInput> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Input 注册为 textbox，并暴露聚焦、写入、追加和清空文本的 primitive 动作。\n// English: Input registers as a textbox and exposes focus, set, append, and clear primitive text actions.\nexport const MultimodalInput = React.forwardRef<\n  React.ElementRef<typeof ShadcnInput>,\n  MultimodalInputProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnInput>>({\n    id: interactionId,\n    role: \"textbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"setText\", \"appendText\", \"clear\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnInput ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalInput.displayName = \"MultimodalInput\"\n"
     }
   ]
 }

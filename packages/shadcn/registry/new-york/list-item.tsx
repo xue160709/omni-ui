@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { MultimodalGroup, type EntityRef, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type EntityRef, type InteractionHint } from "@omni-ui/react"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalListProps = React.HTMLAttributes<HTMLDivElement> & {

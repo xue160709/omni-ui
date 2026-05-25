@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Toaster as ShadcnToaster } from "@/components/ui/toaster"
-import { MultimodalGroup, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type InteractionHint } from "@omni-ui/react"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalLegacyToasterProps = React.ComponentProps<typeof ShadcnToaster> & {

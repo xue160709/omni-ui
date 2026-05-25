@@ -4,7 +4,7 @@
   "title": "Multimodal Input OTP",
   "description": "shadcn InputOTP wrapper that registers one-time-code textbox semantics.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/input-otp.tsx",
       "type": "registry:component",
       "target": "components/multimodal/input-otp.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  InputOTP as ShadcnInputOTP,\n  InputOTPGroup,\n  InputOTPSeparator,\n  InputOTPSlot,\n} from \"@/components/ui/input-otp\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalInputOTPProps = React.ComponentProps<typeof ShadcnInputOTP> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：InputOTP 作为一次性验证码文本输入暴露 setText/clear/focus。\n// English: InputOTP is exposed as a one-time-code textbox with setText/clear/focus.\nexport const MultimodalInputOTP = React.forwardRef<\n  React.ElementRef<typeof ShadcnInputOTP>,\n  MultimodalInputOTPProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnInputOTP>>({\n    id: interactionId,\n    role: \"textbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"setText\", \"clear\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnInputOTP ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalInputOTP.displayName = \"MultimodalInputOTP\"\n\nexport { InputOTPGroup, InputOTPSeparator, InputOTPSlot }\n\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  InputOTP as ShadcnInputOTP,\n  InputOTPGroup,\n  InputOTPSeparator,\n  InputOTPSlot,\n} from \"@/components/ui/input-otp\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalInputOTPProps = React.ComponentProps<typeof ShadcnInputOTP> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：InputOTP 作为一次性验证码文本输入暴露 setText/clear/focus。\n// English: InputOTP is exposed as a one-time-code textbox with setText/clear/focus.\nexport const MultimodalInputOTP = React.forwardRef<\n  React.ElementRef<typeof ShadcnInputOTP>,\n  MultimodalInputOTPProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnInputOTP>>({\n    id: interactionId,\n    role: \"textbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"focus\", \"setText\", \"clear\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnInputOTP ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalInputOTP.displayName = \"MultimodalInputOTP\"\n\nexport { InputOTPGroup, InputOTPSeparator, InputOTPSlot }\n\n"
     }
   ]
 }

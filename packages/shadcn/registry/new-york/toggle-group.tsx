@@ -5,7 +5,7 @@ import {
   ToggleGroup,
   ToggleGroupItem as ShadcnToggleGroupItem,
 } from "@/components/ui/toggle-group"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalToggleGroupProps = React.ComponentProps<typeof ToggleGroup> & {

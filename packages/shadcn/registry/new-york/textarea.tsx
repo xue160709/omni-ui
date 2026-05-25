@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Textarea as ShadcnTextarea } from "@/components/ui/textarea"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalTextareaProps = React.ComponentProps<typeof ShadcnTextarea> & {

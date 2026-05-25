@@ -11,7 +11,7 @@ import {
   CommandSeparator,
   CommandShortcut,
 } from "@/components/ui/command"
-import { MultimodalGroup, useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalCommandProps = React.ComponentProps<typeof Command> & {

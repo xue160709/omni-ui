@@ -1,13 +1,13 @@
-# @multimodal-ui/core
+# @omni-ui/core
 
-Framework-agnostic primitives for Multimodal UI.
+Framework-agnostic primitives for OmniUI.
 
-Most React applications should install `@multimodal-ui/react` instead. Use `@multimodal-ui/core` directly when you are building a non-React adapter, writing a custom resolver, or running server-side assistant and validation helpers.
+Most React applications should install `@omni-ui/react` instead. Use `@omni-ui/core` directly when you are building a non-React adapter, writing a custom resolver, or running server-side assistant and validation helpers.
 
 ## Install
 
 ```bash
-npm install @multimodal-ui/core
+npm install @omni-ui/core
 ```
 
 ## What It Provides
@@ -21,7 +21,7 @@ npm install @multimodal-ui/core
 ## Custom Resolver Example
 
 ```ts
-import type { IntentResolver } from "@multimodal-ui/core"
+import type { IntentResolver } from "@omni-ui/core"
 
 export const helpResolver: IntentResolver = {
   id: "help",
@@ -46,12 +46,12 @@ export const helpResolver: IntentResolver = {
 }
 ```
 
-React apps can pass custom resolvers to `MultimodalProvider` from `@multimodal-ui/react`.
+React apps can pass custom resolvers to `MultimodalProvider` from `@omni-ui/react`.
 
 ## Server-Only LLM Resolver Example
 
 ```ts
-import { createOpenAIResolver } from "@multimodal-ui/core"
+import { createOpenAIResolver } from "@omni-ui/core"
 
 export const resolver = createOpenAIResolver({
   model: process.env.OPENAI_MODEL,

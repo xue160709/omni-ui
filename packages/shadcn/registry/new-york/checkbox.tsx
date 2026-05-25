@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Checkbox as ShadcnCheckbox } from "@/components/ui/checkbox"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalCheckboxProps = React.ComponentProps<typeof ShadcnCheckbox> & {

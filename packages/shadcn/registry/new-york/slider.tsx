@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Slider as ShadcnSlider } from "@/components/ui/slider"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalSliderProps = React.ComponentProps<typeof ShadcnSlider> & {

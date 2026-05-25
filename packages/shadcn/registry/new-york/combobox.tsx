@@ -13,7 +13,7 @@ import {
 } from "./command"
 import { MultimodalPopoverContent, MultimodalPopoverTrigger } from "./popover"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
-import { MultimodalGroup, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type InteractionHint } from "@omni-ui/react"
 
 export type MultimodalComboboxOption = {
   value: string

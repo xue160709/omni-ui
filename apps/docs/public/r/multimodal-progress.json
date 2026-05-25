@@ -4,7 +4,7 @@
   "title": "Multimodal Progress",
   "description": "shadcn Progress wrapper that registers readable progressbar state.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/progress.tsx",
       "type": "registry:component",
       "target": "components/multimodal/progress.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Progress as ShadcnProgress } from \"@/components/ui/progress\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalProgressProps = React.ComponentProps<typeof ShadcnProgress> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Progress 注册为 progressbar，让助手能回答当前进度和状态。\n// English: Progress registers as progressbar so assistants can read current progress state.\nexport const MultimodalProgress = React.forwardRef<\n  React.ElementRef<typeof ShadcnProgress>,\n  MultimodalProgressProps\n>(({ interactionId, interactionLabel, interactionHint, value, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnProgress>>({\n    id: interactionId,\n    role: \"progressbar\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [],\n    state: { value },\n    hint: interactionHint,\n  })\n\n  return <ShadcnProgress ref={composeRefs(ref, mmRef)} value={value} {...props} />\n})\nMultimodalProgress.displayName = \"MultimodalProgress\"\n\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Progress as ShadcnProgress } from \"@/components/ui/progress\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalProgressProps = React.ComponentProps<typeof ShadcnProgress> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Progress 注册为 progressbar，让助手能回答当前进度和状态。\n// English: Progress registers as progressbar so assistants can read current progress state.\nexport const MultimodalProgress = React.forwardRef<\n  React.ElementRef<typeof ShadcnProgress>,\n  MultimodalProgressProps\n>(({ interactionId, interactionLabel, interactionHint, value, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnProgress>>({\n    id: interactionId,\n    role: \"progressbar\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [],\n    state: { value },\n    hint: interactionHint,\n  })\n\n  return <ShadcnProgress ref={composeRefs(ref, mmRef)} value={value} {...props} />\n})\nMultimodalProgress.displayName = \"MultimodalProgress\"\n\n"
     }
   ]
 }

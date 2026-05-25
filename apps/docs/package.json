@@ -1,19 +1,19 @@
 {
-  "name": "multimodal-todolist",
+  "name": "omni-ui-todolist",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "build:package-consumer": "MULTIMODAL_PACKAGE_CONSUMER=1 vite build",
+    "build:package-consumer": "OMNIUI_PACKAGE_CONSUMER=1 vite build",
     "dev": "vite --host 127.0.0.1",
     "test": "vitest run --passWithNoTests",
-    "test:package-consumer": "MULTIMODAL_PACKAGE_CONSUMER=1 vitest run --passWithNoTests",
+    "test:package-consumer": "OMNIUI_PACKAGE_CONSUMER=1 vitest run --passWithNoTests",
     "typecheck:package-consumer": "tsc -p tsconfig.package-consumer.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@multimodal-ui/core": "0.1.0",
-    "@multimodal-ui/react": "0.1.0",
+    "@omni-ui/core": "0.1.0",
+    "@omni-ui/react": "0.1.0",
     "@vitejs/plugin-react": "^4.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

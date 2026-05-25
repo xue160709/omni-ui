@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Progress as ShadcnProgress } from "@/components/ui/progress"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalProgressProps = React.ComponentProps<typeof ShadcnProgress> & {

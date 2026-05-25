@@ -9,7 +9,7 @@ const defaultModel = "MiniMaxAI/MiniMax-M2.5"
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, "")
   const apiKey = env.SILICONFLOW_API_KEY || process.env.SILICONFLOW_API_KEY
-  const usePackageConsumerMode = process.env.MULTIMODAL_PACKAGE_CONSUMER === "1"
+  const usePackageConsumerMode = process.env.OMNIUI_PACKAGE_CONSUMER === "1"
 
   return {
     plugins: [react(), siliconFlowChatPlugin(() => apiKey)],
@@ -18,15 +18,15 @@ export default defineConfig(({ mode }) => {
       : {
           alias: [
             {
-              find: "@multimodal-ui/react/styles.css",
+              find: "@omni-ui/react/styles.css",
               replacement: path.resolve(__dirname, "../../packages/react/src/styles.css"),
             },
             {
-              find: "@multimodal-ui/core",
+              find: "@omni-ui/core",
               replacement: path.resolve(__dirname, "../../packages/core/src/index.ts"),
             },
             {
-              find: "@multimodal-ui/react",
+              find: "@omni-ui/react",
               replacement: path.resolve(__dirname, "../../packages/react/src/index.ts"),
             },
           ],

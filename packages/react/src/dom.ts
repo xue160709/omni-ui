@@ -1,4 +1,4 @@
-import type { InteractionHint, InteractionObject, PrimitiveAction } from "@multimodal-ui/core"
+import type { InteractionHint, InteractionObject, PrimitiveAction } from "@omni-ui/core"
 
 let domNodeCounter = 0
 

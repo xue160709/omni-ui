@@ -5,7 +5,7 @@ import {
   defineMultimodalConfig,
   type LocalExecutionPolicy,
   type ModelActionPolicy,
-} from "@multimodal-ui/react"
+} from "@omni-ui/react"
 
 export const assistantLocalFastPathPolicy = {
   mode: "allowlist",

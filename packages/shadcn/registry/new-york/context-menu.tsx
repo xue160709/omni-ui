@@ -17,7 +17,7 @@ import {
   ContextMenuSubTrigger as ShadcnContextMenuSubTrigger,
   ContextMenuTrigger as ShadcnContextMenuTrigger,
 } from "@/components/ui/context-menu"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalContextMenuTriggerProps = React.ComponentProps<typeof ShadcnContextMenuTrigger> & {

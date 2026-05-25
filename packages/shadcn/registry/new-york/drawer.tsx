@@ -17,7 +17,7 @@ import {
   MultimodalGroup,
   useInteractionNode,
   type InteractionHint,
-} from "@multimodal-ui/react"
+} from "@omni-ui/react"
 import { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalDrawerTriggerProps = React.ComponentProps<typeof ShadcnDrawerTrigger> & {

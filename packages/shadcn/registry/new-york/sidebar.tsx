@@ -31,7 +31,7 @@ import {
   MultimodalGroup,
   useInteractionNode,
   type InteractionHint,
-} from "@multimodal-ui/react"
+} from "@omni-ui/react"
 import { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalSidebarTriggerProps = React.ComponentProps<typeof ShadcnSidebarTrigger> & {

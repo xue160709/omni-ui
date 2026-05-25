@@ -1,5 +1,5 @@
 {
-  "name": "@multimodal-ui/react",
+  "name": "@omni-ui/react",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -9,7 +9,7 @@
     "react-dom": ">=18.2.0"
   },
   "dependencies": {
-    "@multimodal-ui/core": "0.1.0"
+    "@omni-ui/core": "0.1.0"
   },
   "exports": {
     ".": {

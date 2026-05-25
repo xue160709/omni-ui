@@ -4,7 +4,7 @@
   "title": "Multimodal Toggle",
   "description": "shadcn Toggle wrapper that registers toggle button semantics.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/toggle.tsx",
       "type": "registry:component",
       "target": "components/multimodal/toggle.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Toggle as ShadcnToggle } from \"@/components/ui/toggle\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalToggleProps = React.ComponentProps<typeof ShadcnToggle> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Toggle 注册 toggle/press，适合加粗、收藏、显示隐藏等可反复切换按钮。\n// English: Toggle registers toggle/press for repeatable controls such as bold, favorite, or show/hide.\nexport const MultimodalToggle = React.forwardRef<\n  React.ElementRef<typeof ShadcnToggle>,\n  MultimodalToggleProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnToggle>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"toggle\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnToggle ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalToggle.displayName = \"MultimodalToggle\"\n\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Toggle as ShadcnToggle } from \"@/components/ui/toggle\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalToggleProps = React.ComponentProps<typeof ShadcnToggle> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Toggle 注册 toggle/press，适合加粗、收藏、显示隐藏等可反复切换按钮。\n// English: Toggle registers toggle/press for repeatable controls such as bold, favorite, or show/hide.\nexport const MultimodalToggle = React.forwardRef<\n  React.ElementRef<typeof ShadcnToggle>,\n  MultimodalToggleProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnToggle>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"toggle\", \"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnToggle ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalToggle.displayName = \"MultimodalToggle\"\n\n"
     }
   ]
 }

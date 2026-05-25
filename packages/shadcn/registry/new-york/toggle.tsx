@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Toggle as ShadcnToggle } from "@/components/ui/toggle"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalToggleProps = React.ComponentProps<typeof ShadcnToggle> & {

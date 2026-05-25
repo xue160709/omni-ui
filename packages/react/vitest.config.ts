@@ -4,7 +4,7 @@ import path from "node:path"
 export default defineConfig({
   resolve: {
     alias: {
-      "@multimodal-ui/core": path.resolve(__dirname, "../core/src/index.ts"),
+      "@omni-ui/core": path.resolve(__dirname, "../core/src/index.ts"),
     },
   },
   test: {

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping shape Multimodal UI.
+Thanks for helping shape OmniUI.
 
 ## Development
 

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Switch as ShadcnSwitch } from "@/components/ui/switch"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalSwitchProps = React.ComponentProps<typeof ShadcnSwitch> & {

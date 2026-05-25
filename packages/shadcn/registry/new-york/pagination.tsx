@@ -10,7 +10,7 @@ import {
   PaginationNext as ShadcnPaginationNext,
   PaginationPrevious as ShadcnPaginationPrevious,
 } from "@/components/ui/pagination"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalPaginationLinkProps = React.ComponentProps<typeof ShadcnPaginationLink> & {

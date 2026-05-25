@@ -19,7 +19,7 @@ import {
   MenubarSubTrigger as ShadcnMenubarSubTrigger,
   MenubarTrigger as ShadcnMenubarTrigger,
 } from "@/components/ui/menubar"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalMenubarTriggerProps = React.ComponentProps<typeof ShadcnMenubarTrigger> & {

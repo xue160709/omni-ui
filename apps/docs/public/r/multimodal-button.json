@@ -4,7 +4,7 @@
   "title": "Multimodal Button",
   "description": "shadcn Button wrapper that registers button semantics.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/button.tsx",
       "type": "registry:component",
       "target": "components/multimodal/button.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Button as ShadcnButton } from \"@/components/ui/button\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalButtonProps = React.ComponentProps<typeof ShadcnButton> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Button 注册为可 press 的按钮目标，适合“点击/确认/打开”这类自然语言命令。\n// English: Button registers as a pressable target for natural-language commands such as click, confirm, or open.\nexport const MultimodalButton = React.forwardRef<\n  React.ElementRef<typeof ShadcnButton>,\n  MultimodalButtonProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnButton>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnButton ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalButton.displayName = \"MultimodalButton\"\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Button as ShadcnButton } from \"@/components/ui/button\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalButtonProps = React.ComponentProps<typeof ShadcnButton> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Button 注册为可 press 的按钮目标，适合“点击/确认/打开”这类自然语言命令。\n// English: Button registers as a pressable target for natural-language commands such as click, confirm, or open.\nexport const MultimodalButton = React.forwardRef<\n  React.ElementRef<typeof ShadcnButton>,\n  MultimodalButtonProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnButton>>({\n    id: interactionId,\n    role: \"button\",\n    label: interactionLabel,\n    labelFrom: \"text\",\n    actions: [\"press\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnButton ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalButton.displayName = \"MultimodalButton\"\n"
     }
   ]
 }

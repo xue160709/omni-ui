@@ -28,7 +28,7 @@ import {
   type ResolverMode,
   type IntentResolver,
   type ResolvedInteraction,
-} from "@multimodal-ui/core"
+} from "@omni-ui/core"
 import * as React from "react"
 import {
   applyPrimitiveAction,

@@ -7,7 +7,7 @@ import {
   TabsList as ShadcnTabsList,
   TabsTrigger as ShadcnTabsTrigger,
 } from "@/components/ui/tabs"
-import { MultimodalGroup, useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs, resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalTabsListProps = React.ComponentProps<typeof ShadcnTabsList> & {

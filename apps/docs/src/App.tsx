@@ -11,7 +11,7 @@ import {
   type ActionPayload,
   type InteractionObject,
   type LocalInteractionReplyContext,
-} from "@multimodal-ui/react"
+} from "@omni-ui/react"
 import * as React from "react"
 import {
   assistantLocalFastPathPolicy,

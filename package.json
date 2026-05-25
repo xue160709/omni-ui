@@ -1,5 +1,5 @@
 {
-  "name": "multimodal-ui-monorepo",
+  "name": "omni-ui-monorepo",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -8,17 +8,17 @@
     "apps/*"
   ],
   "scripts": {
-    "build:runtime": "npm --workspace @multimodal-ui/core run build && npm --workspace @multimodal-ui/react run build",
+    "build:runtime": "npm --workspace @omni-ui/core run build && npm --workspace @omni-ui/react run build",
     "build:packages": "npm run build:runtime",
-    "build:registry": "npm --workspace @multimodal-ui/shadcn run build",
+    "build:registry": "npm --workspace @omni-ui/shadcn run build",
     "build:all": "npm run build && npm run build:registry",
     "build": "npm run build:runtime && npm --workspace apps/docs run build",
     "dev": "npm --workspace apps/docs run dev",
     "test": "npm run test --workspaces --if-present",
-    "typecheck": "npm --workspace @multimodal-ui/core run build && npm run typecheck --workspaces --if-present",
+    "typecheck": "npm --workspace @omni-ui/core run build && npm run typecheck --workspaces --if-present",
     "registry:build": "npm run build:registry",
     "verify": "npm run typecheck && npm test && npm run build",
-    "verify:registry": "npm --workspace @multimodal-ui/shadcn run test && npm run registry:build",
+    "verify:registry": "npm --workspace @omni-ui/shadcn run test && npm run registry:build",
     "verify:package-consumer": "npm run build:runtime && npm --workspace apps/docs run typecheck:package-consumer && npm --workspace apps/docs run test:package-consumer && npm --workspace apps/docs run build:package-consumer"
   },
   "devDependencies": {

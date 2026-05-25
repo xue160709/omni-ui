@@ -13,7 +13,7 @@ import {
   ItemSeparator,
   ItemTitle,
 } from "@/components/ui/item"
-import { MultimodalGroup, type EntityRef, type InteractionHint } from "@multimodal-ui/react"
+import { MultimodalGroup, type EntityRef, type InteractionHint } from "@omni-ui/react"
 import { resolveInteractionAliases, resolveInteractionLabel } from "./utils"
 
 type MultimodalItemGroupProps = React.ComponentProps<typeof ShadcnItemGroup> & {

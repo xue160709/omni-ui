@@ -71,7 +71,7 @@ describe("shadcn registry source", () => {
       expect(item.files[0].target).toMatch(/^components\/multimodal\//)
       const content = await readFile(path.resolve(item.files[0].path), "utf8")
       if (item.name !== "multimodal-utils") {
-        expect(content).toContain("@multimodal-ui/react")
+        expect(content).toContain("@omni-ui/react")
       }
       if (item.name !== "multimodal-provider" && item.name !== "multimodal-utils") {
         expect(item.files[0].target).not.toMatch(/^components\/ui\//)

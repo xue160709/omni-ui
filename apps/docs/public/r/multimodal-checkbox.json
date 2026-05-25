@@ -4,7 +4,7 @@
   "title": "Multimodal Checkbox",
   "description": "shadcn Checkbox wrapper that registers check/uncheck semantics.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/checkbox.tsx",
       "type": "registry:component",
       "target": "components/multimodal/checkbox.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Checkbox as ShadcnCheckbox } from \"@/components/ui/checkbox\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalCheckboxProps = React.ComponentProps<typeof ShadcnCheckbox> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Checkbox 注册 check/uncheck/toggle，便于“勾选/取消勾选”命令映射到真实控件。\n// English: Checkbox registers check, uncheck, and toggle so commands map to the real control.\nexport const MultimodalCheckbox = React.forwardRef<\n  React.ElementRef<typeof ShadcnCheckbox>,\n  MultimodalCheckboxProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnCheckbox>>({\n    id: interactionId,\n    role: \"checkbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"check\", \"uncheck\", \"toggle\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnCheckbox ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalCheckbox.displayName = \"MultimodalCheckbox\"\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Checkbox as ShadcnCheckbox } from \"@/components/ui/checkbox\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalCheckboxProps = React.ComponentProps<typeof ShadcnCheckbox> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Checkbox 注册 check/uncheck/toggle，便于“勾选/取消勾选”命令映射到真实控件。\n// English: Checkbox registers check, uncheck, and toggle so commands map to the real control.\nexport const MultimodalCheckbox = React.forwardRef<\n  React.ElementRef<typeof ShadcnCheckbox>,\n  MultimodalCheckboxProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnCheckbox>>({\n    id: interactionId,\n    role: \"checkbox\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"check\", \"uncheck\", \"toggle\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnCheckbox ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalCheckbox.displayName = \"MultimodalCheckbox\"\n"
     }
   ]
 }

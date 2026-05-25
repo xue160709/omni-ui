@@ -4,7 +4,7 @@
   "title": "Multimodal Scroll Area",
   "description": "shadcn ScrollArea wrapper that registers scroll up/down/top/bottom semantics.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/scroll-area.tsx",
       "type": "registry:component",
       "target": "components/multimodal/scroll-area.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  ScrollArea as ShadcnScrollArea,\n  ScrollBar,\n} from \"@/components/ui/scroll-area\"\nimport { useInteractionNode, type InteractionHint } from \"@multimodal-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalScrollAreaProps = React.ComponentProps<typeof ShadcnScrollArea> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：ScrollArea 注册滚动语义，支持“向下看/滚到底部/回到顶部”等命令。\n// English: ScrollArea registers scroll semantics for commands such as scroll down, bottom, or top.\nexport const MultimodalScrollArea = React.forwardRef<\n  React.ElementRef<typeof ShadcnScrollArea>,\n  MultimodalScrollAreaProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnScrollArea>>({\n    id: interactionId,\n    role: \"scroll_area\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"scrollUp\", \"scrollDown\", \"scrollToTop\", \"scrollToBottom\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnScrollArea ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalScrollArea.displayName = \"MultimodalScrollArea\"\n\nexport { ScrollBar }\n\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport {\n  ScrollArea as ShadcnScrollArea,\n  ScrollBar,\n} from \"@/components/ui/scroll-area\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalScrollAreaProps = React.ComponentProps<typeof ShadcnScrollArea> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：ScrollArea 注册滚动语义，支持“向下看/滚到底部/回到顶部”等命令。\n// English: ScrollArea registers scroll semantics for commands such as scroll down, bottom, or top.\nexport const MultimodalScrollArea = React.forwardRef<\n  React.ElementRef<typeof ShadcnScrollArea>,\n  MultimodalScrollAreaProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnScrollArea>>({\n    id: interactionId,\n    role: \"scroll_area\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"scrollUp\", \"scrollDown\", \"scrollToTop\", \"scrollToBottom\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnScrollArea ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalScrollArea.displayName = \"MultimodalScrollArea\"\n\nexport { ScrollBar }\n\n"
     }
   ]
 }

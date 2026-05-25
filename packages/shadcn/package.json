@@ -1,5 +1,5 @@
 {
-  "name": "@multimodal-ui/shadcn",
+  "name": "@omni-ui/shadcn",
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "peerDependencies": {
-    "@multimodal-ui/react": "0.1.0",
+    "@omni-ui/react": "0.1.0",
     "react": ">=18.2.0"
   }
 }

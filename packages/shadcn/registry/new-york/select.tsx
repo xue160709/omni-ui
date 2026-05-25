@@ -10,7 +10,7 @@ import {
   SelectTrigger as ShadcnSelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { useInteractionNode, type InteractionHint } from "@multimodal-ui/react"
+import { useInteractionNode, type InteractionHint } from "@omni-ui/react"
 import { composeRefs } from "./utils"
 
 type MultimodalSelectTriggerProps = React.ComponentProps<typeof ShadcnSelectTrigger> & {

@@ -4,7 +4,7 @@
   "title": "Multimodal Toast",
   "description": "Legacy shadcn Toaster wrapper that registers a toast region.",
   "dependencies": [
-    "@multimodal-ui/react"
+    "@omni-ui/react"
   ],
   "registryDependencies": [
     "multimodal-provider",
@@ -15,7 +15,7 @@
       "path": "registry/new-york/toast.tsx",
       "type": "registry:component",
       "target": "components/multimodal/toast.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Toaster as ShadcnToaster } from \"@/components/ui/toaster\"\nimport { MultimodalGroup, type InteractionHint } from \"@multimodal-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalLegacyToasterProps = React.ComponentProps<typeof ShadcnToaster> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：旧版 Toaster 注册为 toast_region；新项目优先使用 sonner。\n// English: Legacy Toaster registers as toast_region; prefer sonner for new projects.\nexport function MultimodalLegacyToaster({\n  interactionId = \"multimodal.toast.legacy_region\",\n  interactionLabel,\n  interactionHint,\n  ...props\n}: MultimodalLegacyToasterProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"toast_region\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"通知\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnToaster {...props} />\n    </MultimodalGroup>\n  )\n}\n\nexport { toast, useToast } from \"@/components/ui/use-toast\"\n\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Toaster as ShadcnToaster } from \"@/components/ui/toaster\"\nimport { MultimodalGroup, type InteractionHint } from \"@omni-ui/react\"\nimport { resolveInteractionAliases, resolveInteractionLabel } from \"./utils\"\n\ntype MultimodalLegacyToasterProps = React.ComponentProps<typeof ShadcnToaster> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：旧版 Toaster 注册为 toast_region；新项目优先使用 sonner。\n// English: Legacy Toaster registers as toast_region; prefer sonner for new projects.\nexport function MultimodalLegacyToaster({\n  interactionId = \"multimodal.toast.legacy_region\",\n  interactionLabel,\n  interactionHint,\n  ...props\n}: MultimodalLegacyToasterProps) {\n  return (\n    <MultimodalGroup\n      id={interactionId}\n      role=\"toast_region\"\n      label={resolveInteractionLabel(interactionLabel, interactionHint, \"通知\")}\n      aliases={resolveInteractionAliases(interactionHint)}\n    >\n      <ShadcnToaster {...props} />\n    </MultimodalGroup>\n  )\n}\n\nexport { toast, useToast } from \"@/components/ui/use-toast\"\n\n"
     }
   ]
 }
