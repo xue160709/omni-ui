@@ -1,9 +1,23 @@
 {
   "name": "@omni-ui/core",
   "version": "0.1.0",
+  "description": "Framework-agnostic primitives for OmniUI.",
   "type": "module",
   "license": "MIT",
   "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xue160709/omni-ui.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/xue160709/omni-ui#readme",
+  "bugs": {
+    "url": "https://github.com/xue160709/omni-ui/issues"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -13,7 +27,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }

@@ -1,10 +1,23 @@
 {
   "name": "@omni-ui/shadcn",
   "version": "0.1.0",
+  "description": "shadcn registry source for OmniUI components and recipes.",
   "type": "module",
   "license": "MIT",
   "private": false,
-  "files": ["registry"],
+  "files": [
+    "registry",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xue160709/omni-ui.git",
+    "directory": "packages/shadcn"
+  },
+  "homepage": "https://github.com/xue160709/omni-ui#readme",
+  "bugs": {
+    "url": "https://github.com/xue160709/omni-ui/issues"
+  },
   "scripts": {
     "build": "node scripts/build-registry.mjs",
     "test": "vitest run"

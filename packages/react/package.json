@@ -1,9 +1,23 @@
 {
   "name": "@omni-ui/react",
   "version": "0.1.0",
+  "description": "React runtime for OmniUI.",
   "type": "module",
   "license": "MIT",
   "sideEffects": ["./src/styles.css"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xue160709/omni-ui.git",
+    "directory": "packages/react"
+  },
+  "homepage": "https://github.com/xue160709/omni-ui#readme",
+  "bugs": {
+    "url": "https://github.com/xue160709/omni-ui/issues"
+  },
   "peerDependencies": {
     "react": ">=18.2.0",
     "react-dom": ">=18.2.0"
@@ -21,7 +35,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/styles.css dist/styles.css",
+    "build": "node -e \"fs.rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json && cp src/styles.css dist/styles.css",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   }
