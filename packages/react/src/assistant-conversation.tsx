@@ -42,6 +42,13 @@ export type UseAssistantConversationOptions = {
   missingModelMessage?: string
   emptyModelMessage?: string
   formatPendingAction?: (action: PendingAssistantModelAction) => string
+  voiceShortcut?: {
+    enabled?: boolean
+    key?: "Control" | "Alt" | "Shift" | "Meta" | string
+    lang?: string
+    submitOnRelease?: boolean
+    unsupportedMessage?: string
+  }
 }
 
 export type AssistantConversationApi = {
@@ -50,7 +57,10 @@ export type AssistantConversationApi = {
   draft: string
   setDraft: React.Dispatch<React.SetStateAction<string>>
   pendingModelAction: PendingAssistantModelAction | null
+  isListening: boolean
   submitMessage: (message?: string) => Promise<void>
+  startVoiceInput: () => void
+  stopVoiceInput: (options?: { submit?: boolean }) => void
   confirmPendingModelAction: (message?: string) => Promise<void>
   cancelPendingModelAction: (message?: string) => void
   addMessage: (message: AssistantConversationMessageInput) => void
@@ -60,6 +70,24 @@ export type AssistantConversationApi = {
 const defaultConfirmationTexts = /^(确认|确定|好的|好|执行|继续|是的|yes|ok)$/i
 const defaultCancelTexts = /^(取消|算了|不用|不要|否|no)$/i
 const defaultEmptyModelMessage = "The assistant did not return a message."
+const defaultVoiceUnsupportedMessage = "当前浏览器不支持语音输入。"
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike
+
+type SpeechRecognitionLike = {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  start: () => void
+  stop: () => void
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  onerror: (() => void) | null
+  onend: (() => void) | null
+}
+
+type SpeechRecognitionEventLike = {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>
+}
 
 export function useAssistantConversation(
   options: UseAssistantConversationOptions = {}
@@ -80,12 +108,16 @@ export function useAssistantConversation(
   )
   const [draft, setDraft] = React.useState(options.initialDraft ?? "")
   const [status, setStatus] = React.useState<AssistantConversationStatus>("ready")
+  const [isListening, setIsListening] = React.useState(false)
   const [pendingModelAction, setPendingModelAction] =
     React.useState<PendingAssistantModelAction | null>(null)
   const [messages, setMessages] = React.useState<AssistantConversationMessage[]>(() =>
     (options.initialMessages ?? []).map(createMessage)
   )
   const messagesRef = React.useRef(messages)
+  const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null)
+  const speechBufferRef = React.useRef("")
+  const submitVoiceOnEndRef = React.useRef(false)
 
   React.useEffect(() => {
     messagesRef.current = messages
@@ -320,6 +352,97 @@ export function useAssistantConversation(
     ]
   )
 
+  const stopVoiceInput = React.useCallback(
+    (stopOptions: { submit?: boolean } = {}) => {
+      submitVoiceOnEndRef.current = Boolean(stopOptions.submit)
+      recognitionRef.current?.stop()
+    },
+    []
+  )
+
+  const startVoiceInput = React.useCallback(() => {
+    const Recognition = getSpeechRecognition()
+
+    if (!Recognition) {
+      addMessage({
+        role: "assistant",
+        content:
+          optionsRef.current.voiceShortcut?.unsupportedMessage ??
+          defaultVoiceUnsupportedMessage,
+        state: "error",
+      })
+      return
+    }
+
+    recognitionRef.current?.stop()
+    speechBufferRef.current = ""
+    submitVoiceOnEndRef.current = false
+
+    const recognition = new Recognition()
+    recognition.lang = optionsRef.current.voiceShortcut?.lang ?? "zh-CN"
+    recognition.continuous = false
+    recognition.interimResults = false
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join("")
+        .trim()
+      if (!transcript) return
+
+      speechBufferRef.current = speechBufferRef.current
+        ? `${speechBufferRef.current} ${transcript}`
+        : transcript
+      setDraft((current) => (current ? `${current} ${transcript}` : transcript))
+    }
+    recognition.onerror = () => {
+      submitVoiceOnEndRef.current = false
+      setIsListening(false)
+    }
+    recognition.onend = () => {
+      const shouldSubmit = submitVoiceOnEndRef.current
+      const transcript = speechBufferRef.current.trim()
+      submitVoiceOnEndRef.current = false
+      recognitionRef.current = null
+      setIsListening(false)
+      if (shouldSubmit && transcript) {
+        void submitMessage(transcript)
+      }
+    }
+    recognitionRef.current = recognition
+    setIsListening(true)
+    recognition.start()
+  }, [addMessage, submitMessage])
+
+  React.useEffect(() => {
+    const voiceShortcut = options.voiceShortcut
+    if (!voiceShortcut?.enabled) return undefined
+
+    const shortcutKey = voiceShortcut.key ?? "Control"
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat || event.key !== shortcutKey || status === "sending") return
+      event.preventDefault()
+      startVoiceInput()
+    }
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== shortcutKey) return
+      event.preventDefault()
+      stopVoiceInput({ submit: voiceShortcut.submitOnRelease ?? true })
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    window.addEventListener("keyup", handleKeyUp)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      window.removeEventListener("keyup", handleKeyUp)
+    }
+  }, [options.voiceShortcut, startVoiceInput, status, stopVoiceInput])
+
+  React.useEffect(() => {
+    return () => recognitionRef.current?.stop()
+  }, [])
+
   return React.useMemo(
     () => ({
       messages,
@@ -327,7 +450,10 @@ export function useAssistantConversation(
       draft,
       setDraft,
       pendingModelAction,
+      isListening,
       submitMessage,
+      startVoiceInput,
+      stopVoiceInput,
       confirmPendingModelAction,
       cancelPendingModelAction,
       addMessage,
@@ -339,12 +465,26 @@ export function useAssistantConversation(
       confirmPendingModelAction,
       draft,
       formatPendingAction,
+      isListening,
       messages,
       pendingModelAction,
+      startVoiceInput,
       status,
+      stopVoiceInput,
       submitMessage,
     ]
   )
+}
+
+function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
+  if (typeof window === "undefined") return undefined
+  const speechWindow = window as Window &
+    typeof globalThis & {
+      SpeechRecognition?: SpeechRecognitionConstructor
+      webkitSpeechRecognition?: SpeechRecognitionConstructor
+    }
+
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition
 }
 
 function createPendingModelAction(

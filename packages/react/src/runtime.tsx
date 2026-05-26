@@ -15,6 +15,7 @@ import {
   type AppInteractionManifest,
   type DomainActionSpec,
   type EntityRef,
+  type InteractionHitTarget,
   type InteractionHint,
   type InteractionObject,
   type InteractionResolutionResult,
@@ -47,6 +48,8 @@ type RegisteredNode = {
   labelFrom?: "text" | "aria" | "none"
   actions?: string[]
   hint?: InteractionHint
+  hitTarget?: InteractionHitTarget
+  semanticKind?: InteractionObject["semanticKind"]
   state?: Record<string, unknown>
   element: HTMLElement
 }
@@ -59,6 +62,8 @@ type RegisteredGroup = {
   label?: string
   aliases?: string[]
   entity?: EntityRef
+  hitTarget?: InteractionHitTarget
+  semanticKind?: InteractionObject["semanticKind"]
   state?: Record<string, unknown>
   indexBy?: "visible_order"
   element: HTMLElement
@@ -150,6 +155,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const [page, setPage] = React.useState<RegisteredPage | undefined>()
   const [actions, setActions] = React.useState(() => new Map<string, ActionRegistration>())
   const [lastResolution, setLastResolution] = React.useState<ResolvedInteraction | undefined>()
+  const recentReferencesRef = React.useRef<InteractionSnapshot["recentReferences"]>([])
+  const lastPointerTargetRef = React.useRef<string | undefined>(undefined)
 
   const bumpVersion = React.useCallback(() => setVersion((current) => current + 1), [])
 
@@ -227,6 +234,66 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     }
   }, [bumpVersion])
 
+  React.useEffect(() => {
+    const root = rootRef.current
+    if (!root) return
+
+    const pushReference = (
+      objectId: string,
+      source: "pointer" | "hover" | "focus",
+      event?: PointerEvent | FocusEvent
+    ) => {
+      const now = Date.now()
+      const pointer =
+        typeof PointerEvent !== "undefined" && event instanceof PointerEvent
+          ? event
+          : undefined
+      const nextReference = {
+        objectId,
+        source,
+        timestamp: now,
+        confidence: source === "focus" ? 0.9 : 0.82,
+        x: pointer?.clientX,
+        y: pointer?.clientY,
+      }
+      recentReferencesRef.current = [
+        nextReference,
+        ...(recentReferencesRef.current ?? []).filter((item) => item.objectId !== objectId),
+      ].filter((item) => now - item.timestamp < 5000).slice(0, 6)
+
+      if (lastPointerTargetRef.current !== objectId) {
+        lastPointerTargetRef.current = objectId
+        bumpVersion()
+      }
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (isIgnoredRuntimeTarget(event.target)) return
+      const objectId = hitTestInteractionObject(
+        event.clientX,
+        event.clientY,
+        snapshotRef.current,
+        elementByObjectId.current
+      )
+      if (objectId) pushReference(objectId, "hover", event)
+    }
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (isIgnoredRuntimeTarget(event.target)) return
+      const target = event.target
+      if (!(target instanceof HTMLElement)) return
+      const objectId = resolveElementObjectId(target, elementByObjectId.current, snapshotRef.current)
+      if (objectId) pushReference(objectId, "focus", event)
+    }
+
+    root.addEventListener("pointermove", handlePointerMove)
+    root.addEventListener("focusin", handleFocusIn)
+    return () => {
+      root.removeEventListener("pointermove", handlePointerMove)
+      root.removeEventListener("focusin", handleFocusIn)
+    }
+  }, [bumpVersion])
+
   const actionSpecs = React.useMemo(() => {
     // 中文：namespace 只用于组织和 manifest 元数据，真正执行时仍以 action id 查找 spec。
     // English: namespace is organizational metadata; dispatch still looks up specs by action id.
@@ -283,9 +350,12 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         id: node.id,
         type: "raw",
         role: node.role,
+        semanticKind: node.semanticKind,
         label: resolveRegisteredNodeLabel(node),
         aliases: hintToAliases(node.hint),
         source: "registered",
+        bounds: getElementBounds(node.element),
+        hitTarget: node.hitTarget,
         state: {
           ...getElementState(node.element),
           ...(node.state ?? {}),
@@ -299,7 +369,10 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       // English: Unregistered interactive DOM is auto-discovered into the snapshot to reduce integration cost.
       extractDomNodes(root).forEach(({ object, element }) => {
         elementMap.set(object.id, element)
-        rawObjects.push(object)
+        rawObjects.push({
+          ...object,
+          bounds: getElementBounds(element),
+        })
       })
     }
 
@@ -370,6 +443,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             confidence: 1,
           }
         : undefined,
+      recentReferences: recentReferencesRef.current,
       actionSpecs,
       session: {
         language: language ?? "zh-CN",
@@ -399,13 +473,19 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     }, phase === "voice-target" ? 380 : 520)
   }, [])
 
-  const getSnapshot = React.useCallback(() => snapshotRef.current, [])
+  const getSnapshot = React.useCallback(
+    () => ({
+      ...snapshotRef.current,
+      recentReferences: recentReferencesRef.current,
+    }),
+    []
+  )
 
   const resolveText = React.useCallback(
     async (text: string): Promise<InteractionResolutionResult> => {
       // 中文：解析总是基于提交瞬间的 snapshot，并记录 lastResolution 方便调试或 UI 展示。
       // English: Resolution uses the snapshot at submit time and stores lastResolution for debugging or UI display.
-      const currentSnapshot = snapshotRef.current
+      const currentSnapshot = getSnapshot()
       const resolution = await resolveCandidate(text, currentSnapshot, {
         localResolvers,
         resolvers,
@@ -423,7 +503,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         resolution,
       }
     },
-    [localResolvers, onClarification, onResolution, resolverMode, resolvers]
+    [getSnapshot, localResolvers, onClarification, onResolution, resolverMode, resolvers]
   )
 
   const dispatchResolution = React.useCallback(
@@ -433,7 +513,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     ): Promise<InteractionSubmitResult> => {
       // 中文：dispatch 只执行已解析结果；目标、动作或 stateVersion 不满足校验时会返回错误。
       // English: Dispatch executes resolved results only; invalid target, action, or stateVersion returns an error.
-      const currentSnapshot = snapshotRef.current
+      const currentSnapshot = getSnapshot()
       const baseResult = {
         snapshot: currentSnapshot,
         resolution,
@@ -556,7 +636,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         error: "Resolved interaction has no executable action.",
       }
     },
-    [applyFeedback, bumpVersion]
+    [applyFeedback, bumpVersion, getSnapshot]
   )
 
   const submitUtterance = React.useCallback(
@@ -732,6 +812,8 @@ export type UseInteractionNodeOptions = {
   actions?: string[]
   state?: Record<string, unknown>
   hint?: InteractionHint
+  hitTarget?: InteractionHitTarget
+  semanticKind?: InteractionObject["semanticKind"]
 }
 
 export function useInteractionNode<TElement extends HTMLElement>(
@@ -749,6 +831,8 @@ export function useInteractionNode<TElement extends HTMLElement>(
     actions: options.actions,
     hint: options.hint,
     state: options.state,
+    hitTarget: options.hitTarget,
+    semanticKind: options.semanticKind,
   })
 
   React.useEffect(() => {
@@ -768,6 +852,8 @@ export function useInteractionNode<TElement extends HTMLElement>(
       actions: options.actions,
       hint: options.hint,
       state: options.state,
+      hitTarget: options.hitTarget,
+      semanticKind: options.semanticKind,
       element,
     })
   }, [
@@ -811,6 +897,8 @@ export type MultimodalGroupProps = React.HTMLAttributes<HTMLDivElement> & {
   entity?: EntityRef
   state?: Record<string, unknown>
   indexBy?: "visible_order"
+  hitTarget?: InteractionHitTarget
+  semanticKind?: InteractionObject["semanticKind"]
 }
 
 export function MultimodalGroup({
@@ -821,12 +909,14 @@ export function MultimodalGroup({
   entity,
   state,
   indexBy,
+  hitTarget,
+  semanticKind,
   children,
   ...props
 }: MultimodalGroupProps) {
   const { registerGroup } = useMultimodalRuntime()
   const [element, setElement] = React.useState<HTMLDivElement | null>(null)
-  const groupSignature = stableStringify({ id, role, label, aliases, entity, state, indexBy })
+  const groupSignature = stableStringify({ id, role, label, aliases, entity, state, indexBy, hitTarget, semanticKind })
 
   React.useEffect(() => {
     if (!element) return undefined
@@ -845,6 +935,8 @@ export function MultimodalGroup({
       entity,
       state,
       indexBy,
+      hitTarget,
+      semanticKind,
       element,
     })
   }, [element, groupSignature, id, registerGroup, role, label, indexBy])
@@ -1023,12 +1115,15 @@ function buildGroupObjects(
       id: group.id,
       type: group.role === "list" ? "container" : "composite",
       role: group.role,
+      semanticKind: group.semanticKind,
       label: group.label,
       aliases,
       entity: group.entity,
       parent: parentList?.id,
       children,
       primaryControl,
+      bounds: getElementBounds(group.element),
+      hitTarget: group.hitTarget,
       indexBy: group.indexBy,
       source: "registered_group",
       state: {
@@ -1158,6 +1253,101 @@ function isActionControl(element: HTMLElement): boolean {
       "row",
     ].includes(role ?? "")
   )
+}
+
+function getElementBounds(element: HTMLElement): InteractionObject["bounds"] | undefined {
+  const rect = element.getBoundingClientRect()
+  if (!rect.width && !rect.height) return undefined
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+    coordinateSpace: "viewport",
+  }
+}
+
+function hitTestInteractionObject(
+  x: number,
+  y: number,
+  snapshot: InteractionSnapshot,
+  elementMap: Map<string, HTMLElement>
+): string | undefined {
+  const hits = snapshot.visibleObjects
+    .map((object) => {
+      const element = elementMap.get(object.id)
+      const bounds = element ? getElementBounds(element) : object.bounds
+      if (!bounds) return undefined
+      const inside =
+        x >= bounds.x &&
+        x <= bounds.x + bounds.width &&
+        y >= bounds.y &&
+        y <= bounds.y + bounds.height
+      if (!inside) return undefined
+      return {
+        object,
+        area: bounds.width * bounds.height,
+        priority: (object.hitTarget?.priority ?? 0) + getHitTestSourcePriority(object),
+      }
+    })
+    .filter((item): item is { object: InteractionObject; area: number; priority: number } => Boolean(item))
+    .sort((a, b) => b.priority - a.priority || a.area - b.area)
+
+  const hit = hits[0]?.object
+  return hit ? resolveHitTarget(hit, snapshot) : undefined
+}
+
+function resolveElementObjectId(
+  element: HTMLElement,
+  elementMap: Map<string, HTMLElement>,
+  snapshot: InteractionSnapshot
+): string | undefined {
+  const match = [...elementMap.entries()]
+    .map(([id, candidate]) => ({
+      id,
+      element: candidate,
+      object: snapshot.visibleObjects.find((item) => item.id === id),
+    }))
+    .filter((item) => item.object && (item.element === element || item.element.contains(element)))
+    .sort(
+      (a, b) =>
+        Number(b.element === element) - Number(a.element === element) ||
+        getHitTestSourcePriority(b.object!) -
+          getHitTestSourcePriority(a.object!) ||
+        a.element.getBoundingClientRect().width - b.element.getBoundingClientRect().width
+    )[0]
+
+  const object = match?.object
+
+  return object ? resolveHitTarget(object, snapshot) : undefined
+}
+
+function getHitTestSourcePriority(object: InteractionObject): number {
+  if (object.source === "registered_group") return 20
+  if (object.source === "registered") return 15
+  if (object.source === "registered_object") return 10
+  return 0
+}
+
+function resolveHitTarget(object: InteractionObject, snapshot: InteractionSnapshot): string {
+  if (object.hitTarget?.targetId) return object.hitTarget.targetId
+
+  if (object.hitTarget?.promoteTo === "parent" && object.parent) return object.parent
+  if (object.hitTarget?.promoteTo === "primaryControl" && object.primaryControl) {
+    return object.primaryControl
+  }
+  if (object.hitTarget?.promoteTo === "entity" && object.entity) {
+    return (
+      snapshot.visibleObjects.find(
+        (candidate) =>
+          candidate.id !== object.id &&
+          candidate.entity?.type === object.entity?.type &&
+          candidate.entity?.id === object.entity?.id
+      )?.id ?? object.id
+    )
+  }
+
+  return object.id
 }
 
 function shouldObserveMutation(mutation: MutationRecord): boolean {

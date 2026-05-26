@@ -234,6 +234,55 @@ describe("resolver", () => {
 
   })
 
+  it("uses the most recent pointer reference before an older focused object", () => {
+    const now = Date.now()
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          actions: ["task.delete"],
+          state: { completed: false, index: 1 },
+        },
+        {
+          id: "task.item.task_2",
+          type: "composite",
+          role: "list_item",
+          label: "回学校拿东西",
+          entity: { type: "task", id: "task_2" },
+          actions: ["task.delete"],
+          state: { completed: false, index: 2 },
+        },
+      ],
+      focus: { objectId: "task.item.task_1" },
+      recentReferences: [
+        {
+          objectId: "task.item.task_1",
+          source: "focus",
+          timestamp: now - 1200,
+          confidence: 0.9,
+        },
+        {
+          objectId: "task.item.task_2",
+          source: "hover",
+          timestamp: now,
+          confidence: 0.82,
+        },
+      ],
+    })
+
+    expect(resolveUtterance("删掉这个", snapshot)).toMatchObject({
+      status: "resolved",
+      intent: "delete",
+      targetId: "task.item.task_2",
+      actionId: "task.delete",
+    })
+  })
+
   it("does not treat uncomplete as a complete action", () => {
     const snapshot = createInteractionSnapshot({
       stateVersion: 1,

@@ -12,7 +12,13 @@ export const assistantLocalFastPathPolicy = {
   minConfidence: 0.7,
   allowDomainActions: true,
   allowPrimitiveActions: false,
-  actionIds: ["navigation.*"],
+  actionIds: [
+    "navigation.*",
+    "todo.complete",
+    "todo.uncomplete",
+    "todo.delete",
+    "todo.filter",
+  ],
 } satisfies LocalExecutionPolicy
 
 export const assistantModelActionPolicy = {

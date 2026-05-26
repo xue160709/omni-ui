@@ -7,3 +7,5 @@ coverage
 .env
 .env.*
 !.env.example
+/AI-Pointer-Create-main
+/AI-Pointer-Find-main

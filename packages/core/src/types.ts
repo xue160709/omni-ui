@@ -52,18 +52,35 @@ export type InteractionHint = {
 
 export type InteractionState = Record<string, unknown>
 
+export type InteractionBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+  coordinateSpace: "viewport"
+}
+
+export type InteractionHitTarget = {
+  targetId?: string
+  promoteTo?: "self" | "parent" | "primaryControl" | "entity"
+  priority?: number
+}
+
 // 中文：InteractionObject 是 snapshot 的基本单位，既可以代表真实 DOM 控件，也可以代表业务对象或页面容器。
 // English: InteractionObject is the snapshot unit for real DOM controls, virtual business objects, and page containers.
 export type InteractionObject = {
   id: string
   type: InteractionObjectType
   role: string
+  semanticKind?: "field" | "item" | "collection" | "metric" | "action" | "section"
   label?: string
   aliases?: string[]
   source?: string
   parent?: string
   children?: string[]
   primaryControl?: string
+  bounds?: InteractionBounds
+  hitTarget?: InteractionHitTarget
   entity?: EntityRef
   state?: InteractionState
   actions?: string[]
@@ -91,6 +108,16 @@ export type FocusInfo = {
   objectId: string
   source: "gui" | "voice" | "gaze" | "gesture" | "keyboard" | "programmatic"
   confidence?: number
+}
+
+export type PointerReference = {
+  objectId: string
+  source: "pointer" | "hover" | "focus" | "selection"
+  timestamp: number
+  confidence: number
+  textAlias?: string
+  x?: number
+  y?: number
 }
 
 export type InteractionEvent = {
@@ -186,6 +213,7 @@ export type InteractionSnapshot = {
   page?: PageObject
   visibleObjects: InteractionObject[]
   focus?: FocusInfo
+  recentReferences?: PointerReference[]
   recentEvents: InteractionEvent[]
   actionSpecs: Record<string, RegisteredActionSpec>
 }

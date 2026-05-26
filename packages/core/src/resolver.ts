@@ -88,6 +88,9 @@ function resolveWithRules({
   const ordinal = extractOrdinal(text)
   const targetByOrdinal = ordinal ? findObjectByOrdinal(snapshot, ordinal) : undefined
   const targetText = ordinal ? "" : extractTargetText(text, intent)
+  const targetByReference = isDeicticReference(text, targetText)
+    ? findObjectByRecentReference(snapshot)
+    : undefined
 
   const selectTarget =
     intent === "select"
@@ -97,6 +100,7 @@ function resolveWithRules({
       : undefined
   const target =
     targetByOrdinal ??
+    targetByReference ??
     selectTarget ??
     findObjectBySpokenText(snapshot, targetText) ??
     findObjectBySpokenText(snapshot, text)
@@ -129,7 +133,7 @@ function resolveWithRules({
     intent,
     targetId: target.id,
     ...action,
-    confidence: ordinal ? 0.88 : 0.78,
+    confidence: ordinal ? 0.88 : targetByReference ? 0.86 : 0.78,
     resolverId: "rule",
   }
 }
@@ -325,6 +329,30 @@ function cleanupTargetText(value: string | undefined): string | undefined {
     .replace(/(这个|那个|这项|那项|该项|此项)$/g, "")
     .trim()
   return cleaned || undefined
+}
+
+function isDeicticReference(text: string, targetText: string): boolean {
+  const normalizedTarget = normalizeSpeech(targetText)
+  return (
+    /这个|那个|这里|那里|这项|那项|该项|此项|它|它们/.test(text) ||
+    /^(this|that|here|there|it|these|those)$/i.test(normalizedTarget)
+  )
+}
+
+function findObjectByRecentReference(snapshot: InteractionSnapshot): InteractionObject | undefined {
+  const now = Date.now()
+  const references = [...(snapshot.recentReferences ?? [])]
+    .filter((reference) => now - reference.timestamp < 5000)
+    .sort((a, b) => b.timestamp - a.timestamp || b.confidence - a.confidence)
+
+  for (const reference of references) {
+    const object = snapshot.visibleObjects.find((item) => item.id === reference.objectId)
+    if (object) return object
+  }
+
+  return snapshot.focus
+    ? snapshot.visibleObjects.find((object) => object.id === snapshot.focus?.objectId)
+    : undefined
 }
 
 function chooseAction(

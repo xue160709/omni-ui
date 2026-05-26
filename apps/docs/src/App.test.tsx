@@ -403,7 +403,7 @@ describe("mobile todo app", () => {
     expect(body.messages[0].content).toContain('"project.entity.project_launch"')
   })
 
-  it("falls back to the LLM for todo commands outside the local JSON allowlist", async () => {
+  it("handles deterministic todo completion locally before calling the LLM", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -446,7 +446,7 @@ describe("mobile todo app", () => {
       expect(screen.getByText("已将「买牛奶」标记为完成。")).not.toBeNull()
     })
     expect((screen.getByLabelText("取消完成 买牛奶") as HTMLInputElement).checked).toBe(true)
-    expect(fetchMock).toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("updates todo detail from an LLM action without navigating first", async () => {
@@ -814,7 +814,7 @@ describe("mobile todo app", () => {
     fireEvent.click(screen.getByRole("button", { name: "待办" }))
     fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
     fireEvent.change(screen.getByLabelText("消息"), {
-      target: { value: "删掉买牛奶" },
+      target: { value: "按模型建议处理买牛奶" },
     })
     fireEvent.click(screen.getByRole("button", { name: "发送" }))
 
@@ -831,6 +831,43 @@ describe("mobile todo app", () => {
       expect(screen.queryByRole("button", { name: /买牛奶/ })).toBeNull()
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("deletes the recently referenced todo without asking the model", async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "待办" }))
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+
+    const target = document.querySelector("[data-mm-group-id='todo.item.todo_1']") as HTMLElement
+    target.getBoundingClientRect = () =>
+      ({
+        left: 10,
+        top: 10,
+        right: 320,
+        bottom: 110,
+        width: 310,
+        height: 100,
+        x: 10,
+        y: 10,
+        toJSON: () => undefined,
+      }) as DOMRect
+
+    fireEvent.pointerMove(target, { clientX: 20, clientY: 20 })
+    fireEvent.focusIn(target)
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "删掉这个" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已删除「买牛奶」。")).not.toBeNull()
+      expect(screen.queryByRole("button", { name: /买牛奶/ })).toBeNull()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it("lets the LLM clarify bare completion instead of selecting the completed filter", async () => {

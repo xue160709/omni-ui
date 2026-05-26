@@ -10,7 +10,9 @@ import type {
   EntityRef,
   ExecuteScope,
   FocusInfo,
+  InteractionBounds,
   InteractionEvent,
+  InteractionHitTarget,
   InteractionObject,
   InteractionSnapshot,
   InteractionObjectType,
@@ -32,6 +34,7 @@ export type CreateSnapshotInput = {
   contextStack?: ContextObject[]
   visibleObjects: InteractionObject[]
   focus?: FocusInfo
+  recentReferences?: InteractionSnapshot["recentReferences"]
   recentEvents?: InteractionEvent[]
   actionSpecs?: Record<string, RegisteredActionSpec>
   session?: InteractionSnapshot["session"]
@@ -53,6 +56,9 @@ export type LlmSnapshotContextObject = {
   parent?: string
   children?: string[]
   primaryControl?: string
+  bounds?: InteractionBounds
+  hitTarget?: InteractionHitTarget
+  semanticKind?: InteractionObject["semanticKind"]
   entity?: EntityRef
   state?: InteractionState
   actions?: string[]
@@ -76,6 +82,7 @@ export type LlmSnapshotContext = {
   contextStack: ContextObject[]
   page?: LlmSnapshotContextObject
   focus?: FocusInfo
+  recentReferences?: InteractionSnapshot["recentReferences"]
   recentEvents?: InteractionEvent[]
   visibleObjects: LlmSnapshotContextObject[]
   objectCount: number
@@ -107,6 +114,7 @@ export function createInteractionSnapshot(input: CreateSnapshotInput): Interacti
     page: input.page,
     manifest: input.manifest,
     focus: input.focus,
+    recentReferences: input.recentReferences ?? [],
     recentEvents: input.recentEvents ?? [],
     actionSpecs,
   }
@@ -143,6 +151,9 @@ export function compactSnapshotForIntent(snapshot: InteractionSnapshot): Interac
       aliases: object.aliases,
       parent: object.parent,
       entity: object.entity,
+      bounds: object.bounds,
+      hitTarget: object.hitTarget,
+      semanticKind: object.semanticKind,
       state: object.state,
       actions: object.actions,
       primitiveActions: object.actions?.length ? undefined : object.primitiveActions,
@@ -170,6 +181,7 @@ export function createLlmSnapshotContext(
     contextStack: snapshot.contextStack,
     page: pageObject ? summarizeObjectForLlm(pageObject) : undefined,
     focus: snapshot.focus,
+    recentReferences: snapshot.recentReferences,
     recentEvents: options.includeRecentEvents ? snapshot.recentEvents : undefined,
     visibleObjects,
     objectCount: snapshot.visibleObjects.length,
@@ -208,6 +220,9 @@ function summarizeObjectForLlm(object: InteractionObject): LlmSnapshotContextObj
     parent: object.parent,
     children: object.children,
     primaryControl: object.primaryControl,
+    bounds: object.bounds,
+    hitTarget: object.hitTarget,
+    semanticKind: object.semanticKind,
     entity: object.entity,
     state: sanitizeJsonValue(object.state) as InteractionState | undefined,
     actions: object.actions,

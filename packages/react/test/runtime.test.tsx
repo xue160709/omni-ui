@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import * as React from "react"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   NAVIGATION_BACK_ACTION_ID,
   NAVIGATION_FORWARD_ACTION_ID,
@@ -459,6 +459,78 @@ function AssistantConversationHarness() {
       <div data-testid="conversation-messages">
         {conversation.messages.map((message) => message.content).join("|")}
       </div>
+    </>
+  )
+}
+
+function VoiceShortcutConversationHarness() {
+  const conversation = useAssistantConversation({
+    callModel: async () => "voice reply",
+    voiceShortcut: {
+      enabled: true,
+      key: "Control",
+      submitOnRelease: true,
+    },
+  })
+
+  return (
+    <>
+      <div data-testid="conversation-status">{conversation.status}</div>
+      <div data-testid="conversation-listening">{String(conversation.isListening)}</div>
+      <div data-testid="conversation-messages">
+        {conversation.messages.map((message) => message.content).join("|")}
+      </div>
+    </>
+  )
+}
+
+function PointerReferenceHarness() {
+  const [completed, setCompleted] = React.useState(false)
+  const submitUtterance = useSubmitUtterance()
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+        availableWhen: ({ target }) => target.state?.completed === false,
+      },
+    },
+    execute: (action) => {
+      if (action.type === "task.complete" && action.taskId === "task_2") {
+        setCompleted(true)
+      }
+    },
+  })
+
+  return (
+    <>
+      <button type="button" onClick={() => void submitUtterance("完成这个")}>
+        pointer voice
+      </button>
+      <MultimodalGroup id="task.list.pointer" role="list" label="任务列表">
+        <MultimodalGroup
+          id="task.item.task_1.pointer"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+          state={{ completed: false }}
+        >
+          <span>评审方案</span>
+        </MultimodalGroup>
+        <MultimodalGroup
+          id="task.item.task_2.pointer"
+          role="list_item"
+          label="整理需求"
+          entity={{ type: "task", id: "task_2" }}
+          state={{ completed }}
+        >
+          <span>整理需求</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+      <div data-testid="pointer-reference-completed">{String(completed)}</div>
     </>
   )
 }
@@ -1033,6 +1105,72 @@ describe("MultimodalProvider", () => {
       expect(screen.getByTestId("conversation-messages").textContent).toContain(
         "你好|你好，我是模型回复。"
       )
+    })
+  })
+
+  it("submits Web Speech transcripts when the voice shortcut is released", async () => {
+    class MockRecognition {
+      lang = ""
+      continuous = false
+      interimResults = false
+      onresult: ((event: { results: Array<Array<{ transcript: string }>> }) => void) | null = null
+      onerror: (() => void) | null = null
+      onend: (() => void) | null = null
+
+      start() {
+        this.onresult?.({ results: [[{ transcript: "语音消息" }]] })
+      }
+
+      stop() {
+        this.onend?.()
+      }
+    }
+
+    vi.stubGlobal("webkitSpeechRecognition", MockRecognition)
+    render(
+      <MultimodalProvider>
+        <VoiceShortcutConversationHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.keyDown(window, { key: "Control" })
+    fireEvent.keyUp(window, { key: "Control" })
+
+    await waitFor(() => {
+      expect(screen.getByTestId("conversation-listening").textContent).toBe("false")
+      expect(screen.getByTestId("conversation-messages").textContent).toContain(
+        "语音消息|voice reply"
+      )
+    })
+  })
+
+  it("uses the latest pointer reference for deictic commands", async () => {
+    render(
+      <MultimodalProvider>
+        <PointerReferenceHarness />
+      </MultimodalProvider>
+    )
+
+    const target = screen.getByText("整理需求").closest("[data-mm-group-root]") as HTMLElement
+    target.getBoundingClientRect = () =>
+      ({
+        left: 10,
+        top: 10,
+        right: 110,
+        bottom: 60,
+        width: 100,
+        height: 50,
+        x: 10,
+        y: 10,
+        toJSON: () => undefined,
+      }) as DOMRect
+
+    fireEvent.pointerMove(target, { clientX: 20, clientY: 20 })
+    fireEvent.focusIn(target)
+    fireEvent.click(screen.getByRole("button", { name: "pointer voice" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pointer-reference-completed").textContent).toBe("true")
     })
   })
 

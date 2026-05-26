@@ -95,23 +95,6 @@ type SiliconFlowResponse = {
   message?: string
 }
 
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike
-
-type SpeechRecognitionLike = {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  start: () => void
-  stop: () => void
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: (() => void) | null
-  onend: (() => void) | null
-}
-
-type SpeechRecognitionEventLike = {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>
-}
-
 const chatModel = "MiniMaxAI/MiniMax-M2.5"
 const todoStorageKey = "todo_items"
 const defaultProjectId = "project_inbox"
@@ -1700,53 +1683,22 @@ function FloatingChatbot(props: {
     confirmingMessage: "正在执行确认操作...",
     canceledMessage: "已取消待确认操作。",
     emptyModelMessage: "没有返回内容。",
+    voiceShortcut: {
+      enabled: true,
+      key: "Control",
+      lang: "zh-CN",
+      submitOnRelease: true,
+    },
     formatPendingAction: (action) => {
       const target = action.targetLabel ? `（「${action.targetLabel}」）` : ""
       return `这个操作需要确认：${action.actionId}${target}。`
     },
   })
-  const [isListening, setIsListening] = React.useState(false)
-  const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null)
   const chatLogRef = React.useRef<HTMLDivElement | null>(null)
 
   React.useEffect(() => {
     chatLogRef.current?.scrollTo?.({ top: chatLogRef.current.scrollHeight, behavior: "smooth" })
   }, [conversation.messages, props.open])
-
-  function startSpeechInput() {
-    const Recognition = getSpeechRecognition()
-
-    if (!Recognition) {
-      conversation.addMessage({
-        role: "assistant",
-        content: "当前浏览器不支持语音输入。",
-        state: "error",
-      })
-      return
-    }
-
-    recognitionRef.current?.stop()
-    const recognition = new Recognition()
-    recognition.lang = "zh-CN"
-    recognition.continuous = false
-    recognition.interimResults = false
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join("")
-        .trim()
-      if (transcript) {
-        conversation.setDraft((current) => (current ? `${current} ${transcript}` : transcript))
-      }
-    }
-    recognition.onerror = () => {
-      setIsListening(false)
-    }
-    recognition.onend = () => setIsListening(false)
-    recognitionRef.current = recognition
-    setIsListening(true)
-    recognition.start()
-  }
 
   if (!props.open) return null
 
@@ -1824,10 +1776,10 @@ function FloatingChatbot(props: {
           <button
             type="button"
             className="button button-secondary"
-            onClick={startSpeechInput}
-            disabled={isListening}
+            onClick={conversation.startVoiceInput}
+            disabled={conversation.isListening}
           >
-            {isListening ? "聆听中" : "语音输入"}
+            {conversation.isListening ? "聆听中" : "语音输入"}
           </button>
           <button type="submit" className="button button-primary" disabled={conversation.status === "sending"}>
             {conversation.status === "sending" ? "发送中" : "发送"}
@@ -2296,14 +2248,4 @@ function resolveChatError(data: SiliconFlowResponse): string | undefined {
   if (typeof data.error === "string") return data.error
   if (data.error?.message) return data.error.message
   return data.message
-}
-
-function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
-  const speechWindow = window as Window &
-    typeof globalThis & {
-      SpeechRecognition?: SpeechRecognitionConstructor
-      webkitSpeechRecognition?: SpeechRecognitionConstructor
-    }
-
-  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition
 }
