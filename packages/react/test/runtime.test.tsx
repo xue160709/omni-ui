@@ -302,6 +302,7 @@ function VoiceAdapterHarness() {
 function PartialVoicePreviewHarness() {
   const api = useInteractionApi()
   const [summary, setSummary] = React.useState("")
+  const [submitSummary, setSubmitSummary] = React.useState("")
   const [executed, setExecuted] = React.useState(0)
 
   const actions = React.useMemo(
@@ -354,7 +355,32 @@ function PartialVoicePreviewHarness() {
       >
         voice partial
       </button>
+      <button
+        type="button"
+        onClick={async () => {
+          const partial = await api.resolveVoice({
+            kind: "partial",
+            text: "完成评审方案",
+            sessionId: "asr-submit-guard",
+            confidence: 0.91,
+            receivedAt: Date.now(),
+          })
+          let submitCode = "none"
+          try {
+            await api.submitTurn(partial.id)
+          } catch (error) {
+            submitCode = String((error as { code?: string }).code)
+          }
+          const tried = await api.trySubmitTurn(partial.id)
+          setSubmitSummary(
+            `${partial.status}:${Boolean(partial.decision)}:${submitCode}:${tried.ok}:${tried.ok ? "none" : tried.error.code}`
+          )
+        }}
+      >
+        submit partial turn
+      </button>
       <div data-testid="partial-summary">{summary}</div>
+      <div data-testid="partial-submit-summary">{submitSummary}</div>
       <div data-testid="partial-executed">{executed}</div>
       <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
         <MultimodalGroup
@@ -366,6 +392,94 @@ function PartialVoicePreviewHarness() {
           data-testid="partial-target"
         >
           评审方案
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function SubmitTurnErrorHarness() {
+  const api = useInteractionApi()
+  const [summary, setSummary] = React.useState("")
+  const [executed, setExecuted] = React.useState(0)
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: () => {
+      setExecuted((value) => value + 1)
+      return { status: "changed" }
+    },
+  })
+
+  const captureSubmitCode = React.useCallback(
+    async (turnId: string) => {
+      try {
+        await api.submitTurn(turnId)
+        return "none"
+      } catch (error) {
+        return String((error as { code?: string }).code)
+      }
+    },
+    [api]
+  )
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const missing = await api.trySubmitTurn("missing-turn")
+          const ambiguous = await api.resolveText("完成开会")
+          const clarificationTurnId = api.getActiveTurn()?.id ?? "missing-active"
+          const notSubmittableCode = await captureSubmitCode(clarificationTurnId)
+          const committed = await api.submitVoice({
+            kind: "final",
+            text: "完成评审方案",
+            sessionId: "terminal-submit",
+            confidence: 0.96,
+            receivedAt: Date.now(),
+          })
+          const terminalCode = await captureSubmitCode(committed.id)
+          setSummary(
+            `${missing.ok ? "none" : missing.error.code}:${ambiguous.resolution.status}:${notSubmittableCode}:${committed.status}:${terminalCode}`
+          )
+        }}
+      >
+        submit error codes
+      </button>
+      <div data-testid="submit-error-summary">{summary}</div>
+      <div data-testid="submit-error-executed">{executed}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.review"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "review" }}
+        >
+          评审方案
+        </MultimodalGroup>
+        <MultimodalGroup
+          id="task.item.today"
+          role="list_item"
+          label="开会"
+          entity={{ type: "task", id: "today" }}
+        >
+          今天开会
+        </MultimodalGroup>
+        <MultimodalGroup
+          id="task.item.tomorrow"
+          role="list_item"
+          label="开会"
+          entity={{ type: "task", id: "tomorrow" }}
+        >
+          明天开会
         </MultimodalGroup>
       </MultimodalGroup>
     </>
@@ -1803,7 +1917,7 @@ describe("MultimodalProvider", () => {
     fireEvent.click(screen.getByRole("button", { name: "adapter partial" }))
 
     await waitFor(() => {
-      expect(screen.getByTestId("voice-adapter-status").textContent).toBe("partial:ready")
+      expect(screen.getByTestId("voice-adapter-status").textContent).toBe("partial:listening")
       expect(screen.getByTestId("voice-adapter-completed").textContent).toBe("false")
     })
 
@@ -1826,9 +1940,43 @@ describe("MultimodalProvider", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("partial-summary").textContent).toBe(
-        "true:ready:true:true:voice-target"
+        "true:listening:false:true:voice-target"
       )
       expect(screen.getByTestId("partial-executed").textContent).toBe("0")
+    })
+  })
+
+  it("rejects manual submission of partial voice preview turns", async () => {
+    render(
+      <MultimodalProvider>
+        <PartialVoicePreviewHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "submit partial turn" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("partial-submit-summary").textContent).toBe(
+        "listening:false:OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE:false:OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE"
+      )
+      expect(screen.getByTestId("partial-executed").textContent).toBe("0")
+    })
+  })
+
+  it("returns stable OmniError codes for invalid submitTurn calls", async () => {
+    render(
+      <MultimodalProvider>
+        <SubmitTurnErrorHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "submit error codes" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("submit-error-summary").textContent).toBe(
+        "OMNI_TURN_NOT_FOUND:needs_clarification:OMNI_TURN_NOT_SUBMITTABLE:committed:OMNI_TURN_TERMINAL"
+      )
+      expect(screen.getByTestId("submit-error-executed").textContent).toBe("1")
     })
   })
 
@@ -1846,6 +1994,23 @@ describe("MultimodalProvider", () => {
         "true:true:final:ready"
       )
     })
+  })
+
+  it("records focusout as focus cleared instead of navigation changed", () => {
+    const events: string[] = []
+    render(
+      <MultimodalProvider onInteractionEvent={(event) => events.push(event.type)}>
+        <label htmlFor="focus-input">Name</label>
+        <input id="focus-input" />
+      </MultimodalProvider>
+    )
+
+    const input = screen.getByLabelText("Name")
+    fireEvent.focusIn(input)
+    fireEvent.focusOut(input)
+
+    expect(events).toContain("gui.focus.cleared")
+    expect(events).not.toContain("gui.navigation.changed")
   })
 
   it("rejects atomic runtime batches without executing items when no transaction adapter is present", async () => {

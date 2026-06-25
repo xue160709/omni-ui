@@ -31,6 +31,8 @@ export const omniErrorCodes = {
   actionNotFound: "OMNI_ACTION_NOT_FOUND",
   executorMissing: "OMNI_EXECUTOR_MISSING",
   turnNotFound: "OMNI_TURN_NOT_FOUND",
+  turnNotSubmittable: "OMNI_TURN_NOT_SUBMITTABLE",
+  voicePartialNotSubmittable: "OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE",
   turnTerminal: "OMNI_TURN_TERMINAL",
   turnRevisionConflict: "OMNI_TURN_REVISION_CONFLICT",
   turnSuperseded: "OMNI_TURN_SUPERSEDED",

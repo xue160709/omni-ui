@@ -11,6 +11,7 @@ import {
   createInteractionEventBuffer,
   createInteractionTrace,
   createConfirmationGrant,
+  createOmniError,
   createInteractionTurn,
   dispatchCommand,
   dispatchBatchCommands,
@@ -22,6 +23,7 @@ import {
   mergeInteractionManifests,
   normalizeConfiguredRules,
   normalizePrimitiveActions,
+  omniErrorCodes,
   resolveUtterance,
   resolveWithResolvers,
   ruleResolver,
@@ -56,6 +58,7 @@ import {
   type ResolverMode,
   type IntentResolver,
   type InteractionEventInput,
+  type OmniError,
   type ResolvedInteraction,
   type UnifiedFocus,
   type VoiceInput,
@@ -127,6 +130,7 @@ type RuntimeContextValue = {
   resolveVoice: (input: VoiceInput) => Promise<InteractionTurn>
   submitVoice: (input: VoiceInput) => Promise<InteractionTurn>
   submitTurn: (turnId: string) => Promise<InteractionTurn>
+  trySubmitTurn: (turnId: string) => Promise<SubmitTurnResult>
   confirmTurn: (turnId: string) => Promise<DispatchResult>
   cancelTurn: (turnId: string, reason?: string) => void
   resolveText: (text: string) => Promise<InteractionResolutionResult>
@@ -162,6 +166,7 @@ export type InteractionApi = Pick<
   | "resolveVoice"
   | "submitVoice"
   | "submitTurn"
+  | "trySubmitTurn"
   | "confirmTurn"
   | "cancelTurn"
   | "resolveText"
@@ -172,6 +177,17 @@ export type InteractionApi = Pick<
   | "setSemanticFocus"
   | "invalidateSnapshot"
 >
+
+export type SubmitTurnResult =
+  | {
+      ok: true
+      turn: InteractionTurn
+    }
+  | {
+      ok: false
+      turn?: InteractionTurn
+      error: OmniError
+    }
 
 const emptySnapshot: InteractionSnapshot = createInteractionSnapshot({
   stateVersion: 0,
@@ -392,14 +408,25 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     const handleRuntimeEvent = (event: Event) => {
       if (isIgnoredRuntimeTarget(event.target)) return
       const targetId = findObjectIdForDomTarget(event.target, elementByObjectId.current)
+      const focusOutTargetId =
+        event.type === "focusout"
+          ? findObjectIdForDomTarget(
+              (event as FocusEvent).relatedTarget,
+              elementByObjectId.current
+            )
+          : undefined
       recordEvent({
         modality: "gui",
         type: event.type === "focusin"
           ? "gui.focus.changed"
+          : event.type === "focusout"
+            ? focusOutTargetId
+              ? "gui.focus.changed"
+              : "gui.focus.cleared"
           : event.type === "input" || event.type === "change"
             ? "gui.input.changed"
             : "gui.navigation.changed",
-        target: targetId,
+        target: event.type === "focusout" ? focusOutTargetId ?? targetId : targetId,
         value: event.type === "input" || event.type === "change"
           ? readInputEventValue(event.target)
           : undefined,
@@ -1720,34 +1747,31 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const submitTurn = React.useCallback(
     async (turnId: string): Promise<InteractionTurn> => {
       const turn = turnsRef.current.get(turnId)
-      if (!turn || turn.status !== "ready" || !turn.decision) {
-        return turn ?? createInteractionTurn({
-          id: turnId,
-          source: "text",
-          input: { kind: "text", text: "", receivedAt: Date.now() },
-          anchor: createSnapshotAnchor(snapshotRef.current),
-        })
+      const validationError = validateTurnSubmission(turnId, turn)
+      if (validationError) throw validationError
+      const submittableTurn = turn as InteractionTurn & {
+        decision: NonNullable<InteractionTurn["decision"]>
       }
 
       const currentSnapshot = snapshotRef.current
       const commandTurn =
-        turn.decision.actionId
+        submittableTurn.decision.actionId
           ? {
-              ...turn,
+              ...submittableTurn,
               decision: {
-                ...turn.decision,
+                ...submittableTurn.decision,
                 params: stripActionType(
                   buildActionPayload(currentSnapshot, {
-                    actionId: turn.decision.actionId,
-                    targetId: turn.decision.targetId,
-                    baseStateVersion: turn.anchor.stateVersion,
-                    candidate: resolutionFromTurnDecision(turn),
-                    utterance: turn.input.text,
+                    actionId: submittableTurn.decision.actionId,
+                    targetId: submittableTurn.decision.targetId,
+                    baseStateVersion: submittableTurn.anchor.stateVersion,
+                    candidate: resolutionFromTurnDecision(submittableTurn),
+                    utterance: submittableTurn.input.text,
                   })
                 ),
               },
             }
-          : turn
+          : submittableTurn
       const command = buildCommandFromTurnDecision({
         commandId: `command_${++commandCounter.current}`,
         turn: commandTurn,
@@ -1757,7 +1781,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       applyFeedback(command.targetId, "voice-target")
       applyFeedback(command.targetId, "voice-press")
       const dispatchResult = await dispatchCommand(currentSnapshot, command, {
-        confirmation: turn.confirmation,
+        confirmation: submittableTurn.confirmation,
         getSnapshot,
         conflictLock: conflictLockRef.current,
         onPhase: (phase) => publishDispatchPhaseTurn(turnId, phase),
@@ -1798,7 +1822,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         applyFeedback(command.targetId, "error")
       }
 
-      return turnsRef.current.get(turnId) ?? turn
+      return turnsRef.current.get(turnId) ?? submittableTurn
     },
     [
       applyFeedback,
@@ -1808,6 +1832,24 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       publishDispatchResultTurn,
       publishPendingConfirmationTurn,
     ]
+  )
+
+  const trySubmitTurn = React.useCallback(
+    async (turnId: string): Promise<SubmitTurnResult> => {
+      try {
+        return {
+          ok: true,
+          turn: await submitTurn(turnId),
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          turn: turnsRef.current.get(turnId),
+          error: normalizeSubmitTurnError(error, turnId),
+        }
+      }
+    },
+    [submitTurn]
   )
 
   const submitVoice = React.useCallback(
@@ -1984,6 +2026,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       resolveVoice,
       submitVoice,
       submitTurn,
+      trySubmitTurn,
       confirmTurn,
       cancelTurn,
       resolveText,
@@ -2009,6 +2052,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       resolveVoice,
       submitVoice,
       submitTurn,
+      trySubmitTurn,
       confirmTurn,
       cancelTurn,
       lastResolution,
@@ -2377,6 +2421,7 @@ export function useInteractionApi(): InteractionApi {
     resolveVoice,
     submitVoice,
     submitTurn,
+    trySubmitTurn,
     confirmTurn,
     cancelTurn,
     resolveText,
@@ -2398,6 +2443,7 @@ export function useInteractionApi(): InteractionApi {
       resolveVoice,
       submitVoice,
       submitTurn,
+      trySubmitTurn,
       confirmTurn,
       cancelTurn,
       resolveText,
@@ -2417,6 +2463,7 @@ export function useInteractionApi(): InteractionApi {
       resolveVoice,
       submitVoice,
       submitTurn,
+      trySubmitTurn,
       confirmTurn,
       cancelTurn,
       invalidateSnapshot,
@@ -2827,6 +2874,7 @@ function isTerminalTurnStatus(status: InteractionTurn["status"]): boolean {
   return [
     "committed",
     "unverified",
+    "pending",
     "noop",
     "rejected",
     "failed",
@@ -2857,6 +2905,97 @@ function dispatchRuntimeError(result: DispatchResult) {
       (result.validation && !result.validation.ok ? result.validation.reason : undefined) ??
       result.status,
   }
+}
+
+function validateTurnSubmission(
+  turnId: string,
+  turn: InteractionTurn | undefined
+): OmniError | undefined {
+  if (!turn) {
+    return createTurnSubmissionError({
+      code: omniErrorCodes.turnNotFound,
+      message: `Interaction turn "${turnId}" was not found.`,
+      recoverable: false,
+      details: { turnId },
+    })
+  }
+
+  if (turn.source === "voice" && turn.input.kind !== "final") {
+    return createTurnSubmissionError({
+      code: omniErrorCodes.voicePartialNotSubmittable,
+      message: "Voice partial turns are previews and cannot be submitted.",
+      recoverable: true,
+      details: {
+        turnId,
+        status: turn.status,
+        inputKind: turn.input.kind,
+      },
+    })
+  }
+
+  if (isTerminalTurnStatus(turn.status)) {
+    return createTurnSubmissionError({
+      code: omniErrorCodes.turnTerminal,
+      message: `Interaction turn "${turnId}" is already terminal.`,
+      recoverable: false,
+      details: {
+        turnId,
+        status: turn.status,
+      },
+    })
+  }
+
+  if (turn.status !== "ready" || !turn.decision) {
+    return createTurnSubmissionError({
+      code: omniErrorCodes.turnNotSubmittable,
+      message: `Interaction turn "${turnId}" is not ready to submit.`,
+      recoverable: true,
+      details: {
+        turnId,
+        status: turn.status,
+        hasDecision: Boolean(turn.decision),
+      },
+    })
+  }
+
+  return undefined
+}
+
+function createTurnSubmissionError(input: {
+  code: string
+  message: string
+  recoverable: boolean
+  details?: Record<string, unknown>
+}): OmniError {
+  return createOmniError({
+    code: input.code,
+    message: input.message,
+    stage: "turn",
+    recoverable: input.recoverable,
+    details: input.details,
+  })
+}
+
+function normalizeSubmitTurnError(error: unknown, turnId: string): OmniError {
+  if (isOmniError(error)) return error
+
+  return createTurnSubmissionError({
+    code: omniErrorCodes.executionFailed,
+    message: error instanceof Error ? error.message : "Submit turn failed.",
+    recoverable: false,
+    details: { turnId },
+  })
+}
+
+function isOmniError(error: unknown): error is OmniError {
+  if (!error || typeof error !== "object") return false
+  const input = error as Partial<OmniError>
+  return (
+    typeof input.code === "string" &&
+    typeof input.message === "string" &&
+    typeof input.stage === "string" &&
+    typeof input.recoverable === "boolean"
+  )
 }
 
 function resolveClarificationAnswer(
@@ -3258,53 +3397,24 @@ function createPartialVoicePreviewTurn(
   resolution: ResolvedInteraction,
   previousTurn?: InteractionTurn
 ): InteractionTurn {
-  const resolving = transitionTurn(createdTurn, {
+  const listening = transitionTurn(createdTurn, {
     type: "transition",
-    status: "resolving",
+    status: "listening",
     at: createdTurn.updatedAt,
-  })
-  const status =
-    resolution.status === "resolved"
-      ? "ready"
-      : resolution.status === "needs_clarification"
-        ? "needs_clarification"
-        : "rejected"
-  const next = transitionTurn(resolving, {
-    type: "transition",
-    status,
-    at: createdTurn.updatedAt,
-    candidates: previewCandidatesFromResolution(resolution),
-    decision:
-      resolution.status === "resolved" && resolution.targetId
-        ? {
-            targetId: resolution.targetId,
-            actionId: resolution.actionId,
-            primitiveAction: resolution.primitiveAction,
-            params: resolution.params ?? {},
-            score: resolution.confidence,
-            confidenceMargin: resolution.confidence,
-            evidence: [],
-          }
-        : undefined,
-    clarification:
-      status === "needs_clarification"
-        ? {
-            id: `clarification_${createdTurn.id}`,
-            prompt: resolution.reason ?? "需要进一步澄清",
-            createdAt: createdTurn.updatedAt,
-          }
-        : undefined,
-    error:
-      status === "rejected"
-        ? {
-            code: resolution.status,
-            message: resolution.reason ?? "Partial voice preview did not resolve.",
-          }
-        : undefined,
   })
 
   return {
-    ...next,
+    ...listening,
+    candidates: previewCandidatesFromResolution(resolution),
+    decision: undefined,
+    clarification: undefined,
+    error:
+      resolution.status === "resolved" || resolution.status === "needs_clarification"
+        ? undefined
+        : {
+            code: resolution.status,
+            message: resolution.reason ?? "Partial voice preview did not resolve.",
+          },
     revision: (previousTurn?.revision ?? 0) + 1,
     inputRevision: (previousTurn?.inputRevision ?? 0) + 1,
     transcriptRevisions: [

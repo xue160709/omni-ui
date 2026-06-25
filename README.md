@@ -209,6 +209,17 @@ function MyInput() {
 - `getSnapshot()` returns the current page, visible objects, state, focus, and registered actions.
 - `resolveText(text)` calls the rule/LLM resolver and returns the proposed target/action without executing it.
 - `submitUtterance(text)` resolves, validates, executes the matching domain or primitive action, and returns a structured result.
+- `submitTurn(turnId)` keeps returning `Promise<InteractionTurn>`, but invalid submissions now throw a stable `OmniError` such as `OMNI_TURN_NOT_FOUND`, `OMNI_TURN_NOT_SUBMITTABLE`, `OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE`, or `OMNI_TURN_TERMINAL`.
+- `trySubmitTurn(turnId)` is the non-throwing form for callers that prefer an explicit `{ ok, turn?, error? }` result.
+
+```tsx
+const turn = await interaction.resolveVoice(partialInput)
+
+const submitted = await interaction.trySubmitTurn(turn.id)
+if (!submitted.ok && submitted.error.code === "OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE") {
+  // Keep rendering the preview; wait for the ASR final before submitting.
+}
+```
 
 ## Assistant and Route Helpers
 

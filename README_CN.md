@@ -208,6 +208,17 @@ function MyInput() {
 - `getSnapshot()` 返回当前页面、可见对象、状态、焦点和已注册 actions。
 - `resolveText(text)` 调用 rule/LLM resolver，返回拟执行的 target/action，但不执行。
 - `submitUtterance(text)` 解析、校验并执行匹配到的 domain 或 primitive action，然后返回结构化结果。
+- `submitTurn(turnId)` 保持 `Promise<InteractionTurn>` 返回签名，但非法提交会抛稳定 `OmniError`，例如 `OMNI_TURN_NOT_FOUND`、`OMNI_TURN_NOT_SUBMITTABLE`、`OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE` 或 `OMNI_TURN_TERMINAL`。
+- `trySubmitTurn(turnId)` 是非抛异常版本，适合希望显式处理 `{ ok, turn?, error? }` 的调用方。
+
+```tsx
+const turn = await interaction.resolveVoice(partialInput)
+
+const submitted = await interaction.trySubmitTurn(turn.id)
+if (!submitted.ok && submitted.error.code === "OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE") {
+  // 继续展示 preview，等待 ASR final 后再提交。
+}
+```
 
 ## Assistant 和 Route Helpers
 

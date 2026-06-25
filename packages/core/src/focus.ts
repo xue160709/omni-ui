@@ -164,6 +164,10 @@ export function reduceFocusEvent(
     }
   }
 
+  if (event.type === "gui.focus.cleared") {
+    next = setInputFocus(next, undefined)
+  }
+
   if (event.type === "gui.selection.changed") {
     next = setSelectedObjects(next, event.target ? [event.target] : [])
   }

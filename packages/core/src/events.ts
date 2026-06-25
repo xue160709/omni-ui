@@ -3,6 +3,7 @@ import type { InteractionEvent } from "./types"
 export type InteractionEventType =
   | "gui.pointer.activated"
   | "gui.focus.changed"
+  | "gui.focus.cleared"
   | "gui.selection.changed"
   | "gui.input.changed"
   | "gui.dialog.opened"

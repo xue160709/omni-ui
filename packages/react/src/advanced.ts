@@ -4,4 +4,4 @@ export {
   useInteractionTurn,
   useMultimodalRuntime,
 } from "./runtime"
-export type { InteractionApi } from "./runtime"
+export type { InteractionApi, SubmitTurnResult } from "./runtime"
