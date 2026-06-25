@@ -13,6 +13,7 @@ import {
   createConfirmationGrant,
   createOmniError,
   createInteractionTurn,
+  createInteractionTurnStore,
   dispatchCommand,
   dispatchBatchCommands,
   completeInteractionTrace,
@@ -119,6 +120,15 @@ type ActionRegistration = {
   ownerId?: string
   actions: Record<string, DomainActionSpec>
   execute?: ActionExecutor
+}
+
+type TurnRuntimeHandle = {
+  resolverAbort?: AbortController
+  previewAbort?: AbortController
+  dispatchAbort?: AbortController
+  resolverGeneration: number
+  previewGeneration: number
+  dispatchGeneration: number
 }
 
 type RuntimeContextValue = {
@@ -236,15 +246,13 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const elementByObjectId = React.useRef(new Map<string, HTMLElement>())
   const snapshotRef = React.useRef<InteractionSnapshot>(emptySnapshot)
   const eventBufferRef = React.useRef(createInteractionEventBuffer())
-  const resolverAbortRef = React.useRef<AbortController | undefined>(undefined)
   const partialVoiceTurnIdsRef = React.useRef(new Map<string, string>())
-  const partialVoiceAbortRef = React.useRef(new Map<string, AbortController>())
   const conflictLockRef = React.useRef(new CommandConflictLock())
   const commandCounter = React.useRef(0)
   const turnCounter = React.useRef(0)
   const explicitInvalidationVersionsRef = React.useRef<number[]>([])
-  const turnsRef = React.useRef(new Map<string, InteractionTurn>())
-  const activeTurnIdRef = React.useRef<string | undefined>(undefined)
+  const turnStoreRef = React.useRef(createInteractionTurnStore())
+  const turnHandlesRef = React.useRef(new Map<string, TurnRuntimeHandle>())
   const [version, setVersion] = React.useState(0)
   const [eventSequence, setEventSequence] = React.useState(0)
   const [, setTurnVersion] = React.useState(0)
@@ -276,11 +284,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   )
   const publishTurn = React.useCallback(
     (turn: InteractionTurn, options: { active?: boolean } = {}) => {
-      turnsRef.current.set(turn.id, turn)
-      if (isTerminalTurnStatus(turn.status)) {
-        if (activeTurnIdRef.current === turn.id) activeTurnIdRef.current = undefined
-      } else if (options.active ?? true) {
-        activeTurnIdRef.current = turn.id
+      turnStoreRef.current.create(turn, options)
+      if (options.active === false || isTerminalTurnStatus(turn.status)) {
+        turnStoreRef.current.clearActive(turn.id)
       }
       setTurnVersion((current) => current + 1)
       onTurnChange?.(turn)
@@ -288,18 +294,10 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     [onTurnChange]
   )
   const getActiveTurn = React.useCallback(
-    () => {
-      if (!activeTurnIdRef.current) return undefined
-      const turn = turnsRef.current.get(activeTurnIdRef.current)
-      if (!turn || isTerminalTurnStatus(turn.status)) {
-        activeTurnIdRef.current = undefined
-        return undefined
-      }
-      return turn
-    },
+    () => turnStoreRef.current.getActive(),
     []
   )
-  const getTurn = React.useCallback((turnId: string) => turnsRef.current.get(turnId), [])
+  const getTurn = React.useCallback((turnId: string) => turnStoreRef.current.get(turnId), [])
 
   const recordEvent = React.useCallback(
     (event: InteractionEventInput) => {
@@ -659,14 +657,117 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
   const getSnapshot = React.useCallback(() => snapshotRef.current, [])
 
+  const getOrCreateTurnHandle = React.useCallback((turnId: string) => {
+    const existing = turnHandlesRef.current.get(turnId)
+    if (existing) return existing
+
+    const handle: TurnRuntimeHandle = {
+      resolverGeneration: 0,
+      previewGeneration: 0,
+      dispatchGeneration: 0,
+    }
+    turnHandlesRef.current.set(turnId, handle)
+    return handle
+  }, [])
+
+  const startTurnResolver = React.useCallback(
+    (turnId: string, options: { abortOtherResolvers?: boolean } = {}) => {
+      if (options.abortOtherResolvers) {
+        turnHandlesRef.current.forEach((handle, handleTurnId) => {
+          if (handleTurnId !== turnId) {
+            handle.resolverAbort?.abort()
+          }
+        })
+      }
+
+      const handle = getOrCreateTurnHandle(turnId)
+      handle.resolverAbort?.abort()
+      const abortController = new AbortController()
+      handle.resolverAbort = abortController
+      handle.resolverGeneration += 1
+      return {
+        abortController,
+        generation: handle.resolverGeneration,
+      }
+    },
+    [getOrCreateTurnHandle]
+  )
+
+  const startTurnPreview = React.useCallback(
+    (turnId: string) => {
+      const handle = getOrCreateTurnHandle(turnId)
+      handle.previewAbort?.abort()
+      const abortController = new AbortController()
+      handle.previewAbort = abortController
+      handle.previewGeneration += 1
+      return {
+        abortController,
+        generation: handle.previewGeneration,
+      }
+    },
+    [getOrCreateTurnHandle]
+  )
+
+  const startTurnDispatch = React.useCallback(
+    (turnId: string) => {
+      const handle = getOrCreateTurnHandle(turnId)
+      handle.dispatchAbort?.abort()
+      const abortController = new AbortController()
+      handle.dispatchAbort = abortController
+      handle.dispatchGeneration += 1
+      return {
+        abortController,
+        generation: handle.dispatchGeneration,
+      }
+    },
+    [getOrCreateTurnHandle]
+  )
+
+  const canApplyTurnAsyncResult = React.useCallback(
+    (input: {
+      turnId: string
+      kind: "resolver" | "preview" | "dispatch"
+      generation: number
+      expectedRevision?: number
+      allowAbortedSignal?: boolean
+      signal?: AbortSignal
+    }) => {
+      const turn = turnStoreRef.current.get(input.turnId)
+      if (!turn || isTerminalTurnStatus(turn.status)) return false
+      if (
+        typeof input.expectedRevision === "number" &&
+        turn.revision !== input.expectedRevision
+      ) {
+        return false
+      }
+      const handle = turnHandlesRef.current.get(input.turnId)
+      const currentGeneration =
+        input.kind === "resolver"
+          ? handle?.resolverGeneration
+          : input.kind === "preview"
+            ? handle?.previewGeneration
+            : handle?.dispatchGeneration
+
+      if (currentGeneration !== input.generation) return false
+      if (!input.allowAbortedSignal && input.signal?.aborted) return false
+      return true
+    },
+    []
+  )
+
+  const abortTurnRuntimeHandle = React.useCallback((turnId: string) => {
+    const handle = turnHandlesRef.current.get(turnId)
+    handle?.previewAbort?.abort()
+    handle?.resolverAbort?.abort()
+    handle?.dispatchAbort?.abort()
+  }, [])
+
   const resolveText = React.useCallback(
     async (text: string): Promise<InteractionResolutionResult> => {
       // 中文：解析总是基于提交瞬间的 snapshot，并记录 lastResolution 方便调试或 UI 展示。
       // English: Resolution uses the snapshot at submit time and stores lastResolution for debugging or UI display.
       const currentSnapshot = snapshotRef.current
-      const activeTurn = activeTurnIdRef.current
-        ? turnsRef.current.get(activeTurnIdRef.current)
-        : undefined
+      const activeTurn = turnStoreRef.current.getActive()
       const clarificationResolution = resolveClarificationAnswer(
         text,
         activeTurn,
@@ -674,7 +775,6 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         currentSnapshot
       )
       if (clarificationResolution && activeTurn) {
-        resolverAbortRef.current?.abort()
         const resolvingTurn = transitionTurn(activeTurn, {
           type: "transition",
           status: "resolving",
@@ -701,9 +801,6 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           resolution,
         }
       }
-      resolverAbortRef.current?.abort()
-      const abortController = new AbortController()
-      resolverAbortRef.current = abortController
       const turnId = `turn_${++turnCounter.current}`
       const createdTurn = createInteractionTurn({
         id: turnId,
@@ -720,21 +817,25 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         status: "resolving",
       })
       publishTurn(resolvingTurn)
+      const resolverHandle = startTurnResolver(turnId, {
+        abortOtherResolvers: true,
+      })
       const resolved = await resolveCandidate(text, currentSnapshot, {
         localResolvers,
         resolvers,
         resolverMode,
-        signal: abortController.signal,
+        signal: resolverHandle.abortController.signal,
         turnId,
       })
-      if (abortController.signal.aborted || resolverAbortRef.current !== abortController) {
-        publishTurn(
-          transitionTurn(resolvingTurn, {
-            type: "transition",
-            status: "superseded",
-          }),
-          { active: false }
-        )
+      if (
+        !canApplyTurnAsyncResult({
+          turnId,
+          kind: "resolver",
+          generation: resolverHandle.generation,
+          expectedRevision: resolvingTurn.revision,
+          signal: resolverHandle.abortController.signal,
+        })
+      ) {
         return {
           snapshot: currentSnapshot,
           resolution: {
@@ -791,7 +892,17 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         resolution,
       }
     },
-    [localResolvers, onClarification, onResolution, onTrace, publishTurn, resolverMode, resolvers]
+    [
+      canApplyTurnAsyncResult,
+      localResolvers,
+      onClarification,
+      onResolution,
+      onTrace,
+      publishTurn,
+      resolverMode,
+      resolvers,
+      startTurnResolver,
+    ]
   )
 
   const resolveVoice = React.useCallback(
@@ -806,9 +917,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
       const currentSnapshot = snapshotRef.current
       if (input.kind === "final") {
-        const activeTurn = activeTurnIdRef.current
-          ? turnsRef.current.get(activeTurnIdRef.current)
-          : undefined
+        const activeTurn = turnStoreRef.current.getActive()
         const clarificationResolution = resolveClarificationAnswer(
           input.text,
           activeTurn,
@@ -818,11 +927,12 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         if (clarificationResolution && activeTurn) {
           if (input.sessionId) {
             const sessionKey = voiceSessionKey(input)
-            partialVoiceAbortRef.current.get(sessionKey)?.abort()
-            partialVoiceAbortRef.current.delete(sessionKey)
+            const partialTurnId = partialVoiceTurnIdsRef.current.get(sessionKey)
+            if (partialTurnId) {
+              turnHandlesRef.current.get(partialTurnId)?.previewAbort?.abort()
+            }
             partialVoiceTurnIdsRef.current.delete(sessionKey)
           }
-          resolverAbortRef.current?.abort()
           const resolvingTurn = transitionTurn(activeTurn, {
             type: "transition",
             status: "resolving",
@@ -853,7 +963,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           ? partialVoiceTurnIdsRef.current.get(sessionKey)
           : undefined
       const previousSessionTurn = existingSessionTurnId
-        ? turnsRef.current.get(existingSessionTurnId)
+        ? turnStoreRef.current.get(existingSessionTurnId)
         : undefined
       const partialSessionKey =
         input.kind === "partial" ? voiceSessionKey(input) : undefined
@@ -888,23 +998,33 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           : baseCreatedTurn
 
       if (input.kind === "partial") {
-        const previewAbortController = new AbortController()
         if (partialSessionKey) {
-          partialVoiceAbortRef.current.get(partialSessionKey)?.abort()
-          partialVoiceAbortRef.current.set(partialSessionKey, previewAbortController)
+          const previousPartialTurnId = partialVoiceTurnIdsRef.current.get(partialSessionKey)
+          if (previousPartialTurnId) {
+            turnHandlesRef.current.get(previousPartialTurnId)?.previewAbort?.abort()
+          }
         }
+        const listeningTurn = createPartialVoiceListeningTurn(
+          createdTurn,
+          turnStoreRef.current.get(turnId)
+        )
+        publishTurn(listeningTurn, { active: false })
+        const previewHandle = startTurnPreview(turnId)
         const preview = await resolvePartialVoicePreview(input, currentSnapshot, {
           localResolvers,
-          signal: previewAbortController.signal,
+          signal: previewHandle.abortController.signal,
           turnId,
         })
-        if (previewAbortController.signal.aborted) {
-          const superseded = transitionTurn(createdTurn, {
-            type: "transition",
-            status: "superseded",
+        if (
+          !canApplyTurnAsyncResult({
+            turnId,
+            kind: "preview",
+            generation: previewHandle.generation,
+            expectedRevision: listeningTurn.revision,
+            signal: previewHandle.abortController.signal,
           })
-          publishTurn(superseded, { active: false })
-          return superseded
+        ) {
+          return turnStoreRef.current.get(turnId) ?? listeningTurn
         }
         const previewTurn = createPartialVoicePreviewTurn(
           createdTurn,
@@ -912,7 +1032,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             turnId,
             modality: "voice",
           }),
-          turnsRef.current.get(turnId)
+          turnStoreRef.current.get(turnId)
         )
         publishTurn(previewTurn, { active: false })
         if (preview.status === "resolved" && preview.targetId) {
@@ -922,35 +1042,40 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       }
 
       if (sessionKey) {
-        partialVoiceAbortRef.current.get(sessionKey)?.abort()
-        partialVoiceAbortRef.current.delete(sessionKey)
+        const partialTurnId = partialVoiceTurnIdsRef.current.get(sessionKey)
+        if (partialTurnId) {
+          turnHandlesRef.current.get(partialTurnId)?.previewAbort?.abort()
+        }
         partialVoiceTurnIdsRef.current.delete(sessionKey)
       }
 
-      resolverAbortRef.current?.abort()
-      const abortController = new AbortController()
-      resolverAbortRef.current = abortController
       const resolvingTurn = transitionTurn(createdTurn, {
         type: "transition",
         status: "resolving",
       })
       publishTurn(resolvingTurn)
+      const resolverHandle = startTurnResolver(turnId, {
+        abortOtherResolvers: true,
+      })
 
       const resolved = await resolveVoiceCandidate(input, currentSnapshot, {
         localResolvers,
         resolvers,
         resolverMode,
-        signal: abortController.signal,
+        signal: resolverHandle.abortController.signal,
         turnId,
       })
 
-      if (abortController.signal.aborted || resolverAbortRef.current !== abortController) {
-        const superseded = transitionTurn(resolvingTurn, {
-          type: "transition",
-          status: "superseded",
+      if (
+        !canApplyTurnAsyncResult({
+          turnId,
+          kind: "resolver",
+          generation: resolverHandle.generation,
+          expectedRevision: resolvingTurn.revision,
+          signal: resolverHandle.abortController.signal,
         })
-        publishTurn(superseded, { active: false })
-        return superseded
+      ) {
+        return turnStoreRef.current.get(turnId) ?? resolvingTurn
       }
 
       const resolution = stampResolutionProvenance(resolved, currentSnapshot, {
@@ -998,17 +1123,25 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       onResolution,
       onTrace,
       applyFeedback,
+      canApplyTurnAsyncResult,
       publishTurn,
       recordEvent,
       resolverMode,
       resolvers,
+      startTurnPreview,
+      startTurnResolver,
     ]
   )
 
   const cancelTurn = React.useCallback(
     (turnId: string, reason = "cancelled") => {
-      const turn = turnsRef.current.get(turnId)
+      abortTurnRuntimeHandle(turnId)
+      const turn = turnStoreRef.current.get(turnId)
       if (!turn || isTerminalTurnStatus(turn.status)) return
+
+      if (["validating", "executing", "verifying"].includes(turn.status)) {
+        return
+      }
 
       try {
         publishTurn(
@@ -1026,12 +1159,12 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         // Ignore cancellation for states that can no longer transition.
       }
     },
-    [publishTurn]
+    [abortTurnRuntimeHandle, publishTurn]
   )
 
   const publishDispatchResultTurn = React.useCallback(
     (turnId: string, result: DispatchResult) => {
-      const turn = turnsRef.current.get(turnId)
+      const turn = turnStoreRef.current.get(turnId)
       if (!turn || isTerminalTurnStatus(turn.status)) return
 
       try {
@@ -1116,7 +1249,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
   const publishPendingConfirmationTurn = React.useCallback(
     (turnId: string, command: CommandEnvelope, result: DispatchResult) => {
-      const turn = turnsRef.current.get(turnId)
+      const turn = turnStoreRef.current.get(turnId)
       if (!turn || isTerminalTurnStatus(turn.status)) return
 
       try {
@@ -1143,7 +1276,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
   const publishDispatchPhaseTurn = React.useCallback(
     (turnId: string, phase: DispatchPhaseEvent) => {
-      const turn = turnsRef.current.get(turnId)
+      const turn = turnStoreRef.current.get(turnId)
       if (!turn || isTerminalTurnStatus(turn.status)) return
 
       try {
@@ -1197,7 +1330,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       resolution: ResolvedInteraction,
       provenance: ResolutionProvenance
     ) => {
-      if (turnsRef.current.has(provenance.turnId)) return
+      if (turnStoreRef.current.get(provenance.turnId)) return
 
       const created = createInteractionTurn({
         id: provenance.turnId,
@@ -1323,14 +1456,43 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           const dispatchSnapshot = options.forceConfirmation
             ? withForcedDomainConfirmation(currentSnapshot, resolution.actionId)
             : currentSnapshot
+          const dispatchHandle = startTurnDispatch(provenance.turnId)
           const dispatchResult = await dispatchCommand(dispatchSnapshot, command, {
             candidate: resolution,
             utterance: resolution.utterance,
             confirmation: createLegacyConfirmationGrant(command, options.confirmedActionId),
             getSnapshot,
             conflictLock: conflictLockRef.current,
-            onPhase: (phase) => publishDispatchPhaseTurn(provenance.turnId, phase),
+            signal: dispatchHandle.abortController.signal,
+            onPhase: (phase) => {
+              if (
+                canApplyTurnAsyncResult({
+                  turnId: provenance.turnId,
+                  kind: "dispatch",
+                  generation: dispatchHandle.generation,
+                  allowAbortedSignal: true,
+                })
+              ) {
+                publishDispatchPhaseTurn(provenance.turnId, phase)
+              }
+            },
           })
+          if (
+            !canApplyTurnAsyncResult({
+              turnId: provenance.turnId,
+              kind: "dispatch",
+              generation: dispatchHandle.generation,
+              allowAbortedSignal: true,
+            })
+          ) {
+            return toInteractionSubmitResult({
+              baseResult,
+              dispatchResult,
+              execution: "domain-action",
+              target,
+              action,
+            })
+          }
           if (
             dispatchResult.validation &&
             !dispatchResult.validation.ok &&
@@ -1414,9 +1576,22 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
         applyFeedback(resolution.targetId, "voice-target")
         applyFeedback(resolution.targetId, "voice-press")
+        const dispatchHandle = startTurnDispatch(provenance.turnId)
         const dispatchResult = await dispatchCommand(currentSnapshot, command, {
           conflictLock: conflictLockRef.current,
-          onPhase: (phase) => publishDispatchPhaseTurn(provenance.turnId, phase),
+          signal: dispatchHandle.abortController.signal,
+          onPhase: (phase) => {
+            if (
+              canApplyTurnAsyncResult({
+                turnId: provenance.turnId,
+                kind: "dispatch",
+                generation: dispatchHandle.generation,
+                allowAbortedSignal: true,
+              })
+            ) {
+              publishDispatchPhaseTurn(provenance.turnId, phase)
+            }
+          },
           executePrimitive: (primitiveCommand): ActionExecutionResult => {
             const element = elementByObjectId.current.get(primitiveCommand.targetId)
             if (!element) {
@@ -1429,6 +1604,22 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             return executeDomPrimitiveAction(element, primitiveCommand.primitiveAction, primitiveCommand.params)
           },
         })
+        if (
+          !canApplyTurnAsyncResult({
+            turnId: provenance.turnId,
+            kind: "dispatch",
+            generation: dispatchHandle.generation,
+            allowAbortedSignal: true,
+          })
+        ) {
+          return toInteractionSubmitResult({
+            baseResult,
+            dispatchResult,
+            pendingCommand: undefined,
+            execution: "primitive-action",
+            target,
+          })
+        }
         publishDispatchResultTurn(provenance.turnId, dispatchResult)
 
         if (dispatchResult.ok) {
@@ -1458,10 +1649,13 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     [
       applyFeedback,
       bumpVersion,
+      canApplyTurnAsyncResult,
       ensureTurnForResolution,
       getSnapshot,
+      publishDispatchPhaseTurn,
       publishDispatchResultTurn,
       publishPendingConfirmationTurn,
+      startTurnDispatch,
     ]
   )
 
@@ -1668,7 +1862,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
   const confirmTurn = React.useCallback(
     async (turnId: string): Promise<DispatchResult> => {
-      const turn = turnsRef.current.get(turnId)
+      const turn = turnStoreRef.current.get(turnId)
       const command = turn?.pendingCommand
 
       if (!turn || !command || turn.status !== "awaiting_confirmation") {
@@ -1703,11 +1897,24 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
       applyFeedback(command.targetId, "voice-target")
       applyFeedback(command.targetId, "voice-press")
+      const dispatchHandle = startTurnDispatch(turnId)
       let dispatchResult = await dispatchCommand(currentSnapshot, command, {
         confirmation,
         getSnapshot,
         conflictLock: conflictLockRef.current,
-        onPhase: (phase) => publishDispatchPhaseTurn(turnId, phase),
+        signal: dispatchHandle.abortController.signal,
+        onPhase: (phase) => {
+          if (
+            canApplyTurnAsyncResult({
+              turnId,
+              kind: "dispatch",
+              generation: dispatchHandle.generation,
+              allowAbortedSignal: true,
+            })
+          ) {
+            publishDispatchPhaseTurn(turnId, phase)
+          }
+        },
         allowIrrelevantAnchorStateDrift: canAcceptConfirmedCommandAfterIrrelevantStateDrift(
           currentSnapshot,
           command,
@@ -1730,8 +1937,18 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
                   primitiveCommand.params
                 )
               }
-            : undefined,
+              : undefined,
       })
+      if (
+        !canApplyTurnAsyncResult({
+          turnId,
+          kind: "dispatch",
+          generation: dispatchHandle.generation,
+          allowAbortedSignal: true,
+        })
+      ) {
+        return dispatchResult
+      }
       if (dispatchResult.ok) {
         applyFeedback(command.targetId, "success")
         bumpVersion()
@@ -1741,12 +1958,21 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       publishDispatchResultTurn(turnId, dispatchResult)
       return dispatchResult
     },
-    [applyFeedback, bumpVersion, getSnapshot, publishDispatchResultTurn, publishTurn]
+    [
+      applyFeedback,
+      bumpVersion,
+      canApplyTurnAsyncResult,
+      getSnapshot,
+      publishDispatchPhaseTurn,
+      publishDispatchResultTurn,
+      publishTurn,
+      startTurnDispatch,
+    ]
   )
 
   const submitTurn = React.useCallback(
     async (turnId: string): Promise<InteractionTurn> => {
-      const turn = turnsRef.current.get(turnId)
+      const turn = turnStoreRef.current.get(turnId)
       const validationError = validateTurnSubmission(turnId, turn)
       if (validationError) throw validationError
       const submittableTurn = turn as InteractionTurn & {
@@ -1780,11 +2006,24 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
       applyFeedback(command.targetId, "voice-target")
       applyFeedback(command.targetId, "voice-press")
+      const dispatchHandle = startTurnDispatch(turnId)
       const dispatchResult = await dispatchCommand(currentSnapshot, command, {
         confirmation: submittableTurn.confirmation,
         getSnapshot,
         conflictLock: conflictLockRef.current,
-        onPhase: (phase) => publishDispatchPhaseTurn(turnId, phase),
+        signal: dispatchHandle.abortController.signal,
+        onPhase: (phase) => {
+          if (
+            canApplyTurnAsyncResult({
+              turnId,
+              kind: "dispatch",
+              generation: dispatchHandle.generation,
+              allowAbortedSignal: true,
+            })
+          ) {
+            publishDispatchPhaseTurn(turnId, phase)
+          }
+        },
         executePrimitive:
           command.kind === "primitive"
             ? (primitiveCommand): ActionExecutionResult => {
@@ -1804,6 +2043,16 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
               }
             : undefined,
       })
+      if (
+        !canApplyTurnAsyncResult({
+          turnId,
+          kind: "dispatch",
+          generation: dispatchHandle.generation,
+          allowAbortedSignal: true,
+        })
+      ) {
+        return turnStoreRef.current.get(turnId) ?? submittableTurn
+      }
 
       if (
         dispatchResult.validation &&
@@ -1822,7 +2071,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         applyFeedback(command.targetId, "error")
       }
 
-      return turnsRef.current.get(turnId) ?? submittableTurn
+      return turnStoreRef.current.get(turnId) ?? submittableTurn
     },
     [
       applyFeedback,
@@ -1831,6 +2080,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       publishDispatchPhaseTurn,
       publishDispatchResultTurn,
       publishPendingConfirmationTurn,
+      canApplyTurnAsyncResult,
+      startTurnDispatch,
     ]
   )
 
@@ -1844,7 +2095,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       } catch (error) {
         return {
           ok: false,
-          turn: turnsRef.current.get(turnId),
+          turn: turnStoreRef.current.get(turnId),
           error: normalizeSubmitTurnError(error, turnId),
         }
       }
@@ -1858,7 +2109,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       if (input.kind !== "final" || turn.status !== "ready") return turn
 
       await submitTurn(turn.id)
-      return turnsRef.current.get(turn.id) ?? turn
+      return turnStoreRef.current.get(turn.id) ?? turn
     },
     [resolveVoice, submitTurn]
   )
@@ -3415,6 +3666,30 @@ function createPartialVoicePreviewTurn(
             code: resolution.status,
             message: resolution.reason ?? "Partial voice preview did not resolve.",
           },
+    revision: (previousTurn?.revision ?? 0) + 1,
+    inputRevision: (previousTurn?.inputRevision ?? 0) + 1,
+    transcriptRevisions: [
+      ...(previousTurn?.transcriptRevisions ?? []),
+      createdTurn.input,
+    ].slice(-10) as VoiceInput[],
+  }
+}
+
+function createPartialVoiceListeningTurn(
+  createdTurn: InteractionTurn,
+  previousTurn?: InteractionTurn
+): InteractionTurn {
+  const listening = transitionTurn(createdTurn, {
+    type: "transition",
+    status: "listening",
+    at: createdTurn.updatedAt,
+  })
+
+  return {
+    ...listening,
+    decision: undefined,
+    clarification: undefined,
+    error: undefined,
     revision: (previousTurn?.revision ?? 0) + 1,
     inputRevision: (previousTurn?.inputRevision ?? 0) + 1,
     transcriptRevisions: [

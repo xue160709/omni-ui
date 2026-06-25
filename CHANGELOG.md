@@ -5,6 +5,7 @@
 - Keep `submitTurn(turnId)` source-compatible while reporting invalid turn submissions with stable `OmniError` codes.
 - Add `trySubmitTurn(turnId)` for non-throwing turn submission handling.
 - Keep voice partial turns as non-submittable listening previews and record `focusout` as focus state instead of navigation.
+- Back React runtime turn storage with the core TurnStore and add per-turn resolver, preview, and dispatch cancellation guards.
 
 ## 0.3.0
 

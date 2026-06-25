@@ -20,11 +20,28 @@ import {
   type ActionContext,
   type ActionPayload,
   type ActionPostconditionContext,
+  type IntentResolver,
   type LocalInteractionRule,
   type ResolvedInteraction,
   type VoiceAdapter,
   type VoiceInput,
 } from "../src"
+
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: unknown) => void
+}
+
+function createDeferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
 
 afterEach(() => {
   cleanup()
@@ -480,6 +497,128 @@ function SubmitTurnErrorHarness() {
           entity={{ type: "task", id: "tomorrow" }}
         >
           明天开会
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function LateResolverCancellationHarness() {
+  const api = useInteractionApi()
+  const [summary, setSummary] = React.useState("")
+  const turnIdRef = React.useRef("")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+      },
+    },
+    execute: () => ({ status: "changed" }),
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          const pending = api.resolveText("slow complete")
+          turnIdRef.current = api.getActiveTurn()?.id ?? ""
+          void pending.then((resolved) => {
+            const turn = api.getTurn(turnIdRef.current)
+            setSummary(`resolved:${resolved.resolution.status}:${turn?.status}`)
+          })
+        }}
+      >
+        start slow resolver
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          api.cancelTurn(turnIdRef.current)
+          setSummary(`cancelled:${api.getTurn(turnIdRef.current)?.status}`)
+        }}
+      >
+        cancel slow resolver
+      </button>
+      <div data-testid="late-resolver-summary">{summary}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+        >
+          评审方案
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function CancelExecutingHarness({
+  execution,
+}: {
+  execution: Deferred<{ status: "changed" }>
+}) {
+  const api = useInteractionApi()
+  const [summary, setSummary] = React.useState("")
+  const turnIdRef = React.useRef("")
+  const signalRef = React.useRef<AbortSignal | undefined>()
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: (_action, context) => {
+      signalRef.current = context.signal
+      setSummary("started")
+      return execution.promise
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          const pending = api.submitUtterance("完成评审方案")
+          turnIdRef.current = api.getActiveTurn()?.id ?? ""
+          void pending.then((submitted) => {
+            setSummary(`done:${submitted.ok}:${api.getTurn(turnIdRef.current)?.status}`)
+          })
+        }}
+      >
+        start slow execution
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          api.cancelTurn(turnIdRef.current)
+          setSummary(
+            `cancel:${api.getTurn(turnIdRef.current)?.status}:${String(signalRef.current?.aborted)}`
+          )
+        }}
+      >
+        cancel slow execution
+      </button>
+      <div data-testid="cancel-executing-summary">{summary}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+          state={{ completed: false }}
+        >
+          评审方案
         </MultimodalGroup>
       </MultimodalGroup>
     </>
@@ -2011,6 +2150,71 @@ describe("MultimodalProvider", () => {
 
     expect(events).toContain("gui.focus.cleared")
     expect(events).not.toContain("gui.navigation.changed")
+  })
+
+  it("does not let late resolver results revive cancelled turns", async () => {
+    const resolverResult = createDeferred<ResolvedInteraction>()
+    const resolver: IntentResolver = {
+      id: "slow-resolver",
+      resolve: () => resolverResult.promise,
+    }
+
+    render(
+      <MultimodalProvider resolvers={[resolver]} resolverMode="llm-first">
+        <LateResolverCancellationHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "start slow resolver" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("late-resolver-summary").textContent).toBe("")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "cancel slow resolver" }))
+    expect(screen.getByTestId("late-resolver-summary").textContent).toBe("cancelled:cancelled")
+
+    resolverResult.resolve({
+      status: "resolved",
+      utterance: "slow complete",
+      intent: "complete_task",
+      targetId: "task.item.task_1",
+      actionId: "task.complete",
+      confidence: 0.95,
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId("late-resolver-summary").textContent).toBe(
+        "resolved:unsupported:cancelled"
+      )
+    })
+  })
+
+  it("aborts executing dispatches without marking ignored side effects as cancelled", async () => {
+    const execution = createDeferred<{ status: "changed" }>()
+
+    render(
+      <MultimodalProvider>
+        <CancelExecutingHarness execution={execution} />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "start slow execution" }))
+    await waitFor(() => {
+      expect(screen.getByTestId("cancel-executing-summary").textContent).toBe("started")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "cancel slow execution" }))
+    expect(screen.getByTestId("cancel-executing-summary").textContent).toBe(
+      "cancel:executing:true"
+    )
+
+    execution.resolve({ status: "changed" })
+
+    await waitFor(() => {
+      expect(screen.getByTestId("cancel-executing-summary").textContent).toBe(
+        "done:true:committed"
+      )
+    })
   })
 
   it("rejects atomic runtime batches without executing items when no transaction adapter is present", async () => {
