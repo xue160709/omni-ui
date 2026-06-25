@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  actionMatchesObject,
   buildActionPayload,
   createInteractionSnapshot,
   resolveUtterance,
@@ -79,5 +80,36 @@ describe("action registry", () => {
       ok: false,
       code: "state_changed",
     })
+  })
+
+  it("allows executeScope fallback when attachTo does not match", () => {
+    const spec: RegisteredActionSpec = {
+      id: "todo.add",
+      attachTo: { role: "composer" },
+      executeScope: "page",
+    }
+
+    expect(
+      actionMatchesObject(spec, {
+        id: "todo.composer",
+        type: "composite",
+        role: "composer",
+      })
+    ).toBe(true)
+    expect(
+      actionMatchesObject(spec, {
+        id: "page.todos",
+        type: "page",
+        role: "page",
+      })
+    ).toBe(true)
+    expect(
+      actionMatchesObject(spec, {
+        id: "todo.item.todo_1",
+        type: "composite",
+        role: "list_item",
+        entity: { type: "todo", id: "todo_1" },
+      })
+    ).toBe(false)
   })
 })

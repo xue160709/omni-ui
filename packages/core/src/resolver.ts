@@ -23,6 +23,12 @@ const ordinalWords: Record<string, number> = {
   十: 10,
 }
 
+export type ObjectMatch = {
+  object: InteractionObject
+  confidence: number
+  reason: "exact_label" | "exact_alias" | "text_contains" | "ordinal" | "deictic" | "select_option"
+}
+
 export function resolveUtterance(
   utterance: string,
   snapshot: InteractionSnapshot
@@ -43,8 +49,30 @@ export async function resolveWithResolvers(
   resolvers: IntentResolver[],
   minimumConfidence = 0.8
 ): Promise<ResolvedInteraction> {
+  let bestClarification: ResolvedInteraction | undefined
+
   for (const resolver of resolvers) {
+    if (context.signal?.aborted) {
+      return {
+        status: "unsupported",
+        utterance: context.utterance,
+        confidence: 0,
+        reason: "Resolver request was aborted.",
+        resolverId: resolver.id,
+      }
+    }
+
     const rawResult = await resolver.resolve(context)
+    if (context.signal?.aborted) {
+      return {
+        status: "unsupported",
+        utterance: context.utterance,
+        confidence: 0,
+        reason: "Resolver result was superseded.",
+        resolverId: resolver.id,
+      }
+    }
+
     const candidates = Array.isArray(rawResult) ? rawResult : [rawResult]
     const resolved = candidates
       .filter((candidate) => candidate.status === "resolved")
@@ -59,12 +87,14 @@ export async function resolveWithResolvers(
 
     const clarification = candidates.find((candidate) => candidate.status === "needs_clarification")
     if (clarification) {
-      return {
+      bestClarification = {
         ...clarification,
         resolverId: clarification.resolverId ?? resolver.id,
       }
     }
   }
+
+  if (bestClarification) return bestClarification
 
   return {
     status: "not_found",
@@ -88,6 +118,7 @@ function resolveWithRules({
   const ordinal = extractOrdinal(text)
   const targetByOrdinal = ordinal ? findObjectByOrdinal(snapshot, ordinal) : undefined
   const targetText = ordinal ? "" : extractTargetText(text, intent)
+  const deictic = isDeicticReference(text, targetText)
 
   const selectTarget =
     intent === "select"
@@ -95,13 +126,22 @@ function resolveWithRules({
         ? findSelectableControl(snapshot)
         : findSelectableControlByOption(snapshot, targetText)
       : undefined
-  const target =
-    targetByOrdinal ??
-    selectTarget ??
-    findObjectBySpokenText(snapshot, targetText) ??
-    findObjectBySpokenText(snapshot, text)
 
-  if (!target) {
+  const targetMatches = targetByOrdinal
+    ? [createObjectMatch(targetByOrdinal, 0.88, "ordinal")]
+    : selectTarget
+      ? [createObjectMatch(selectTarget, 0.84, "select_option")]
+      : deictic
+        ? findDeicticObject(snapshot, intent).map((object) => createObjectMatch(object, 0.86, "deictic"))
+        : findObjectsBySpokenText(snapshot, targetText)
+
+  const matches = targetMatches.length
+    ? targetMatches
+    : deictic
+      ? []
+      : findObjectsBySpokenText(snapshot, text)
+
+  if (!matches.length) {
     return {
       status: "not_found",
       utterance,
@@ -111,25 +151,53 @@ function resolveWithRules({
     }
   }
 
-  const action = chooseAction(target, intent, { ordinal, targetText })
-  if (!action) {
+  const actionableMatches = matches
+    .map((match) => ({
+      match,
+      action: chooseAction(match.object, intent, { ordinal, targetText }),
+    }))
+    .filter((candidate): candidate is {
+      match: ObjectMatch
+      action: NonNullable<ReturnType<typeof chooseAction>>
+    } => Boolean(candidate.action))
+
+  if (!actionableMatches.length) {
     return {
       status: "not_found",
       utterance,
       intent,
-      targetId: target.id,
+      targetId: matches[0]?.object.id,
       confidence: 0.3,
       reason: "目标对象当前没有可执行动作",
     }
   }
 
+  if (!ordinal && !deictic && actionableMatches.length > 1) {
+    return {
+      status: "needs_clarification",
+      utterance,
+      intent,
+      confidence: actionableMatches[0]?.match.confidence ?? 0.6,
+      reason: "存在多个匹配目标，请进一步说明",
+      targetCandidates: actionableMatches.slice(0, 5).map(({ match }) => ({
+        id: match.object.id,
+        confidence: match.confidence,
+        reason: match.reason,
+      })),
+      resolverId: "rule",
+    }
+  }
+
+  const { match, action } = actionableMatches[0]
+
   return {
     status: "resolved",
     utterance,
     intent,
-    targetId: target.id,
+    targetId: match.object.id,
     ...action,
-    confidence: ordinal ? 0.88 : 0.78,
+    confidence: match.confidence,
+    reason: match.reason,
     resolverId: "rule",
   }
 }
@@ -187,24 +255,41 @@ export function findObjectBySpokenText(
   snapshot: InteractionSnapshot,
   text: string
 ): InteractionObject | undefined {
+  const matches = findObjectsBySpokenText(snapshot, text)
+  return matches.length === 1 ? matches[0]?.object : undefined
+}
+
+export function findObjectsBySpokenText(
+  snapshot: InteractionSnapshot,
+  text: string
+): ObjectMatch[] {
   const query = normalizeSpeech(text)
-  if (!query) return undefined
+  if (!query) return []
 
   const objects = snapshot.visibleObjects.filter((object) => object.type !== "page")
 
   // 中文：先做精确命中，再做包含关系命中，减少短词误匹配。
   // English: Exact matches run before containment matches to reduce false positives from short phrases.
-  return (
-    objects.find((object) =>
-      getSpokenNames(object).some((name) => normalizeSpeech(name) === query)
-    ) ??
-    objects.find((object) =>
-      getSpokenNames(object).some((name) => {
+  const exact = objects
+    .map((object) => {
+      const names = getSpokenNames(object)
+      const index = names.findIndex((name) => normalizeSpeech(name) === query)
+      if (index < 0) return undefined
+      return createObjectMatch(object, 0.78, index === 0 ? "exact_label" : "exact_alias")
+    })
+    .filter((match): match is ObjectMatch => Boolean(match))
+
+  if (exact.length) return exact
+
+  return objects
+    .map((object) => {
+      const matched = getSpokenNames(object).some((name) => {
         const normalized = normalizeSpeech(name)
         return normalized.includes(query) || query.includes(normalized)
       })
-    )
-  )
+      return matched ? createObjectMatch(object, 0.52, "text_contains") : undefined
+    })
+    .filter((match): match is ObjectMatch => Boolean(match))
 }
 
 function findSelectableControl(snapshot: InteractionSnapshot): InteractionObject | undefined {
@@ -325,6 +410,99 @@ function cleanupTargetText(value: string | undefined): string | undefined {
     .replace(/(这个|那个|这项|那项|该项|此项)$/g, "")
     .trim()
   return cleaned || undefined
+}
+
+function createObjectMatch(
+  object: InteractionObject,
+  confidence: number,
+  reason: ObjectMatch["reason"]
+): ObjectMatch {
+  return {
+    object,
+    confidence,
+    reason,
+  }
+}
+
+function isDeicticReference(text: string, targetText: string): boolean {
+  if (!/(这个|那个|它|这项|那项|该项|此项|这里|那里)/.test(text)) return false
+  if (targetText && targetText !== text && normalizeSpeech(removeDeicticWords(targetText))) return false
+
+  const remainder = normalizeSpeech(text)
+    .replace(/^(帮我|请|麻烦|把|将|给我)+/, "")
+    .replace(/(完成|标记完成|勾选|取消完成|取消勾选|删除|移除|删掉|点击|点一下|点|按一下|按|打开|开启|关闭|关掉|选择|切到|切换|只看|显示|调高|增大|加大|调低|减小|降低|确认|确定|取消)/g, "")
+    .replace(/(这个|那个|它|这项|那项|该项|此项|这里|那里)/g, "")
+
+  return remainder.length === 0
+}
+
+function removeDeicticWords(value: string): string {
+  return value.replace(/(这个|那个|它|这项|那项|该项|此项|这里|那里)/g, "")
+}
+
+function findDeicticObject(
+  snapshot: InteractionSnapshot,
+  intent: string
+): InteractionObject[] {
+  const ids = [
+    ...snapshot.unifiedFocus.selectedObjectIds,
+    snapshot.unifiedFocus.semanticFocus?.objectId,
+    ...snapshot.unifiedFocus.recentTargets.map((target) => target.objectId),
+    snapshot.unifiedFocus.inputFocus?.objectId,
+  ].filter((id): id is string => Boolean(id))
+
+  const seen = new Set<string>()
+  const targets = ids
+    .map((id) => resolveFocusableBusinessObject(snapshot.visibleObjects, id, intent))
+    .filter((object): object is InteractionObject => Boolean(object))
+    .filter((object) => {
+      if (seen.has(object.id)) return false
+      seen.add(object.id)
+      return true
+    })
+
+  return targets
+}
+
+function resolveFocusableBusinessObject(
+  objects: InteractionObject[],
+  objectId: string,
+  intent: string
+): InteractionObject | undefined {
+  const object = objects.find((candidate) => candidate.id === objectId)
+  if (!object) return undefined
+  if (object.type !== "raw" || isEditIntent(intent)) return object
+
+  const parent = findSemanticParent(objects, object)
+  if (parent) return parent
+
+  return objects.find((candidate) =>
+    candidate.type !== "raw" &&
+    candidate.type !== "page" &&
+    (candidate.primaryControl === object.id || candidate.children?.includes(object.id))
+  ) ?? object
+}
+
+function findSemanticParent(
+  objects: InteractionObject[],
+  object: InteractionObject
+): InteractionObject | undefined {
+  const seen = new Set<string>()
+  let current = object
+
+  while (current.parent && !seen.has(current.parent)) {
+    seen.add(current.parent)
+    const parent = objects.find((candidate) => candidate.id === current.parent)
+    if (!parent) return undefined
+    if (parent.type !== "raw" && parent.type !== "page") return parent
+    current = parent
+  }
+
+  return undefined
+}
+
+function isEditIntent(intent: string): boolean {
+  return ["select", "increase", "decrease"].includes(intent)
 }
 
 function chooseAction(

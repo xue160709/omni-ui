@@ -1,10 +1,12 @@
 import { attachDomainActions } from "./action-registry"
+import { createUnifiedFocus, deriveActiveContext, projectLegacyFocus, type UnifiedFocus } from "./focus"
 import {
   createLlmManifestContext,
   createManifestObjects,
   type AppInteractionManifest,
   type LlmInteractionManifest,
 } from "./manifest"
+import { projectSnapshotForModel, redactInteractionState } from "./privacy"
 import type {
   ContextObject,
   EntityRef,
@@ -32,6 +34,10 @@ export type CreateSnapshotInput = {
   contextStack?: ContextObject[]
   visibleObjects: InteractionObject[]
   focus?: FocusInfo
+  unifiedFocus?: UnifiedFocus
+  focusRevision?: number
+  eventSequence?: number
+  contextHash?: string
   recentEvents?: InteractionEvent[]
   actionSpecs?: Record<string, RegisteredActionSpec>
   session?: InteractionSnapshot["session"]
@@ -40,6 +46,9 @@ export type CreateSnapshotInput = {
 export type LlmSnapshotContextOptions = {
   maxObjects?: number
   includeRecentEvents?: boolean
+  allowedActionIds?: string[]
+  enforceModelCallable?: boolean
+  includePrimitiveActions?: boolean
 }
 
 export type LlmSnapshotContextObject = {
@@ -89,25 +98,58 @@ export type LlmSnapshotContext = {
 export function createInteractionSnapshot(input: CreateSnapshotInput): InteractionSnapshot {
   const snapshotId = `snapshot_${++snapshotCounter}`
   const actionSpecs = input.actionSpecs ?? {}
+  const contextStack =
+    input.contextStack ??
+    (input.page
+      ? [
+          {
+            type: "page" as const,
+            id: input.page.id,
+            title: input.page.title,
+          },
+        ]
+      : [])
+  const unifiedFocus =
+    input.unifiedFocus ??
+    createUnifiedFocus({
+      activeContext: deriveActiveContext(contextStack),
+      inputFocus: input.focus
+        ? {
+            objectId: input.focus.objectId,
+            source:
+              input.focus.source === "voice" || input.focus.source === "gui"
+                ? input.focus.source
+                : "programmatic",
+            confidence: input.focus.confidence ?? 1,
+            timestamp: Date.now(),
+          }
+        : undefined,
+      revision: input.focusRevision ?? 0,
+    })
+  const recentEvents = input.recentEvents ?? []
+  const focusRevision = input.focusRevision ?? unifiedFocus.revision
+  const eventSequence =
+    input.eventSequence ??
+    recentEvents.reduce((max, event) => Math.max(max, event.sequence ?? 0), 0)
   const base = {
     snapshotId,
     stateVersion: input.stateVersion,
+    contextHash:
+      input.contextHash ??
+      createSnapshotContextHash({
+        contextStack,
+        pageId: input.page?.id,
+        activeContextId: unifiedFocus.activeContext?.id,
+      }),
+    focusRevision,
+    eventSequence,
     session: input.session,
-    contextStack:
-      input.contextStack ??
-      (input.page
-        ? [
-            {
-              type: "page" as const,
-              id: input.page.id,
-              title: input.page.title,
-            },
-          ]
-        : []),
+    contextStack,
     page: input.page,
     manifest: input.manifest,
-    focus: input.focus,
-    recentEvents: input.recentEvents ?? [],
+    focus: input.focus ?? projectLegacyFocus(unifiedFocus),
+    unifiedFocus,
+    recentEvents,
     actionSpecs,
   }
 
@@ -158,23 +200,30 @@ export function createLlmSnapshotContext(
   // 中文：限制对象数量可以让 prompt 稳定可控，同时显式告诉模型还有多少对象被省略。
   // English: Limiting object count keeps prompts bounded while explicitly reporting how many objects were omitted.
   const maxObjects = Math.max(0, options.maxObjects ?? 80)
-  const visibleObjects = snapshot.visibleObjects.slice(0, maxObjects).map(summarizeObjectForLlm)
-  const pageObject = snapshot.page
-    ? snapshot.visibleObjects.find((object) => object.id === snapshot.page?.id) ?? snapshot.page
+  const projected = projectSnapshotForModel(snapshot, {
+    maxObjects,
+    includeRecentEvents: options.includeRecentEvents,
+    includePrimitiveActions: options.includePrimitiveActions,
+    allowedActionIds: options.allowedActionIds,
+    enforceModelCallable: options.enforceModelCallable ?? false,
+  })
+  const visibleObjects = projected.visibleObjects.map(summarizeObjectForLlm)
+  const pageObject = projected.page
+    ? projected.visibleObjects.find((object) => object.id === projected.page?.id) ?? projected.page
     : undefined
 
   return {
-    snapshotId: snapshot.snapshotId,
-    stateVersion: snapshot.stateVersion,
-    session: snapshot.session,
-    contextStack: snapshot.contextStack,
+    snapshotId: projected.snapshotId,
+    stateVersion: projected.stateVersion,
+    session: projected.session,
+    contextStack: projected.contextStack,
     page: pageObject ? summarizeObjectForLlm(pageObject) : undefined,
-    focus: snapshot.focus,
-    recentEvents: options.includeRecentEvents ? snapshot.recentEvents : undefined,
+    focus: projected.focus,
+    recentEvents: options.includeRecentEvents ? projected.recentEvents : undefined,
     visibleObjects,
     objectCount: snapshot.visibleObjects.length,
     omittedObjectCount: Math.max(0, snapshot.visibleObjects.length - visibleObjects.length),
-    actions: Object.values(snapshot.actionSpecs).map((spec) => ({
+    actions: Object.values(projected.actionSpecs).map((spec) => ({
       id: spec.id,
       namespace: spec.namespace,
       attachTo: spec.attachTo,
@@ -182,7 +231,7 @@ export function createLlmSnapshotContext(
       risk: spec.risk,
       requiresConfirmation: spec.requiresConfirmation,
     })),
-    manifest: createLlmManifestContext(snapshot.manifest),
+    manifest: createLlmManifestContext(projected.manifest),
   }
 }
 
@@ -209,11 +258,21 @@ function summarizeObjectForLlm(object: InteractionObject): LlmSnapshotContextObj
     children: object.children,
     primaryControl: object.primaryControl,
     entity: object.entity,
-    state: sanitizeJsonValue(object.state) as InteractionState | undefined,
+    state: redactInteractionState(object.state) as InteractionState | undefined,
     actions: object.actions,
     primitiveActions: object.actions?.length ? undefined : object.primitiveActions,
     options: object.options,
   }
+}
+
+function createSnapshotContextHash(value: unknown): string {
+  const encoded = JSON.stringify(value)
+  let hash = 2166136261
+  for (let index = 0; index < encoded.length; index += 1) {
+    hash ^= encoded.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0).toString(36)
 }
 
 function sanitizeJsonValue(value: unknown, seen = new WeakSet<object>()): unknown {

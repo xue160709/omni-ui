@@ -102,7 +102,7 @@ export function createLlmResolver(options: CreateLlmResolverOptions): IntentReso
           schema: LLM_RESOLVER_SCHEMA,
         })
         const candidate = normalizeLlmOutput(output, utterance, options.id ?? "llm")
-        return candidate
+        return validateLlmResolutionAgainstSnapshot(candidate, snapshot)
       } catch (error) {
         return {
           status: "unsupported",
@@ -251,12 +251,80 @@ export function normalizeLlmOutput(
     targetId: typeof record.targetId === "string" ? record.targetId : targetCandidates?.[0]?.id,
     targetCandidates,
     actionId: typeof record.actionId === "string" ? record.actionId : undefined,
-    primitiveAction: typeof record.primitiveAction === "string" ? record.primitiveAction : undefined,
+    primitiveAction: typeof record.primitiveAction === "string"
+      ? (record.primitiveAction as ResolvedInteraction["primitiveAction"])
+      : undefined,
     params: isRecord(record.params) ? record.params : undefined,
     confidence,
     reason: typeof record.reason === "string" ? record.reason : undefined,
     resolverId,
   }
+}
+
+export function validateLlmResolutionAgainstSnapshot(
+  resolution: ResolvedInteraction,
+  snapshot: InteractionSnapshot
+): ResolvedInteraction {
+  if (resolution.status !== "resolved") return resolution
+
+  const target = resolution.targetId
+    ? snapshot.visibleObjects.find((object) => object.id === resolution.targetId)
+    : undefined
+
+  if (!target) {
+    return {
+      status: "unsupported",
+      utterance: resolution.utterance,
+      intent: resolution.intent,
+      confidence: 0,
+      reason: "LLM resolver referenced a targetId that is not present in the snapshot.",
+      resolverId: resolution.resolverId,
+    }
+  }
+
+  if (resolution.actionId) {
+    const knownAction =
+      Boolean(snapshot.actionSpecs[resolution.actionId]) ||
+      Boolean(target.actions?.includes(resolution.actionId))
+
+    if (!knownAction) {
+      return {
+        status: "unsupported",
+        utterance: resolution.utterance,
+        intent: resolution.intent,
+        targetId: target.id,
+        confidence: 0,
+        reason: "LLM resolver referenced an actionId that is not available on the target.",
+        resolverId: resolution.resolverId,
+      }
+    }
+  }
+
+  if (resolution.primitiveAction && !target.primitiveActions?.includes(resolution.primitiveAction)) {
+    return {
+      status: "unsupported",
+      utterance: resolution.utterance,
+      intent: resolution.intent,
+      targetId: target.id,
+      confidence: 0,
+      reason: "LLM resolver referenced a primitiveAction that is not available on the target.",
+      resolverId: resolution.resolverId,
+    }
+  }
+
+  if (!resolution.actionId && !resolution.primitiveAction) {
+    return {
+      status: "unsupported",
+      utterance: resolution.utterance,
+      intent: resolution.intent,
+      targetId: target.id,
+      confidence: 0,
+      reason: "LLM resolver did not provide an executable action.",
+      resolverId: resolution.resolverId,
+    }
+  }
+
+  return resolution
 }
 
 function resolveOpenAIConfig(options: CreateOpenAIResolverOptions) {

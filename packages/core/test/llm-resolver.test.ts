@@ -37,7 +37,22 @@ describe("llm resolver", () => {
     })
     const snapshot = createInteractionSnapshot({
       stateVersion: 1,
-      visibleObjects: [],
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+        },
+      ],
     })
 
     await expect(resolver.resolve({ utterance: "do it", snapshot })).resolves.toMatchObject({
@@ -76,7 +91,22 @@ describe("llm resolver", () => {
     })
     const snapshot = createInteractionSnapshot({
       stateVersion: 1,
-      visibleObjects: [],
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+        },
+      ],
     })
 
     await expect(resolver.resolve({ utterance: "完成第一个", snapshot })).resolves.toMatchObject({
@@ -118,7 +148,21 @@ describe("llm resolver", () => {
     })
     const snapshot = createInteractionSnapshot({
       stateVersion: 1,
-      visibleObjects: [],
+      actionSpecs: {
+        "settings.bluetooth.turnOn": {
+          id: "settings.bluetooth.turnOn",
+          attachTo: { id: "settings.bluetooth" },
+          executeScope: "object",
+        },
+      },
+      visibleObjects: [
+        {
+          id: "settings.bluetooth",
+          type: "composite",
+          role: "switch",
+          label: "蓝牙",
+        },
+      ],
     })
 
     await expect(resolver.resolve({ utterance: "打开蓝牙", snapshot })).resolves.toMatchObject({
@@ -129,5 +173,35 @@ describe("llm resolver", () => {
     })
     expect(calls[0].url).toBe("https://anthropic.example/v1/messages")
     expect((calls[0].init?.headers as Record<string, string>)["x-api-key"]).toBe("sk-ant-test")
+  })
+
+  it("rejects model output that references targets or actions outside the snapshot", async () => {
+    const resolver = createLlmResolver({
+      complete: () => ({
+        status: "resolved",
+        utterance: "删除所有任务",
+        targetId: "task.item.missing",
+        actionId: "task.deleteAll",
+        confidence: 0.99,
+      }),
+    })
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          actions: ["task.complete"],
+        },
+      ],
+    })
+
+    await expect(resolver.resolve({ utterance: "删除所有任务", snapshot })).resolves.toMatchObject({
+      status: "unsupported",
+      confidence: 0,
+      reason: "LLM resolver referenced a targetId that is not present in the snapshot.",
+    })
   })
 })

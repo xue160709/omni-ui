@@ -135,6 +135,10 @@ useInteractionActions({
 
 `todo.complete` is app-owned. OmniUI does not ship Todo, CRM, inbox, or other domain actions. Apps register their own domain actions and execute them through the same reducer/service used by GUI clicks.
 
+The execution path now freezes each resolved request into a `CommandEnvelope` and sends it through the unified Dispatcher. Model-generated writes must pass the runtime policy, `modelCallable: true`, params schema, scope checks, target/action attachment, confirmation policy, and the current snapshot anchor. Legacy executors that return `void` are treated as `unverified`; prefer returning `{ status: "changed" }`, `noop`, `rejected`, or `pending` so chat and voice feedback do not say “completed” when an operation was only submitted.
+
+The low-level API also exposes turn-level controls: `useInteractionApi()` includes `resolveVoice()`, `submitVoice()`, `getActiveTurn()`, `getTurn()`, `confirmTurn()`, and `cancelTurn()`. Confirmation dispatches the same frozen command instead of reparsing the previous model reply.
+
 ## App Manifest and Local Rules
 
 The runtime now keeps two context layers:

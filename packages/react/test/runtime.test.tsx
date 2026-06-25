@@ -35,6 +35,7 @@ function TaskHarness() {
       "task.complete": {
         attachTo: { entityType: "task" },
         executeScope: "object" as const,
+        modelCallable: true,
         paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
       },
@@ -83,6 +84,7 @@ function DynamicTaskHarness() {
       "task.complete": {
         attachTo: { entityType: "task" },
         executeScope: "object" as const,
+        modelCallable: true,
         paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
       },
@@ -149,6 +151,7 @@ function LlmTaskHarness() {
       "task.complete": {
         attachTo: { entityType: "task" },
         executeScope: "object" as const,
+        modelCallable: true,
         paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
       },
@@ -198,6 +201,7 @@ function BluetoothHarness() {
       "settings.bluetooth.turnOn": {
         attachTo: { id: "settings.bluetooth" },
         executeScope: "object",
+        modelCallable: true,
         availableWhen: () => !enabled,
       },
     },
@@ -261,8 +265,8 @@ function IgnoredMutationHarness() {
 function ControlledInputHarness() {
   const snapshot = useInteractionSnapshot()
   const [value, setValue] = React.useState("")
-  const snapshotValue =
-    snapshot.visibleObjects.find((object) => object.label === "Task title")?.state?.value ?? ""
+  const inputState = snapshot.visibleObjects.find((object) => object.label === "Task title")?.state
+  const snapshotValue = `${String(inputState?.hasValue ?? false)}:${String(inputState?.length ?? 0)}`
 
   return (
     <>
@@ -323,6 +327,141 @@ function ApiHarness() {
           label="评审方案"
           entity={{ type: "task", id: "task_1" }}
           state={{ completed: false }}
+        >
+          <span>评审方案</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function ConfirmTurnHarness() {
+  const api = useInteractionApi()
+  const [deleted, setDeleted] = React.useState(false)
+  const [result, setResult] = React.useState("")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.delete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        confirmation: { required: true },
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: () => {
+      setDeleted(true)
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const resolved = await api.resolveText("删除第一个")
+          const submitted = await api.dispatchResolution(resolved.resolution, {
+            baseStateVersion: resolved.snapshot.stateVersion,
+          })
+          const validationCode =
+            submitted.validation && !submitted.validation.ok
+              ? submitted.validation.code
+              : "none"
+          const pendingTurnId = submitted.pendingCommand?.turnId
+          const activeBeforeConfirm = api.getActiveTurn()?.status
+          const confirmed = pendingTurnId
+            ? await api.confirmTurn(pendingTurnId)
+            : undefined
+          setResult(
+            `${submitted.ok}:${validationCode}:${activeBeforeConfirm}:${confirmed?.ok}:${confirmed?.status}`
+          )
+        }}
+      >
+        confirm api
+      </button>
+      <div data-testid="confirm-result">{result}</div>
+      <div data-testid="confirm-deleted">{String(deleted)}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+        >
+          <span>评审方案</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function ConfirmationInvalidationHarness() {
+  const api = useInteractionApi()
+  const [deleted, setDeleted] = React.useState(false)
+  const [pendingTurnId, setPendingTurnId] = React.useState("")
+  const [result, setResult] = React.useState("")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.delete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        confirmation: { required: true },
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: () => {
+      setDeleted(true)
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const resolved = await api.resolveText("删除第一个")
+          const submitted = await api.dispatchResolution(resolved.resolution, {
+            baseStateVersion: resolved.snapshot.stateVersion,
+          })
+          setPendingTurnId(submitted.pendingCommand?.turnId ?? "")
+          const validationCode =
+            submitted.validation && !submitted.validation.ok
+              ? submitted.validation.code
+              : "none"
+          setResult(`prepared:${validationCode}`)
+        }}
+      >
+        prepare invalidated delete
+      </button>
+      <button
+        type="button"
+        disabled={!pendingTurnId}
+        onClick={async () => {
+          api.invalidateSnapshot("test invalidation before confirmation")
+          await new Promise((resolve) => setTimeout(resolve, 0))
+          const confirmed = await api.confirmTurn(pendingTurnId)
+          const validationCode =
+            confirmed.validation && !confirmed.validation.ok
+              ? confirmed.validation.code
+              : confirmed.error?.code ?? "none"
+          setResult(`confirmed:${confirmed.ok}:${validationCode}`)
+        }}
+      >
+        confirm invalidated delete
+      </button>
+      <div data-testid="invalidation-result">{result}</div>
+      <div data-testid="invalidation-deleted">{String(deleted)}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
         >
           <span>评审方案</span>
         </MultimodalGroup>
@@ -630,7 +769,15 @@ function ModelActionPolicyHarness() {
 }
 
 function ModelRiskPolicyHarness() {
-  const assistant = useInteractionAssistant()
+  const assistant = useInteractionAssistant({
+    modelActionPolicy: {
+      mode: "allowlist",
+      actionIds: ["task.delete"],
+      allowDomainActions: true,
+      allowPrimitiveActions: false,
+      requireConfirmationForRisk: ["medium", "high"],
+    },
+  })
   const [reply, setReply] = React.useState("")
   const [executed, setExecuted] = React.useState("none")
 
@@ -641,6 +788,7 @@ function ModelRiskPolicyHarness() {
         attachTo: { entityType: "task" },
         executeScope: "object",
         risk: "medium",
+        modelCallable: true,
       },
     },
     execute: (action) => setExecuted(action.type),
@@ -699,12 +847,16 @@ function ModelMissingTargetHarness() {
       "task.create": {
         attachTo: { id: "task.composer" },
         executeScope: "page",
+        modelCallable: true,
         paramsFrom: ({ candidate }: ActionContext) => ({
           title: String(candidate?.params?.title ?? ""),
         }),
       },
     },
-    execute: (action) => setExecuted(`${action.type}:${action.title ?? ""}`),
+    execute: (action) => {
+      setExecuted(`${action.type}:${action.title ?? ""}`)
+      return { status: "changed" }
+    },
   })
 
   return (
@@ -734,6 +886,272 @@ function ModelMissingTargetHarness() {
       <div data-testid="model-missing-target-executed">{executed}</div>
       <MultimodalGroup id="task.composer" role="composer" label="新建任务">
         <input aria-label="任务标题" />
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function ModelBatchPreflightHarness() {
+  const assistant = useInteractionAssistant({
+    modelActionPolicy: {
+      mode: "allowlist",
+      actionIds: ["task.complete"],
+      allowDomainActions: true,
+      allowPrimitiveActions: false,
+    },
+  })
+  const [reply, setReply] = React.useState("")
+  const [executed, setExecuted] = React.useState("none")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        modelCallable: true,
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: (action) => {
+      setExecuted(String(action.taskId))
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const result = await assistant.trySubmitModelReply(
+            JSON.stringify({
+              type: "interaction_actions",
+              resolutions: [
+                {
+                  status: "resolved",
+                  utterance: "完成全部任务",
+                  targetId: "task.item.task_1",
+                  actionId: "task.complete",
+                  confidence: 0.92,
+                },
+                {
+                  status: "resolved",
+                  utterance: "完成全部任务",
+                  targetId: "task.item.missing",
+                  actionId: "task.complete",
+                  confidence: 0.92,
+                },
+              ],
+            }),
+            "完成全部任务"
+          )
+          setReply(`${result.handled}:${result.result?.executed}:${result.reply?.content ?? ""}`)
+        }}
+      >
+        model batch invalid
+      </button>
+      <div data-testid="model-batch-reply">{reply}</div>
+      <div data-testid="model-batch-executed">{executed}</div>
+      <MultimodalGroup
+        id="task.item.task_1"
+        role="list_item"
+        label="评审方案"
+        entity={{ type: "task", id: "task_1" }}
+      >
+        <span>评审方案</span>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function DuplicateGroupHarness() {
+  const snapshot = useInteractionSnapshot()
+  const duplicateGroup = snapshot.visibleObjects
+    .filter((object) => object.id === "dup.group")
+    .map((object) => `${object.label}:${object.source}`)
+    .join("|")
+
+  return (
+    <>
+      <div data-testid="duplicate-group">{duplicateGroup}</div>
+      <MultimodalGroup id="dup.group" role="panel" label="First">
+        <span>First body</span>
+      </MultimodalGroup>
+      <MultimodalGroup id="dup.group" role="panel" label="Second">
+        <span>Second body</span>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function SameLabelClarificationHarness() {
+  const submitUtterance = useSubmitUtterance()
+  const [completed, setCompleted] = React.useState<Record<string, boolean>>({
+    today: false,
+    tomorrow: false,
+  })
+  const [result, setResult] = React.useState("")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: (action) => {
+      setCompleted((current) => ({
+        ...current,
+        [String(action.taskId)]: true,
+      }))
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const submitted = await submitUtterance("完成开会")
+          setResult(`${submitted.resolution.status}:${submitted.executed ?? false}`)
+        }}
+      >
+        voice same label
+      </button>
+      <div data-testid="same-label-result">{result}</div>
+      <div data-testid="same-label-state">{`${completed.today}:${completed.tomorrow}`}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.today"
+          role="list_item"
+          label="开会"
+          entity={{ type: "task", id: "today" }}
+          state={{ completed: completed.today }}
+        >
+          <span>开会</span>
+        </MultimodalGroup>
+        <MultimodalGroup
+          id="task.item.tomorrow"
+          role="list_item"
+          label="开会"
+          entity={{ type: "task", id: "tomorrow" }}
+          state={{ completed: completed.tomorrow }}
+        >
+          <span>开会</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function DeicticFocusHarness() {
+  const snapshot = useInteractionSnapshot()
+  const submitUtterance = useSubmitUtterance()
+  const [completed, setCompleted] = React.useState<Record<string, boolean>>({
+    today: false,
+    tomorrow: false,
+  })
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: (action) => {
+      setCompleted((current) => ({
+        ...current,
+        [String(action.taskId)]: true,
+      }))
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button type="button" onClick={() => void submitUtterance("完成这个")}>
+        voice this item
+      </button>
+      <div data-testid="deictic-focus">{snapshot.unifiedFocus.semanticFocus?.objectId ?? "none"}</div>
+      <div data-testid="deictic-state">{`${completed.today}:${completed.tomorrow}`}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.today"
+          role="list_item"
+          label="开会"
+          entity={{ type: "task", id: "today" }}
+          state={{ completed: completed.today }}
+        >
+          <span data-testid="today-label">开会</span>
+        </MultimodalGroup>
+        <MultimodalGroup
+          id="task.item.tomorrow"
+          role="list_item"
+          label="开会"
+          entity={{ type: "task", id: "tomorrow" }}
+          state={{ completed: completed.tomorrow }}
+        >
+          <span data-testid="tomorrow-label">开会</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function DuplicateActionHarness() {
+  const submitUtterance = useSubmitUtterance()
+  const [executed, setExecuted] = React.useState("none")
+
+  useInteractionActions({
+    namespace: "first",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+      },
+    },
+    execute: () => {
+      setExecuted("first")
+      return { status: "changed" }
+    },
+  })
+  useInteractionActions({
+    namespace: "second",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+      },
+    },
+    execute: () => {
+      setExecuted("second")
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button type="button" onClick={() => void submitUtterance("完成第一个")}>
+        voice duplicate action
+      </button>
+      <div data-testid="duplicate-action-executed">{executed}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+          state={{ completed: false }}
+        >
+          <span>评审方案</span>
+        </MultimodalGroup>
       </MultimodalGroup>
     </>
   )
@@ -947,7 +1365,7 @@ describe("MultimodalProvider", () => {
     expect(input.value).toBe("abc123")
     expect(screen.getByTestId("controlled-value").textContent).toBe("abc123")
     await waitFor(() => {
-      expect(screen.getByTestId("snapshot-value").textContent).toBe("abc123")
+      expect(screen.getByTestId("snapshot-value").textContent).toBe("true:6")
     })
   })
 
@@ -968,6 +1386,48 @@ describe("MultimodalProvider", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("api-result").textContent).toMatch(/^true:domain-action:/)
+    })
+  })
+
+  it("confirms a pending turn by dispatching the frozen command", async () => {
+    render(
+      <MultimodalProvider>
+        <ConfirmTurnHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm api" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("confirm-result").textContent).toBe(
+        "false:confirmation_required:awaiting_confirmation:true:committed"
+      )
+      expect(screen.getByTestId("confirm-deleted").textContent).toBe("true")
+    })
+  })
+
+  it("rejects a frozen confirmation command after snapshot invalidation", async () => {
+    render(
+      <MultimodalProvider>
+        <ConfirmationInvalidationHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "prepare invalidated delete" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("invalidation-result").textContent).toBe(
+        "prepared:confirmation_required"
+      )
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "confirm invalidated delete" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("invalidation-result").textContent).toBe(
+        "confirmed:false:state_changed"
+      )
+      expect(screen.getByTestId("invalidation-deleted").textContent).toBe("false")
     })
   })
 
@@ -1131,6 +1591,99 @@ describe("MultimodalProvider", () => {
       expect(screen.getByTestId("model-missing-target-executed").textContent).toBe(
         "task.create:发布说明"
       )
+    })
+  })
+
+  it("preflights model batch actions before executing any item", async () => {
+    render(
+      <MultimodalProvider>
+        <ModelBatchPreflightHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "model batch invalid" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-batch-reply").textContent).toBe(
+        "true:false:没有找到对应的操作目标"
+      )
+      expect(screen.getByTestId("model-batch-executed").textContent).toBe("none")
+    })
+  })
+
+  it("reports duplicate group registrations without replacing the active owner", async () => {
+    const registryErrors: string[] = []
+
+    render(
+      <MultimodalProvider onRegistryError={(error) => registryErrors.push(error.message)}>
+        <DuplicateGroupHarness />
+      </MultimodalProvider>
+    )
+
+    await waitFor(() => {
+      expect(registryErrors.some((message) =>
+        message.includes("Duplicate multimodal registration for group:dup.group")
+      )).toBe(true)
+      expect(screen.getByTestId("duplicate-group").textContent).toBe("First:registered_group")
+    })
+  })
+
+  it("does not execute the first same-label object when clarification is required", async () => {
+    render(
+      <MultimodalProvider>
+        <SameLabelClarificationHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "voice same label" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("same-label-result").textContent).toBe(
+        "needs_clarification:false"
+      )
+      expect(screen.getByTestId("same-label-state").textContent).toBe("false:false")
+    })
+  })
+
+  it("uses recent GUI semantic focus for deictic utterances", async () => {
+    render(
+      <MultimodalProvider>
+        <DeicticFocusHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByTestId("tomorrow-label"))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("deictic-focus").textContent).toBe("task.item.tomorrow")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "voice this item" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("deictic-state").textContent).toBe("false:true")
+    })
+  })
+
+  it("reports duplicate action ids without replacing the first executor", async () => {
+    const registryErrors: string[] = []
+
+    render(
+      <MultimodalProvider onRegistryError={(error) => registryErrors.push(error.message)}>
+        <DuplicateActionHarness />
+      </MultimodalProvider>
+    )
+
+    await waitFor(() => {
+      expect(registryErrors.some((message) =>
+        message.includes("Duplicate multimodal action registration for task.complete")
+      )).toBe(true)
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "voice duplicate action" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("duplicate-action-executed").textContent).toBe("first")
     })
   })
 })

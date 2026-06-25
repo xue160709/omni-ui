@@ -57,6 +57,7 @@ describe("assistant action policy", () => {
         attachTo: { entityType: "task" },
         executeScope: "object",
         risk: "medium",
+        modelCallable: true,
       },
     }
     const snapshot = createInteractionSnapshot({

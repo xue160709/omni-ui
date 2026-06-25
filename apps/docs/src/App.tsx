@@ -8,9 +8,11 @@ import {
   useInteractionObjects,
   useInteractionRoutes,
   type ActionContext,
+  type ActionExecutionResult,
   type ActionPayload,
   type InteractionObject,
   type LocalInteractionReplyContext,
+  type RuntimeSchema,
 } from "@omni-ui/react"
 import * as React from "react"
 import {
@@ -84,6 +86,63 @@ type TodoAction =
       due?: TodoDue
     }
   | { type: "todo.clearCompleted" }
+
+const emptyParamsSchema: RuntimeSchema<Record<string, unknown>> = {
+  safeParse(input) {
+    return isPlainRecord(input)
+      ? { success: true, data: {} }
+      : { success: false, error: "params must be an object" }
+  },
+}
+
+const todoIdParamsSchema: RuntimeSchema<Record<string, unknown>> = {
+  safeParse(input) {
+    if (!isPlainRecord(input)) return { success: false, error: "params must be an object" }
+    return typeof input.todoId === "string" && input.todoId.length > 0
+      ? { success: true, data: { todoId: input.todoId } }
+      : { success: false, error: "todoId must be a string" }
+  },
+}
+
+const todoAddParamsSchema: RuntimeSchema<Record<string, unknown>> = {
+  safeParse(input) {
+    if (!isPlainRecord(input)) return { success: false, error: "params must be an object" }
+    const title = typeof input.title === "string" ? input.title.trim() : ""
+    const due = isTodoDue(input.due) ? input.due : undefined
+    const projectId = typeof input.projectId === "string" ? input.projectId : undefined
+    return title
+      ? { success: true, data: { title, ...(projectId ? { projectId } : {}), ...(due ? { due } : {}) } }
+      : { success: false, error: "title must be a non-empty string" }
+  },
+}
+
+const todoFilterParamsSchema: RuntimeSchema<Record<string, unknown>> = {
+  safeParse(input) {
+    if (!isPlainRecord(input)) return { success: false, error: "params must be an object" }
+    return isTodoFilter(input.filter)
+      ? { success: true, data: { filter: input.filter } }
+      : { success: false, error: "filter must be a known todo filter" }
+  },
+}
+
+const todoUpdateParamsSchema: RuntimeSchema<Record<string, unknown>> = {
+  safeParse(input) {
+    if (!isPlainRecord(input)) return { success: false, error: "params must be an object" }
+    if (typeof input.todoId !== "string" || !input.todoId) {
+      return { success: false, error: "todoId must be a string" }
+    }
+
+    const data: Record<string, unknown> = { todoId: input.todoId }
+    if (typeof input.title === "string") data.title = input.title
+    if (typeof input.description === "string") data.description = input.description
+    if (typeof input.completed === "boolean") data.completed = input.completed
+    if (isTodoDue(input.due)) data.due = input.due
+
+    return Object.keys(data).length > 1
+      ? { success: true, data }
+      : { success: false, error: "todo.update needs at least one editable field" }
+  },
+}
 
 type SiliconFlowResponse = {
   choices?: Array<{
@@ -384,17 +443,23 @@ function AppRuntime() {
   })
 
   const executeTodoAction = React.useCallback(
-    (action: ActionPayload) => {
+    (action: ActionPayload): ActionExecutionResult => {
       const todoAction = action as TodoAction
 
       if (todoAction.type === "todo.filter") {
         setFilter(todoAction.filter)
-        return
+        return { status: "changed" }
       }
 
       if (todoAction.type === "todo.add") {
         const title = todoAction.title.trim()
-        if (!title) return
+        if (!title) {
+          return {
+            status: "rejected",
+            reason: "待办标题不能为空。",
+            code: "invalid_params",
+          }
+        }
         const projectId = isKnownProjectId(todoAction.projectId)
           ? todoAction.projectId
           : defaultProjectId
@@ -411,12 +476,12 @@ function AppRuntime() {
           },
           ...current,
         ])
-        return
+        return { status: "changed" }
       }
 
       if (todoAction.type === "todo.clearCompleted") {
         setTodos((current) => current.filter((todo) => !todo.completed))
-        return
+        return { status: "changed" }
       }
 
       if (todoAction.type === "todo.update") {
@@ -426,7 +491,11 @@ function AppRuntime() {
         const hasDue = isTodoDue(todoAction.due)
 
         if (!hasTitle && !hasDescription && !hasCompleted && !hasDue) {
-          throw new Error("todo.update 需要至少提供 title、description、completed 或 due。")
+          return {
+            status: "rejected",
+            reason: "todo.update 需要至少提供 title、description、completed 或 due。",
+            code: "invalid_params",
+          }
         }
 
         setTodos((current) =>
@@ -440,27 +509,27 @@ function AppRuntime() {
                   due: hasDue ? todoAction.due! : todo.due,
                 }
               : todo
-          )
+            )
         )
-        return
+        return { status: "changed" }
       }
 
       if (todoAction.type === "todo.complete") {
         setTodos((current) =>
           current.map((todo) =>
             todo.id === todoAction.todoId ? { ...todo, completed: true } : todo
-          )
+            )
         )
-        return
+        return { status: "changed" }
       }
 
       if (todoAction.type === "todo.uncomplete") {
         setTodos((current) =>
           current.map((todo) =>
             todo.id === todoAction.todoId ? { ...todo, completed: false } : todo
-          )
+            )
         )
-        return
+        return { status: "changed" }
       }
 
       if (todoAction.type === "todo.delete") {
@@ -468,6 +537,12 @@ function AppRuntime() {
         if (route.screen === "todoDetail" && route.todoId === todoAction.todoId) {
           navigate({ screen: "todos" })
         }
+        return { status: "changed" }
+      }
+
+      return {
+        status: "unsupported",
+        reason: "未知待办操作。",
       }
     },
     [navigate, route.screen, route.todoId]
@@ -476,7 +551,11 @@ function AppRuntime() {
   const todoActionSpecs = React.useMemo(
     () => ({
       "todo.add": {
+        attachTo: { role: "composer" },
         executeScope: "page" as const,
+        modelCallable: true,
+        risk: "low" as const,
+        paramsSchema: todoAddParamsSchema,
         paramsFrom: ({ target, candidate }: ActionContext) => {
           const params = candidate?.params ?? {}
           const due = inferTodoDueParam(params, candidate?.utterance)
@@ -490,24 +569,35 @@ function AppRuntime() {
       "todo.complete": {
         attachTo: { entityType: "todo" },
         executeScope: "object" as const,
+        modelCallable: true,
+        risk: "low" as const,
+        paramsSchema: todoIdParamsSchema,
         paramsFrom: ({ target }: ActionContext) => ({ todoId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
       },
       "todo.uncomplete": {
         attachTo: { entityType: "todo" },
         executeScope: "object" as const,
+        modelCallable: true,
+        risk: "low" as const,
+        paramsSchema: todoIdParamsSchema,
         paramsFrom: ({ target }: ActionContext) => ({ todoId: target.entity?.id }),
         availableWhen: ({ target }: ActionContext) => target.state?.completed === true,
       },
       "todo.delete": {
         attachTo: { entityType: "todo" },
         executeScope: "object" as const,
+        modelCallable: true,
+        paramsSchema: todoIdParamsSchema,
         paramsFrom: ({ target }: ActionContext) => ({ todoId: target.entity?.id }),
         risk: "medium" as const,
       },
       "todo.filter": {
         attachTo: { id: "todo.filters" },
         executeScope: "container" as const,
+        modelCallable: true,
+        risk: "low" as const,
+        paramsSchema: todoFilterParamsSchema,
         paramsFrom: ({ candidate }: ActionContext) => ({
           filter: candidate?.params?.filter ?? "all",
         }),
@@ -515,6 +605,9 @@ function AppRuntime() {
       "todo.update": {
         attachTo: { entityType: "todo" },
         executeScope: "object" as const,
+        modelCallable: true,
+        risk: "low" as const,
+        paramsSchema: todoUpdateParamsSchema,
         paramsFrom: ({ target, candidate }: ActionContext) => {
           const params = candidate?.params ?? {}
           const title = readStringParam(params, ["title", "name"])
@@ -540,6 +633,8 @@ function AppRuntime() {
       },
       "todo.clearCompleted": {
         executeScope: "page" as const,
+        modelCallable: true,
+        paramsSchema: emptyParamsSchema,
         risk: "medium" as const,
       },
     }),
@@ -1682,7 +1777,7 @@ function FloatingChatbot(props: {
         messages,
       }
 
-      console.log("[LLM input]", requestBody)
+      if (shouldLogLlmTraffic()) console.log("[LLM input]", requestBody)
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -1693,7 +1788,7 @@ function FloatingChatbot(props: {
       })
       const data = await parseChatResponse(response)
       const content = data.choices?.[0]?.message?.content?.trim() ?? ""
-      console.log("[LLM output]", { data, content })
+      if (shouldLogLlmTraffic()) console.log("[LLM output]", { data, content })
       return content
     },
     loadingMessage: "正在生成回复...",
@@ -1768,9 +1863,13 @@ function FloatingChatbot(props: {
         </button>
       </div>
 
-      <div className="chat-log" ref={chatLogRef} role="log" aria-live="polite">
+      <div className="chat-log" ref={chatLogRef} role="log" aria-live="polite" data-mm-ignore="true">
         {conversation.messages.map((message) => (
-          <article key={message.id} className={`chat-message chat-message-${message.role}`}>
+          <article
+            key={message.id}
+            className={`chat-message chat-message-${message.role}`}
+            data-mm-ignore="true"
+          >
             <span className="message-role">{message.role === "user" ? "你" : "Assistant"}</span>
             <p className={message.state === "error" ? "message-error" : undefined}>
               {message.content}
@@ -1780,7 +1879,12 @@ function FloatingChatbot(props: {
       </div>
 
       {conversation.pendingModelAction ? (
-        <div className="pending-confirmation" role="status" aria-live="polite">
+        <div
+          className="pending-confirmation"
+          role="status"
+          aria-live="polite"
+          data-mm-ignore="true"
+        >
           <div>
             <span className="message-role">待确认</span>
             <p>{conversation.formatPendingAction(conversation.pendingModelAction)}</p>
@@ -2266,6 +2370,14 @@ function isTodoDue(value: unknown): value is TodoDue {
   return value === "今天" || value === "明天" || value === "本周"
 }
 
+function isTodoFilter(value: unknown): value is TodoFilter {
+  return value === "all" || value === "today" || value === "active" || value === "completed"
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value))
+}
+
 function useLocalStorage(key: string, initialValue: string) {
   const [value, setValue] = React.useState(() => window.localStorage.getItem(key) ?? initialValue)
 
@@ -2290,6 +2402,10 @@ async function parseChatResponse(response: Response): Promise<SiliconFlowRespons
   }
 
   return data
+}
+
+function shouldLogLlmTraffic(): boolean {
+  return window.localStorage.getItem("omni_debug_llm") === "1"
 }
 
 function resolveChatError(data: SiliconFlowResponse): string | undefined {

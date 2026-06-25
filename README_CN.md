@@ -135,6 +135,10 @@ useInteractionActions({
 
 `todo.complete` 由应用拥有。OmniUI 不内置 Todo、CRM、inbox 或其他业务 action。应用需要注册自己的 domain actions，并通过 GUI 点击也使用的 reducer/service 执行。
 
+新的执行链路会把解析结果冻结为 `CommandEnvelope`，再统一经过 Dispatcher 校验。模型触发的写操作需要同时满足 runtime policy、`modelCallable: true`、参数 schema、scope、target/action attach、确认策略和当前 snapshot anchor。旧 executor 返回 `void` 会被视为 `unverified`；推荐 executor 显式返回 `{ status: "changed" }`、`noop`、`rejected` 或 `pending`，这样聊天和语音反馈不会把“已提交”误说成“已完成”。
+
+低层 API 也提供 turn 级能力：`useInteractionApi()` 现在包含 `resolveVoice()`、`submitVoice()`、`getActiveTurn()`、`getTurn()`、`confirmTurn()` 和 `cancelTurn()`。确认保存的是同一条不可变 command，而不是重新解析上一条模型回复。
+
 ## App Manifest 和本地规则
 
 Runtime 维护两层上下文：

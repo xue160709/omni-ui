@@ -57,9 +57,9 @@ export type InteractionAssistantApi = {
 }
 
 const defaultModelActionPolicy: ModelActionPolicy = {
-  mode: "all",
-  minConfidence: 0.7,
-  allowDomainActions: true,
+  mode: "off",
+  minConfidence: 0.82,
+  allowDomainActions: false,
   allowPrimitiveActions: false,
   requireConfirmationForRisk: ["medium", "high"],
 }
@@ -145,29 +145,41 @@ export function useInteractionAssistant(
       // English: Model replies may contain one action, a batch of actions, or a plain message; only actions enter local dispatch.
       if (parsed.type !== "interaction_action") {
         if (parsed.type === "interaction_actions") {
-          const results: InteractionSubmitResult[] = []
-
+          const prepared: ResolvedInteraction[] = []
+          let forceConfirmation = false
           for (const parsedResolution of parsed.resolutions) {
-            const modelInteraction = await submitModelResolution(
+            const policyResult = prepareModelResolution(
               parsedResolution,
-              undefined,
               submitOptions,
               currentOptions,
               interaction
             )
-
-            if (modelInteraction.result) {
-              results.push(modelInteraction.result)
-            }
-
-            if (!modelInteraction.result?.ok || !modelInteraction.result.executed) {
+            if ("blocked" in policyResult) {
               return {
-                ...modelInteraction,
-                results,
+                ...policyResult.blocked,
+                results: policyResult.results,
               }
             }
+            prepared.push(policyResult.resolution)
+            forceConfirmation ||= policyResult.forceConfirmation
           }
 
+          const batchResult = await interaction.dispatchBatchResolutions(prepared, {
+            ...submitOptions,
+            forceConfirmation: forceConfirmation || submitOptions.forceConfirmation,
+            baseStateVersion: submitOptions.baseStateVersion ?? interaction.getSnapshot().stateVersion,
+          })
+          const results = batchResult.results
+          const failed = results.find((result) => !result.ok || !result.executed)
+          if (failed) {
+            const reply = createLocalInteractionReply(failed, currentOptions.localReply)
+            return {
+              handled: Boolean(reply),
+              reply,
+              result: failed,
+              results,
+            }
+          }
           const reply =
             parsed.reply ??
             `已执行 ${results.filter((result) => result.ok && result.executed).length} 个操作。`
@@ -205,6 +217,8 @@ export function useInteractionAssistant(
     const snapshotContext = createAssistantSnapshotContext(interaction.getSnapshot(), {
       maxObjects: currentOptions.snapshot?.maxObjects,
       includeRecentEvents: currentOptions.snapshot?.includeRecentEvents,
+      allowedActionIds: currentOptions.modelActionPolicy?.actionIds,
+      enforceModelCallable: true,
     })
 
     return createInteractionAssistantSystemPrompt(snapshotContext, currentOptions.prompt)
@@ -232,6 +246,58 @@ export function useInteractionAssistant(
   )
 }
 
+function prepareModelResolution(
+  parsedResolution: ResolvedInteraction,
+  submitOptions: InteractionSubmitOptions,
+  currentOptions: UseInteractionAssistantOptions,
+  interaction: InteractionApi
+):
+  | { resolution: ResolvedInteraction; forceConfirmation: boolean }
+  | {
+      blocked: LocalAssistantSubmitResult
+      results: InteractionSubmitResult[]
+    } {
+  const snapshot = interaction.getSnapshot()
+  const resolution = normalizeModelResolutionTarget(parsedResolution, snapshot)
+  const modelPolicy = currentOptions.modelActionPolicy ?? defaultModelActionPolicy
+  const policyValidation = validateResolvedInteractionPolicy(resolution, modelPolicy, {
+    snapshot,
+    confirmedActionId: submitOptions.confirmedActionId,
+    source: "model",
+  })
+  const policyRequiresConfirmation =
+    !policyValidation.ok && policyValidation.code === "confirmation_required"
+
+  if (!policyValidation.ok && !policyRequiresConfirmation) {
+    const target = resolution.targetId
+      ? snapshot.visibleObjects.find((object) => object.id === resolution.targetId)
+      : undefined
+    const result: InteractionSubmitResult = {
+      snapshot,
+      resolution,
+      ok: false,
+      executed: false,
+      target,
+      validation: policyValidation,
+      error: policyValidation.reason,
+    }
+    const reply = createLocalInteractionReply(result, currentOptions.localReply)
+    return {
+      blocked: {
+        handled: Boolean(reply),
+        reply,
+        result,
+      },
+      results: [result],
+    }
+  }
+
+  return {
+    resolution,
+    forceConfirmation: policyRequiresConfirmation,
+  }
+}
+
 async function submitModelResolution(
   parsedResolution: ResolvedInteraction,
   successReply: string | undefined,
@@ -249,8 +315,10 @@ async function submitModelResolution(
     confirmedActionId: submitOptions.confirmedActionId,
     source: "model",
   })
+  const policyRequiresConfirmation =
+    !policyValidation.ok && policyValidation.code === "confirmation_required"
 
-  if (!policyValidation.ok) {
+  if (!policyValidation.ok && !policyRequiresConfirmation) {
     const target = resolution.targetId
       ? snapshot.visibleObjects.find((object) => object.id === resolution.targetId)
       : undefined
@@ -274,6 +342,7 @@ async function submitModelResolution(
 
   const result = await interaction.dispatchResolution(resolution, {
     ...submitOptions,
+    forceConfirmation: policyRequiresConfirmation || submitOptions.forceConfirmation,
     baseStateVersion: submitOptions.baseStateVersion ?? snapshot.stateVersion,
   })
   const reply =
@@ -332,13 +401,16 @@ function inferTargetFromAction(
 
   const attachTo = spec.attachTo
   if (attachTo?.id) {
-    return snapshot.visibleObjects.find((object) => object.id === attachTo.id)
+    const target = snapshot.visibleObjects.find((object) => object.id === attachTo.id)
+    if (target) return target
   }
   if (attachTo?.entityType) {
-    return snapshot.visibleObjects.find((object) => object.entity?.type === attachTo.entityType)
+    const target = snapshot.visibleObjects.find((object) => object.entity?.type === attachTo.entityType)
+    if (target) return target
   }
   if (attachTo?.role) {
-    return snapshot.visibleObjects.find((object) => object.role === attachTo.role)
+    const target = snapshot.visibleObjects.find((object) => object.role === attachTo.role)
+    if (target) return target
   }
 
   if (spec.executeScope === "page") {

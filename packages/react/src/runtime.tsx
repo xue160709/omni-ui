@@ -1,17 +1,39 @@
 import {
   buildActionPayload,
+  buildBatchCommandEnvelope,
+  buildCommandEnvelope,
   compactSnapshotForIntent,
+  createSnapshotAnchor,
   createConfiguredRuleResolver,
   createInteractionSnapshot,
+  createInteractionEventBuffer,
+  createInteractionTrace,
+  createConfirmationGrant,
+  createInteractionTurn,
+  dispatchCommand,
+  dispatchBatchCommands,
+  completeInteractionTrace,
+  reduceFocusEvent,
+  setSemanticFocus as setCoreSemanticFocus,
+  deriveActiveContext,
+  transitionTurn,
   mergeInteractionManifests,
   normalizeConfiguredRules,
   resolveUtterance,
   resolveWithResolvers,
   ruleResolver,
   validateActionRequest,
-  type ActionContext,
+  type CommandEnvelope,
+  type CommandSource,
+  type ConfirmationGrant,
+  type ActionExecutionResult,
   type ActionExecutor,
   type ActionPayload,
+  type DispatchResult,
+  type BatchDispatchResult,
+  type InteractionTrace,
+  type InteractionTurn,
+  type InteractionEvent,
   type AppInteractionManifest,
   type DomainActionSpec,
   type EntityRef,
@@ -27,21 +49,27 @@ import {
   type RegisteredActionSpec,
   type ResolverMode,
   type IntentResolver,
+  type InteractionEventInput,
   type ResolvedInteraction,
+  type UnifiedFocus,
+  type VoiceInput,
 } from "@omni-ui/core"
 import * as React from "react"
 import {
-  applyPrimitiveAction,
   extractDomNodes,
   getElementLabel,
   getElementState,
   hintToAliases,
-  inferPrimitiveActions,
   isElementVisible,
 } from "./dom"
+import {
+  executeDomPrimitiveAction,
+  inferDomPrimitiveActions,
+} from "./primitive-executor"
 
 type RegisteredNode = {
   id: string
+  ownerId?: string
   role: string
   label?: string
   labelFrom?: "text" | "aria" | "none"
@@ -55,6 +83,7 @@ type RegisteredNode = {
 // English: A group represents a business boundary, such as a list, item, dialog, or form field, grouping raw controls semantically.
 type RegisteredGroup = {
   id: string
+  ownerId?: string
   role: string
   label?: string
   aliases?: string[]
@@ -66,15 +95,19 @@ type RegisteredGroup = {
 
 type RegisteredPage = {
   id: string
+  ownerId?: string
   title: string
   route?: string
   state?: Record<string, unknown>
 }
 
-type RegisteredVirtualObject = InteractionObject
+type RegisteredVirtualObject = InteractionObject & {
+  ownerId?: string
+}
 
 type ActionRegistration = {
   namespace: string
+  ownerId?: string
   actions: Record<string, DomainActionSpec>
   execute?: ActionExecutor
 }
@@ -83,12 +116,25 @@ type RuntimeContextValue = {
   snapshot: InteractionSnapshot
   lastResolution?: ResolvedInteraction
   getSnapshot: () => InteractionSnapshot
+  getActiveTurn: () => InteractionTurn | undefined
+  getTurn: (turnId: string) => InteractionTurn | undefined
+  resolveVoice: (input: VoiceInput) => Promise<InteractionTurn>
+  submitVoice: (input: VoiceInput) => Promise<InteractionTurn>
+  confirmTurn: (turnId: string) => Promise<DispatchResult>
+  cancelTurn: (turnId: string, reason?: string) => void
   resolveText: (text: string) => Promise<InteractionResolutionResult>
   dispatchResolution: (
     resolution: ResolvedInteraction,
     options?: InteractionSubmitOptions
   ) => Promise<InteractionSubmitResult>
+  dispatchBatchResolutions: (
+    resolutions: ResolvedInteraction[],
+    options?: InteractionSubmitOptions
+  ) => Promise<{ batch: BatchDispatchResult; results: InteractionSubmitResult[] }>
   submitUtterance: (text: string, options?: InteractionSubmitOptions) => Promise<InteractionSubmitResult>
+  recordEvent: (event: InteractionEventInput) => void
+  setSemanticFocus: (objectId: string, options?: { ttlMs?: number; confidence?: number }) => void
+  invalidateSnapshot: (reason?: string) => void
   registerNode: (node: RegisteredNode) => () => void
   registerGroup: (group: RegisteredGroup) => () => void
   registerObject: (object: RegisteredVirtualObject) => () => void
@@ -101,7 +147,22 @@ type RuntimeContextValue = {
 // English: The public API exposes snapshot reads, text resolution, and dispatch only, keeping internal registries private.
 export type InteractionApi = Pick<
   RuntimeContextValue,
-  "snapshot" | "lastResolution" | "getSnapshot" | "resolveText" | "dispatchResolution" | "submitUtterance"
+  | "snapshot"
+  | "lastResolution"
+  | "getSnapshot"
+  | "getActiveTurn"
+  | "getTurn"
+  | "resolveVoice"
+  | "submitVoice"
+  | "confirmTurn"
+  | "cancelTurn"
+  | "resolveText"
+  | "dispatchResolution"
+  | "dispatchBatchResolutions"
+  | "submitUtterance"
+  | "recordEvent"
+  | "setSemanticFocus"
+  | "invalidateSnapshot"
 >
 
 const emptySnapshot: InteractionSnapshot = createInteractionSnapshot({
@@ -122,6 +183,10 @@ export type MultimodalProviderProps = {
   resolverMode?: ResolverMode
   onResolution?: (resolution: ResolvedInteraction) => void
   onClarification?: (resolution: ResolvedInteraction) => void
+  onTurnChange?: (turn: InteractionTurn) => void
+  onInteractionEvent?: (event: InteractionEvent) => void
+  onTrace?: (trace: InteractionTrace) => void
+  onRegistryError?: (error: Error) => void
 }
 
 export function MultimodalProvider(props: MultimodalProviderProps) {
@@ -133,7 +198,11 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     localRules,
     manifest,
     onClarification,
+    onInteractionEvent,
     onResolution,
+    onRegistryError,
+    onTrace,
+    onTurnChange,
     resolverMode = "rule-first",
     resolvers,
   } = props
@@ -142,7 +211,17 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   // English: objectId-to-DOM mapping stays local for primitive execution and feedback animation; it is not serialized into snapshots.
   const elementByObjectId = React.useRef(new Map<string, HTMLElement>())
   const snapshotRef = React.useRef<InteractionSnapshot>(emptySnapshot)
+  const eventBufferRef = React.useRef(createInteractionEventBuffer())
+  const resolverAbortRef = React.useRef<AbortController | undefined>(undefined)
+  const commandCounter = React.useRef(0)
+  const turnCounter = React.useRef(0)
+  const explicitInvalidationVersionsRef = React.useRef<number[]>([])
+  const turnsRef = React.useRef(new Map<string, InteractionTurn>())
+  const activeTurnIdRef = React.useRef<string | undefined>(undefined)
   const [version, setVersion] = React.useState(0)
+  const [eventSequence, setEventSequence] = React.useState(0)
+  const [, setTurnVersion] = React.useState(0)
+  const [unifiedFocus, setUnifiedFocus] = React.useState<UnifiedFocus>(() => emptySnapshot.unifiedFocus)
   const [nodes, setNodes] = React.useState(() => new Map<string, RegisteredNode>())
   const [groups, setGroups] = React.useState(() => new Map<string, RegisteredGroup>())
   const [objects, setObjects] = React.useState(() => new Map<string, RegisteredVirtualObject>())
@@ -150,8 +229,74 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const [page, setPage] = React.useState<RegisteredPage | undefined>()
   const [actions, setActions] = React.useState(() => new Map<string, ActionRegistration>())
   const [lastResolution, setLastResolution] = React.useState<ResolvedInteraction | undefined>()
+  const lastResolutionRef = React.useRef<ResolvedInteraction | undefined>(undefined)
 
-  const bumpVersion = React.useCallback(() => setVersion((current) => current + 1), [])
+  const bumpVersion = React.useCallback((reason?: string) => {
+    setVersion((current) => {
+      const next = current + 1
+      if (reason) {
+        explicitInvalidationVersionsRef.current = [
+          ...explicitInvalidationVersionsRef.current,
+          next,
+        ].slice(-20)
+      }
+      return next
+    })
+  }, [])
+  const invalidateSnapshot = React.useCallback(
+    (reason = "manual invalidation") => bumpVersion(reason),
+    [bumpVersion]
+  )
+  const publishTurn = React.useCallback(
+    (turn: InteractionTurn, options: { active?: boolean } = {}) => {
+      turnsRef.current.set(turn.id, turn)
+      if (options.active ?? !isTerminalTurnStatus(turn.status)) {
+        activeTurnIdRef.current = turn.id
+      }
+      setTurnVersion((current) => current + 1)
+      onTurnChange?.(turn)
+    },
+    [onTurnChange]
+  )
+  const getActiveTurn = React.useCallback(
+    () => (activeTurnIdRef.current ? turnsRef.current.get(activeTurnIdRef.current) : undefined),
+    []
+  )
+  const getTurn = React.useCallback((turnId: string) => turnsRef.current.get(turnId), [])
+
+  const recordEvent = React.useCallback(
+    (event: InteractionEventInput) => {
+      const snapshot = snapshotRef.current
+      eventBufferRef.current.append({
+        ...event,
+        snapshotId: event.snapshotId ?? snapshot.snapshotId,
+        baseStateVersion: event.baseStateVersion ?? snapshot.stateVersion,
+      })
+      setEventSequence(eventBufferRef.current.sequence)
+      const latest = eventBufferRef.current.recent(1)[0]
+      if (latest) {
+        onInteractionEvent?.(latest)
+        setUnifiedFocus((current) =>
+          reduceFocusEvent(current, latest, snapshotRef.current)
+        )
+      }
+    },
+    [onInteractionEvent]
+  )
+
+  const setSemanticFocus = React.useCallback(
+    (objectId: string, options: { ttlMs?: number; confidence?: number } = {}) => {
+      setUnifiedFocus((current) =>
+        setCoreSemanticFocus(current, objectId, {
+          source: "programmatic",
+          ttlMs: options.ttlMs,
+          confidence: options.confidence,
+        })
+      )
+      bumpVersion()
+    },
+    [bumpVersion]
+  )
 
   React.useEffect(() => {
     bumpVersion()
@@ -161,10 +306,31 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     const root = rootRef.current
     if (!root) return
 
+    let queuedRuntimeBump = false
+    const scheduleRuntimeBump = () => {
+      if (queuedRuntimeBump) return
+      queuedRuntimeBump = true
+      const view = root.ownerDocument.defaultView
+      if (!view) {
+        queuedRuntimeBump = false
+        bumpVersion()
+        return
+      }
+      const run = () => {
+        queuedRuntimeBump = false
+        bumpVersion()
+      }
+      if (typeof view.queueMicrotask === "function") {
+        view.queueMicrotask(run)
+      } else {
+        Promise.resolve().then(run)
+      }
+    }
+
     // 中文：DOM 变化和表单事件都会推动 stateVersion 递增，确保执行前能发现快照过期。
     // English: DOM mutations and form events bump stateVersion so dispatch can detect stale snapshots before executing.
     const observer = new MutationObserver((mutations) => {
-      if (mutations.some(shouldObserveMutation)) bumpVersion()
+      if (mutations.some(shouldObserveMutation)) scheduleRuntimeBump()
     })
     observer.observe(root, {
       childList: true,
@@ -178,8 +344,23 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         "aria-selected",
         "aria-disabled",
         "aria-hidden",
+        "aria-valuenow",
+        "aria-valuetext",
+        "aria-readonly",
+        "aria-required",
+        "aria-invalid",
+        "aria-current",
+        "aria-activedescendant",
         "disabled",
         "hidden",
+        "value",
+        "checked",
+        "selected",
+        "readonly",
+        "required",
+        "inert",
+        "role",
+        "tabindex",
         "open",
         "data-state",
         "data-mm-label",
@@ -187,29 +368,39 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       ],
     })
 
-    let queuedRuntimeBump = false
-    let runtimeBumpTimer: number | undefined
-    const scheduleRuntimeBump = () => {
-      if (queuedRuntimeBump) return
-      queuedRuntimeBump = true
-      const view = root.ownerDocument.defaultView
-      if (!view) {
-        queuedRuntimeBump = false
-        bumpVersion()
-        return
-      }
-      runtimeBumpTimer = view.setTimeout(() => {
-        queuedRuntimeBump = false
-        runtimeBumpTimer = undefined
-        bumpVersion()
-      }, 0)
-    }
-
     const handleRuntimeEvent = (event: Event) => {
       if (isIgnoredRuntimeTarget(event.target)) return
-      scheduleRuntimeBump()
+      const targetId = findObjectIdForDomTarget(event.target, elementByObjectId.current)
+      recordEvent({
+        modality: "gui",
+        type: event.type === "focusin"
+          ? "gui.focus.changed"
+          : event.type === "input" || event.type === "change"
+            ? "gui.input.changed"
+            : "gui.navigation.changed",
+        target: targetId,
+        value: event.type === "input" || event.type === "change"
+          ? readInputEventValue(event.target)
+          : undefined,
+      })
+      if (event.type === "input" || event.type === "change") {
+        scheduleRuntimeBump()
+      }
     }
 
+    const handlePointerEvent = (event: Event) => {
+      if (isIgnoredRuntimeTarget(event.target)) return
+      const targetId = findObjectIdForDomTarget(event.target, elementByObjectId.current)
+      if (targetId) {
+        recordEvent({
+          modality: "gui",
+          type: "gui.pointer.activated",
+          target: targetId,
+        })
+      }
+    }
+
+    root.addEventListener("click", handlePointerEvent)
     root.addEventListener("focusin", handleRuntimeEvent)
     root.addEventListener("focusout", handleRuntimeEvent)
     root.addEventListener("input", handleRuntimeEvent)
@@ -217,32 +408,40 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
     return () => {
       observer.disconnect()
+      root.removeEventListener("click", handlePointerEvent)
       root.removeEventListener("focusin", handleRuntimeEvent)
       root.removeEventListener("focusout", handleRuntimeEvent)
       root.removeEventListener("input", handleRuntimeEvent)
       root.removeEventListener("change", handleRuntimeEvent)
-      if (runtimeBumpTimer !== undefined) {
-        root.ownerDocument.defaultView?.clearTimeout(runtimeBumpTimer)
-      }
     }
-  }, [bumpVersion])
+  }, [bumpVersion, recordEvent])
 
   const actionSpecs = React.useMemo(() => {
     // 中文：namespace 只用于组织和 manifest 元数据，真正执行时仍以 action id 查找 spec。
     // English: namespace is organizational metadata; dispatch still looks up specs by action id.
     const specs: Record<string, RegisteredActionSpec> = {}
+    const owners = new Map<string, string | undefined>()
     actions.forEach((registration) => {
       Object.entries(registration.actions).forEach(([id, spec]) => {
+        if (specs[id] && owners.get(id) !== registration.ownerId) {
+          onRegistryError?.(
+            new Error(
+              `Duplicate multimodal action registration for ${id}: namespace ${registration.namespace} attempted to replace an existing action.`
+            )
+          )
+          return
+        }
         specs[id] = {
           ...spec,
           id,
           namespace: registration.namespace,
           execute: spec.execute ?? registration.execute,
         }
+        owners.set(id, registration.ownerId)
       })
     })
     return specs
-  }, [actions])
+  }, [actions, onRegistryError])
 
   const effectiveManifest = React.useMemo(
     () =>
@@ -290,7 +489,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           ...getElementState(node.element),
           ...(node.state ?? {}),
         },
-        primitiveActions: (node.actions ?? inferPrimitiveActions(node.role, node.element)) as string[],
+        primitiveActions: (node.actions ?? inferDomPrimitiveActions(node.role, node.element)) as InteractionObject["primitiveActions"],
       })
     })
 
@@ -357,12 +556,21 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
     // 中文：当前 snapshot 是所有注册源和 DOM 源的汇总，也是 resolver 与 dispatch 共用的事实来源。
     // English: The current snapshot is the shared source of truth for both resolution and dispatch.
+    const contextStack = [...pageContext, ...modalContexts]
+    const snapshotFocus: UnifiedFocus = {
+      ...unifiedFocus,
+      activeContext: deriveActiveContext(contextStack),
+    }
     const builtSnapshot = createInteractionSnapshot({
       stateVersion: version,
       manifest: effectiveManifest,
       page: pageObject,
-      contextStack: [...pageContext, ...modalContexts],
+      contextStack,
       visibleObjects: [...virtualObjects, ...groupObjects, ...rawObjects],
+      unifiedFocus: snapshotFocus,
+      focusRevision: snapshotFocus.revision,
+      eventSequence,
+      recentEvents: eventBufferRef.current.list(),
       focus: focusedNode
         ? {
             objectId: focusedNode[0],
@@ -380,7 +588,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     elementByObjectId.current = elementMap
     snapshotRef.current = builtSnapshot
     return builtSnapshot
-  }, [actionSpecs, device, effectiveManifest, groups, language, nodes, objects, page, version])
+  }, [actionSpecs, device, effectiveManifest, eventSequence, groups, language, nodes, objects, page, unifiedFocus, version])
 
   const applyFeedback = React.useCallback((targetId: string, phase: string) => {
     // 中文：反馈通过 data-mm-feedback 暂态属性驱动 CSS，不要求宿主应用维护额外状态。
@@ -406,11 +614,82 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       // 中文：解析总是基于提交瞬间的 snapshot，并记录 lastResolution 方便调试或 UI 展示。
       // English: Resolution uses the snapshot at submit time and stores lastResolution for debugging or UI display.
       const currentSnapshot = snapshotRef.current
-      const resolution = await resolveCandidate(text, currentSnapshot, {
+      resolverAbortRef.current?.abort()
+      const abortController = new AbortController()
+      resolverAbortRef.current = abortController
+      const turnId = `turn_${++turnCounter.current}`
+      const createdTurn = createInteractionTurn({
+        id: turnId,
+        source: "text",
+        input: {
+          kind: "text",
+          text,
+          receivedAt: Date.now(),
+        },
+        anchor: createSnapshotAnchor(currentSnapshot),
+      })
+      const resolvingTurn = transitionTurn(createdTurn, {
+        type: "transition",
+        status: "resolving",
+      })
+      publishTurn(resolvingTurn)
+      const resolved = await resolveCandidate(text, currentSnapshot, {
         localResolvers,
         resolvers,
         resolverMode,
+        signal: abortController.signal,
+        turnId,
       })
+      if (abortController.signal.aborted || resolverAbortRef.current !== abortController) {
+        publishTurn(
+          transitionTurn(resolvingTurn, {
+            type: "transition",
+            status: "superseded",
+          }),
+          { active: false }
+        )
+        return {
+          snapshot: currentSnapshot,
+          resolution: {
+            status: "unsupported",
+            utterance: text,
+            confidence: 0,
+            reason: "解析请求已被新的输入取代",
+          },
+        }
+      }
+      const resolution = stampResolutionProvenance(resolved, currentSnapshot, {
+        turnId,
+        modality: "text",
+      })
+      const nextTurnStatus =
+        resolution.status === "resolved"
+          ? "ready"
+          : resolution.status === "needs_clarification"
+            ? "needs_clarification"
+            : "rejected"
+      const resolvedTurn = transitionTurn(resolvingTurn, {
+        type: "transition",
+        status: nextTurnStatus,
+        clarification:
+          nextTurnStatus === "needs_clarification"
+            ? {
+                id: `clarification_${turnId}`,
+                prompt: resolution.reason ?? "需要进一步澄清",
+                createdAt: Date.now(),
+              }
+            : undefined,
+        error:
+          nextTurnStatus === "rejected"
+            ? {
+                code: resolution.status,
+                message: resolution.reason ?? "No interaction target was resolved.",
+              }
+            : undefined,
+      })
+      publishTurn(resolvedTurn)
+      onTrace?.(completeInteractionTrace(createInteractionTrace(resolvedTurn), {}))
+      lastResolutionRef.current = resolution
       setLastResolution(resolution)
       onResolution?.(resolution)
 
@@ -423,7 +702,268 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         resolution,
       }
     },
-    [localResolvers, onClarification, onResolution, resolverMode, resolvers]
+    [localResolvers, onClarification, onResolution, onTrace, publishTurn, resolverMode, resolvers]
+  )
+
+  const resolveVoice = React.useCallback(
+    async (input: VoiceInput): Promise<InteractionTurn> => {
+      recordEvent({
+        modality: "voice",
+        type: input.kind === "partial" ? "voice.asr.partial" : "voice.asr.final",
+        text: input.text,
+        confidence: input.confidence,
+        timestamp: input.receivedAt,
+      })
+
+      const currentSnapshot = snapshotRef.current
+      const turnId = `turn_${++turnCounter.current}`
+      const createdTurn = createInteractionTurn({
+        id: turnId,
+        source: "voice",
+        input,
+        anchor: createSnapshotAnchor(currentSnapshot),
+        now: input.receivedAt,
+      })
+
+      if (input.kind === "partial") {
+        publishTurn(createdTurn, { active: false })
+        return createdTurn
+      }
+
+      resolverAbortRef.current?.abort()
+      const abortController = new AbortController()
+      resolverAbortRef.current = abortController
+      const resolvingTurn = transitionTurn(createdTurn, {
+        type: "transition",
+        status: "resolving",
+      })
+      publishTurn(resolvingTurn)
+
+      const resolved = await resolveCandidate(input.text, currentSnapshot, {
+        localResolvers,
+        resolvers,
+        resolverMode,
+        signal: abortController.signal,
+        turnId,
+      })
+
+      if (abortController.signal.aborted || resolverAbortRef.current !== abortController) {
+        const superseded = transitionTurn(resolvingTurn, {
+          type: "transition",
+          status: "superseded",
+        })
+        publishTurn(superseded, { active: false })
+        return superseded
+      }
+
+      const resolution = stampResolutionProvenance(resolved, currentSnapshot, {
+        turnId,
+        modality: "voice",
+      })
+      const nextTurnStatus =
+        resolution.status === "resolved"
+          ? "ready"
+          : resolution.status === "needs_clarification"
+            ? "needs_clarification"
+            : "rejected"
+      const resolvedTurn = transitionTurn(resolvingTurn, {
+        type: "transition",
+        status: nextTurnStatus,
+        clarification:
+          nextTurnStatus === "needs_clarification"
+            ? {
+                id: `clarification_${turnId}`,
+                prompt: resolution.reason ?? "需要进一步澄清",
+                createdAt: Date.now(),
+              }
+            : undefined,
+        error:
+          nextTurnStatus === "rejected"
+            ? {
+                code: resolution.status,
+                message: resolution.reason ?? "No interaction target was resolved.",
+              }
+            : undefined,
+      })
+      publishTurn(resolvedTurn)
+      lastResolutionRef.current = resolution
+      setLastResolution(resolution)
+      onResolution?.(resolution)
+      if (resolution.status === "needs_clarification") onClarification?.(resolution)
+      onTrace?.(completeInteractionTrace(createInteractionTrace(resolvedTurn), {}))
+      return resolvedTurn
+    },
+    [
+      localResolvers,
+      onClarification,
+      onResolution,
+      onTrace,
+      publishTurn,
+      recordEvent,
+      resolverMode,
+      resolvers,
+    ]
+  )
+
+  const cancelTurn = React.useCallback(
+    (turnId: string, reason = "cancelled") => {
+      const turn = turnsRef.current.get(turnId)
+      if (!turn || isTerminalTurnStatus(turn.status)) return
+
+      try {
+        publishTurn(
+          transitionTurn(turn, {
+            type: "transition",
+            status: "cancelled",
+            error: {
+              code: "cancelled",
+              message: reason,
+            },
+          }),
+          { active: false }
+        )
+      } catch {
+        // Ignore cancellation for states that can no longer transition.
+      }
+    },
+    [publishTurn]
+  )
+
+  const publishDispatchResultTurn = React.useCallback(
+    (turnId: string, result: DispatchResult) => {
+      const turn = turnsRef.current.get(turnId)
+      if (!turn || isTerminalTurnStatus(turn.status)) return
+
+      try {
+        let next = turn
+        if (next.status === "awaiting_confirmation") {
+          next = transitionTurn(next, {
+            type: "transition",
+            status: "ready",
+          })
+        }
+        if (next.status === "ready") {
+          next = transitionTurn(next, {
+            type: "transition",
+            status: "validating",
+          })
+        }
+        if (result.status === "rejected") {
+          next = transitionTurn(next, {
+            type: "transition",
+            status: "rejected",
+            result,
+            error: dispatchRuntimeError(result),
+          })
+        } else {
+          if (next.status === "validating") {
+            next = transitionTurn(next, {
+              type: "transition",
+              status: "executing",
+            })
+          }
+          if (result.status === "failed") {
+            next = transitionTurn(next, {
+              type: "transition",
+              status: "failed",
+              result,
+              error: dispatchRuntimeError(result),
+            })
+          } else {
+            if (next.status === "executing") {
+              next = transitionTurn(next, {
+                type: "transition",
+                status: "verifying",
+              })
+            }
+            next = transitionTurn(next, {
+              type: "transition",
+              status: turnStatusForDispatchResult(result),
+              result,
+              error: result.ok ? undefined : dispatchRuntimeError(result),
+            })
+          }
+        }
+        publishTurn(next, { active: false })
+        onTrace?.(
+          completeInteractionTrace(createInteractionTrace(next), {
+            status: result.status,
+          })
+        )
+      } catch {
+        // Keep dispatch results available to callers even if a legacy turn state cannot transition.
+      }
+    },
+    [onTrace, publishTurn]
+  )
+
+  const publishPendingConfirmationTurn = React.useCallback(
+    (turnId: string, command: CommandEnvelope, result: DispatchResult) => {
+      const turn = turnsRef.current.get(turnId)
+      if (!turn || isTerminalTurnStatus(turn.status)) return
+
+      try {
+        const next = transitionTurn(turn, {
+          type: "transition",
+          status: "awaiting_confirmation",
+          pendingCommand: command,
+          result,
+        })
+        publishTurn(next)
+      } catch {
+        publishTurn({
+          ...turn,
+          revision: turn.revision + 1,
+          status: "awaiting_confirmation",
+          pendingCommand: command,
+          result,
+          updatedAt: Date.now(),
+        })
+      }
+    },
+    [publishTurn]
+  )
+
+  const ensureTurnForResolution = React.useCallback(
+    (
+      resolution: ResolvedInteraction,
+      provenance: ResolutionProvenance
+    ) => {
+      if (turnsRef.current.has(provenance.turnId)) return
+
+      const created = createInteractionTurn({
+        id: provenance.turnId,
+        source: provenance.source.modality,
+        input: {
+          kind: "text",
+          text: resolution.utterance,
+          receivedAt: provenance.resolvedAt,
+        },
+        anchor: provenance.anchor,
+        now: provenance.resolvedAt,
+      })
+      const resolving = transitionTurn(created, {
+        type: "transition",
+        status: "resolving",
+      })
+      const ready = transitionTurn(resolving, {
+        type: "transition",
+        status: resolution.status === "resolved" ? "ready" : "rejected",
+        error:
+          resolution.status === "resolved"
+            ? undefined
+            : {
+                code: resolution.status,
+                message: resolution.reason ?? "No interaction target was resolved.",
+              },
+      })
+      publishTurn({
+        ...ready,
+        anchor: provenance.anchor,
+      })
+      onTrace?.(completeInteractionTrace(createInteractionTrace(ready), {}))
+    },
+    [onTrace, publishTurn]
   )
 
   const dispatchResolution = React.useCallback(
@@ -449,18 +989,13 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       }
 
       if (resolution.actionId) {
-        // 中文：业务 action 先走 core 校验，再构造 payload 并交给注册 executor。
-        // English: Domain actions pass core validation first, then build a payload and call the registered executor.
-        const validation = validateActionRequest(currentSnapshot, {
-          actionId: resolution.actionId,
-          targetId: resolution.targetId,
-          baseStateVersion: options.baseStateVersion ?? currentSnapshot.stateVersion,
-          confirmedActionId: options.confirmedActionId,
-          candidate: resolution,
-          utterance: resolution.utterance,
-        })
-
-        if (!validation.ok) {
+        const provenance = resolveDispatchProvenance(resolution, currentSnapshot, options)
+        if (!provenance) {
+          const validation = {
+            ok: false as const,
+            code: "missing_anchor" as const,
+            reason: "缺少原始 Snapshot anchor",
+          }
           applyFeedback(resolution.targetId, "error")
           return {
             ...baseResult,
@@ -470,50 +1005,96 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             error: validation.reason,
           }
         }
+        ensureTurnForResolution(resolution, provenance)
 
-        const action = buildActionPayload(currentSnapshot, {
+        // 中文：旧 payload 映射先保留，随后把结果放入 CommandEnvelope 交给 core Dispatcher。
+        // English: Legacy payload mapping stays as a wrapper, then enters the core Dispatcher as a CommandEnvelope.
+        const legacyValidation = validateActionRequest(currentSnapshot, {
           actionId: resolution.actionId,
           targetId: resolution.targetId,
-          baseStateVersion: options.baseStateVersion ?? currentSnapshot.stateVersion,
-          confirmedActionId: options.confirmedActionId,
+          baseStateVersion: provenance.anchor.stateVersion,
+          confirmedActionId: resolution.actionId,
           candidate: resolution,
           utterance: resolution.utterance,
         })
-        const spec = currentSnapshot.actionSpecs[resolution.actionId]
-        const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
 
-        if (!spec?.execute || !target) {
+        if (!legacyValidation.ok) {
           applyFeedback(resolution.targetId, "error")
           return {
             ...baseResult,
             ok: false,
             executed: false,
-            target,
-            action,
-            error: "No executor is registered for the resolved action.",
+            validation: legacyValidation,
+            error: legacyValidation.reason,
           }
         }
+
+        const action = buildActionPayload(currentSnapshot, {
+          actionId: resolution.actionId,
+          targetId: resolution.targetId,
+          baseStateVersion: provenance.anchor.stateVersion,
+          confirmedActionId: options.confirmedActionId,
+          candidate: resolution,
+          utterance: resolution.utterance,
+        })
+        const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
+        const command = buildCommandEnvelope({
+          commandId: `command_${++commandCounter.current}`,
+          turnId: provenance.turnId,
+          kind: "domain",
+          actionId: resolution.actionId,
+          source: provenance.source,
+          targetId: resolution.targetId,
+          params: stripActionType(action),
+          anchor: provenance.anchor,
+        })
 
         try {
           applyFeedback(resolution.targetId, "voice-target")
           applyFeedback(resolution.targetId, "voice-press")
-          await spec.execute(action as ActionPayload, {
-            actionId: resolution.actionId,
-            target,
-            snapshot: currentSnapshot,
+          const dispatchSnapshot = options.forceConfirmation
+            ? withForcedDomainConfirmation(currentSnapshot, resolution.actionId)
+            : currentSnapshot
+          const dispatchResult = await dispatchCommand(dispatchSnapshot, command, {
             candidate: resolution,
             utterance: resolution.utterance,
-          } satisfies ActionContext)
+            confirmation: createLegacyConfirmationGrant(command, options.confirmedActionId),
+          })
+          if (
+            dispatchResult.validation &&
+            !dispatchResult.validation.ok &&
+            dispatchResult.validation.code === "confirmation_required"
+          ) {
+            publishPendingConfirmationTurn(provenance.turnId, command, dispatchResult)
+          } else {
+            publishDispatchResultTurn(provenance.turnId, dispatchResult)
+          }
+          if (!dispatchResult.ok) {
+            applyFeedback(resolution.targetId, "error")
+            return toInteractionSubmitResult({
+              baseResult,
+              dispatchResult,
+              pendingCommand:
+                dispatchResult.validation &&
+                !dispatchResult.validation.ok &&
+                dispatchResult.validation.code === "confirmation_required"
+                  ? command
+                  : undefined,
+              execution: "domain-action",
+              target,
+              action,
+            })
+          }
           applyFeedback(resolution.targetId, "success")
           bumpVersion()
-          return {
-            ...baseResult,
-            ok: true,
-            executed: true,
+          return toInteractionSubmitResult({
+            baseResult,
+            dispatchResult,
+            pendingCommand: undefined,
             execution: "domain-action",
             target,
             action,
-          }
+          })
         } catch (error) {
           applyFeedback(resolution.targetId, "error")
           return {
@@ -528,24 +1109,69 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       }
 
       if (resolution.primitiveAction) {
-        // 中文：primitive action 直接作用在 DOM 节点上，只在没有业务 action 时作为低层能力使用。
-        // English: Primitive actions operate on DOM nodes directly and are intended as a low-level fallback.
-        const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
-        const element = elementByObjectId.current.get(resolution.targetId)
-        if (element) {
-          applyFeedback(resolution.targetId, "voice-target")
-          applyFeedback(resolution.targetId, "voice-press")
-          applyPrimitiveAction(element, resolution.primitiveAction, resolution.params)
-          applyFeedback(resolution.targetId, "success")
-          bumpVersion()
+        const provenance = resolveDispatchProvenance(resolution, currentSnapshot, options)
+        if (!provenance) {
+          const validation = {
+            ok: false as const,
+            code: "missing_anchor" as const,
+            reason: "缺少原始 Snapshot anchor",
+          }
+          applyFeedback(resolution.targetId, "error")
           return {
             ...baseResult,
-            ok: true,
-            executed: true,
-            execution: "primitive-action",
-            target,
+            ok: false,
+            executed: false,
+            validation,
+            error: validation.reason,
           }
         }
+        ensureTurnForResolution(resolution, provenance)
+
+        // 中文：primitive 也先构建 CommandEnvelope，再走 core Dispatcher 的统一校验链。
+        // English: Primitive actions also build a CommandEnvelope and pass through the core Dispatcher chain.
+        const target = currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId)
+        const command = buildCommandEnvelope({
+          commandId: `command_${++commandCounter.current}`,
+          turnId: provenance.turnId,
+          kind: "primitive",
+          primitiveAction: resolution.primitiveAction,
+          source: provenance.source,
+          targetId: resolution.targetId,
+          params: resolution.params,
+          anchor: provenance.anchor,
+        })
+
+        applyFeedback(resolution.targetId, "voice-target")
+        applyFeedback(resolution.targetId, "voice-press")
+        const dispatchResult = await dispatchCommand(currentSnapshot, command, {
+          executePrimitive: (primitiveCommand): ActionExecutionResult => {
+            const element = elementByObjectId.current.get(primitiveCommand.targetId)
+            if (!element) {
+              return {
+                status: "rejected",
+                reason: "No DOM element is registered for the primitive target.",
+                code: "missing_element",
+              }
+            }
+            return executeDomPrimitiveAction(element, primitiveCommand.primitiveAction, primitiveCommand.params)
+          },
+        })
+        publishDispatchResultTurn(provenance.turnId, dispatchResult)
+
+        if (dispatchResult.ok) {
+          applyFeedback(resolution.targetId, "success")
+          bumpVersion()
+        } else {
+          applyFeedback(resolution.targetId, "error")
+        }
+
+        return toInteractionSubmitResult({
+          baseResult,
+          dispatchResult,
+          pendingCommand: undefined,
+          execution: "primitive-action",
+          target,
+        })
       }
 
       applyFeedback(resolution.targetId, "error")
@@ -556,7 +1182,333 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         error: "Resolved interaction has no executable action.",
       }
     },
-    [applyFeedback, bumpVersion]
+    [
+      applyFeedback,
+      bumpVersion,
+      ensureTurnForResolution,
+      publishDispatchResultTurn,
+      publishPendingConfirmationTurn,
+    ]
+  )
+
+  const dispatchBatchResolutions = React.useCallback(
+    async (
+      resolutions: ResolvedInteraction[],
+      options: InteractionSubmitOptions = {}
+    ): Promise<{ batch: BatchDispatchResult; results: InteractionSubmitResult[] }> => {
+      const currentSnapshot = snapshotRef.current
+      const entries: Array<{
+        resolution: ResolvedInteraction
+        command: CommandEnvelope
+        target?: InteractionObject
+        action?: ActionPayload
+        execution: NonNullable<InteractionSubmitResult["execution"]>
+      }> = []
+      const buildFailures: InteractionSubmitResult[] = []
+
+      for (const resolution of resolutions) {
+        const baseResult = { snapshot: currentSnapshot, resolution }
+        if (resolution.status !== "resolved" || !resolution.targetId) {
+          buildFailures.push({
+            ...baseResult,
+            ok: false,
+            executed: false,
+            error: resolution.reason ?? "No resolved interaction target.",
+          })
+          continue
+        }
+
+        const provenance = resolveDispatchProvenance(resolution, currentSnapshot, options)
+        if (!provenance) {
+          const validation = {
+            ok: false as const,
+            code: "missing_anchor" as const,
+            reason: "缺少原始 Snapshot anchor",
+          }
+          buildFailures.push({
+            ...baseResult,
+            ok: false,
+            executed: false,
+            validation,
+            error: validation.reason,
+          })
+          continue
+        }
+        ensureTurnForResolution(resolution, provenance)
+
+        if (resolution.actionId) {
+          const action = buildActionPayload(currentSnapshot, {
+            actionId: resolution.actionId,
+            targetId: resolution.targetId,
+            baseStateVersion: provenance.anchor.stateVersion,
+            confirmedActionId: resolution.actionId,
+            candidate: resolution,
+            utterance: resolution.utterance,
+          })
+          const command = buildCommandEnvelope({
+            commandId: `command_${++commandCounter.current}`,
+            turnId: provenance.turnId,
+            kind: "domain",
+            actionId: resolution.actionId,
+            source: provenance.source,
+            targetId: resolution.targetId,
+            params: stripActionType(action),
+            anchor: provenance.anchor,
+          })
+          entries.push({
+            resolution,
+            command,
+            target: currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId),
+            action,
+            execution: "domain-action",
+          })
+          continue
+        }
+
+        if (resolution.primitiveAction) {
+          const command = buildCommandEnvelope({
+            commandId: `command_${++commandCounter.current}`,
+            turnId: provenance.turnId,
+            kind: "primitive",
+            primitiveAction: resolution.primitiveAction,
+            source: provenance.source,
+            targetId: resolution.targetId,
+            params: resolution.params,
+            anchor: provenance.anchor,
+          })
+          entries.push({
+            resolution,
+            command,
+            target: currentSnapshot.visibleObjects.find((object) => object.id === resolution.targetId),
+            execution: "primitive-action",
+          })
+          continue
+        }
+
+        buildFailures.push({
+          ...baseResult,
+          ok: false,
+          executed: false,
+          error: "Resolved interaction has no executable action.",
+        })
+      }
+
+      if (buildFailures.length > 0) {
+        return {
+          batch: {
+            ok: false,
+            status: "rejected",
+            batchId: `batch_${++commandCounter.current}`,
+            turnId: entries[0]?.command.turnId ?? "batch_rejected",
+            items: buildFailures
+              .map((result) => result.dispatch)
+              .filter((result): result is DispatchResult => Boolean(result)),
+          },
+          results: buildFailures,
+        }
+      }
+
+      const commands = entries.map((entry) => entry.command)
+      const batch = buildBatchCommandEnvelope({
+        batchId: `batch_${++commandCounter.current}`,
+        turnId: commands[0]?.turnId ?? `batch_turn_${Date.now()}`,
+        mode: "best_effort",
+        commands,
+      })
+      const dispatchSnapshot = options.forceConfirmation
+        ? commands.reduce(
+            (nextSnapshot, command) =>
+              command.kind === "domain"
+                ? withForcedDomainConfirmation(nextSnapshot, command.actionId)
+                : nextSnapshot,
+            currentSnapshot
+          )
+        : currentSnapshot
+      const batchResult = await dispatchBatchCommands(dispatchSnapshot, batch, {
+        executePrimitive: (primitiveCommand): ActionExecutionResult => {
+          const element = elementByObjectId.current.get(primitiveCommand.targetId)
+          if (!element) {
+            return {
+              status: "rejected",
+              reason: "No DOM element is registered for the primitive target.",
+              code: "missing_element",
+            }
+          }
+          return executeDomPrimitiveAction(
+            element,
+            primitiveCommand.primitiveAction,
+            primitiveCommand.params
+          )
+        },
+      })
+      const entriesWithReturnedItems =
+        batchResult.status === "rejected" && batchResult.items.length < entries.length
+          ? entries.filter((entry) =>
+              batchResult.items.some((item) => item.commandId === entry.command.commandId)
+            )
+          : entries
+      const results = entriesWithReturnedItems.map((entry) => {
+        const dispatchResult =
+          batchResult.items.find((item) => item.commandId === entry.command.commandId) ??
+          ({
+            ok: false,
+            status: "failed",
+            commandId: entry.command.commandId,
+            turnId: entry.command.turnId,
+            targetId: entry.command.targetId,
+            actionId: entry.command.kind === "domain" ? entry.command.actionId : undefined,
+            primitiveAction:
+              entry.command.kind === "primitive" ? entry.command.primitiveAction : undefined,
+            error: {
+              code: "execution_failed",
+              message: "Batch dispatcher did not return an item result.",
+            },
+          } satisfies DispatchResult)
+        publishDispatchResultTurn(entry.command.turnId, dispatchResult)
+        if (dispatchResult.ok) applyFeedback(entry.command.targetId, "success")
+        else applyFeedback(entry.command.targetId, "error")
+        return toInteractionSubmitResult({
+          baseResult: {
+            snapshot: currentSnapshot,
+            resolution: entry.resolution,
+          },
+          dispatchResult,
+          execution: entry.execution,
+          target: entry.target,
+          action: entry.action,
+        })
+      })
+
+      if (results.some((result) => result.ok)) bumpVersion()
+
+      return {
+        batch: batchResult,
+        results,
+      }
+    },
+    [applyFeedback, bumpVersion, ensureTurnForResolution, publishDispatchResultTurn]
+  )
+
+  const confirmTurn = React.useCallback(
+    async (turnId: string): Promise<DispatchResult> => {
+      const turn = turnsRef.current.get(turnId)
+      const command = turn?.pendingCommand
+
+      if (!turn || !command || turn.status !== "awaiting_confirmation") {
+        return {
+          ok: false,
+          status: "rejected",
+          commandId: command?.commandId ?? `missing_command_${turnId}`,
+          turnId,
+          error: {
+            code: "turn_inactive",
+            message: "No pending command is awaiting confirmation for this turn.",
+          },
+        }
+      }
+
+      const currentSnapshot = snapshotRef.current
+      const confirmation = createConfirmationGrant(command, {
+        confirmedBy: "text",
+      })
+
+      try {
+        publishTurn(
+          transitionTurn(turn, {
+            type: "transition",
+            status: "ready",
+            confirmation,
+          })
+        )
+      } catch {
+        // The dispatcher remains the source of truth; transition failures should not reparse or mutate the command.
+      }
+
+      applyFeedback(command.targetId, "voice-target")
+      applyFeedback(command.targetId, "voice-press")
+      let dispatchResult = await dispatchCommand(currentSnapshot, command, {
+        confirmation,
+        executePrimitive:
+          command.kind === "primitive"
+            ? (primitiveCommand): ActionExecutionResult => {
+                const element = elementByObjectId.current.get(primitiveCommand.targetId)
+                if (!element) {
+                  return {
+                    status: "rejected",
+                    reason: "No DOM element is registered for the primitive target.",
+                    code: "missing_element",
+                  }
+                }
+                return executeDomPrimitiveAction(
+                  element,
+                  primitiveCommand.primitiveAction,
+                  primitiveCommand.params
+                )
+              }
+            : undefined,
+      })
+      if (
+        shouldRetryConfirmedCommandAfterIrrelevantStateDrift(
+          dispatchResult,
+          currentSnapshot,
+          command,
+          explicitInvalidationVersionsRef.current
+        )
+      ) {
+        dispatchResult = await dispatchCommand(
+          {
+            ...currentSnapshot,
+            stateVersion: command.anchor.stateVersion,
+          },
+          command,
+          {
+            confirmation,
+            executePrimitive:
+              command.kind === "primitive"
+                ? (primitiveCommand): ActionExecutionResult => {
+                    const element = elementByObjectId.current.get(primitiveCommand.targetId)
+                    if (!element) {
+                      return {
+                        status: "rejected",
+                        reason: "No DOM element is registered for the primitive target.",
+                        code: "missing_element",
+                      }
+                    }
+                    return executeDomPrimitiveAction(
+                      element,
+                      primitiveCommand.primitiveAction,
+                      primitiveCommand.params
+                    )
+                  }
+                : undefined,
+          }
+        )
+      }
+
+      if (dispatchResult.ok) {
+        applyFeedback(command.targetId, "success")
+        bumpVersion()
+      } else {
+        applyFeedback(command.targetId, "error")
+      }
+      publishDispatchResultTurn(turnId, dispatchResult)
+      return dispatchResult
+    },
+    [applyFeedback, bumpVersion, publishDispatchResultTurn, publishTurn]
+  )
+
+  const submitVoice = React.useCallback(
+    async (input: VoiceInput): Promise<InteractionTurn> => {
+      const turn = await resolveVoice(input)
+      if (input.kind !== "final" || turn.status !== "ready") return turn
+
+      const resolution = lastResolutionRef.current
+      if (!resolution?.provenance || resolution.provenance.turnId !== turn.id) return turn
+
+      await dispatchResolution(resolution)
+      return turnsRef.current.get(turn.id) ?? turn
+    },
+    [dispatchResolution, resolveVoice]
   )
 
   const submitUtterance = React.useCallback(
@@ -586,10 +1538,16 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
   const registerNode = React.useCallback(
     (node: RegisteredNode) => {
-      setNodes((current) => new Map(current).set(node.id, node))
+      setNodes((current) => {
+        if (!canAcceptRegistration(current.get(node.id), node, `node:${node.id}`, onRegistryError)) {
+          return current
+        }
+        return new Map(current).set(node.id, node)
+      })
       bumpVersion()
       return () => {
         setNodes((current) => {
+          if (!isRegistrationOwner(current.get(node.id), node)) return current
           const next = new Map(current)
           next.delete(node.id)
           return next
@@ -597,15 +1555,21 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         bumpVersion()
       }
     },
-    [bumpVersion]
+    [bumpVersion, onRegistryError]
   )
 
   const registerGroup = React.useCallback(
     (group: RegisteredGroup) => {
-      setGroups((current) => new Map(current).set(group.id, group))
+      setGroups((current) => {
+        if (!canAcceptRegistration(current.get(group.id), group, `group:${group.id}`, onRegistryError)) {
+          return current
+        }
+        return new Map(current).set(group.id, group)
+      })
       bumpVersion()
       return () => {
         setGroups((current) => {
+          if (!isRegistrationOwner(current.get(group.id), group)) return current
           const next = new Map(current)
           next.delete(group.id)
           return next
@@ -613,15 +1577,21 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         bumpVersion()
       }
     },
-    [bumpVersion]
+    [bumpVersion, onRegistryError]
   )
 
   const registerObject = React.useCallback(
     (object: RegisteredVirtualObject) => {
-      setObjects((current) => new Map(current).set(object.id, object))
+      setObjects((current) => {
+        if (!canAcceptRegistration(current.get(object.id), object, `object:${object.id}`, onRegistryError)) {
+          return current
+        }
+        return new Map(current).set(object.id, object)
+      })
       bumpVersion()
       return () => {
         setObjects((current) => {
+          if (!isRegistrationOwner(current.get(object.id), object)) return current
           const next = new Map(current)
           next.delete(object.id)
           return next
@@ -629,7 +1599,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         bumpVersion()
       }
     },
-    [bumpVersion]
+    [bumpVersion, onRegistryError]
   )
 
   const registerManifest = React.useCallback(
@@ -638,6 +1608,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       bumpVersion()
       return () => {
         setManifests((current) => {
+          if (current.get(id) !== nextManifest) return current
           const next = new Map(current)
           next.delete(id)
           return next
@@ -650,22 +1621,39 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
 
   const registerPage = React.useCallback(
     (nextPage: RegisteredPage) => {
-      setPage(nextPage)
+      setPage((current) =>
+        canAcceptRegistration(current, nextPage, `page:${nextPage.id}`, onRegistryError)
+          ? nextPage
+          : current
+      )
       bumpVersion()
       return () => {
-        setPage((current) => (current?.id === nextPage.id ? undefined : current))
+        setPage((current) => (isRegistrationOwner(current, nextPage) ? undefined : current))
         bumpVersion()
       }
     },
-    [bumpVersion]
+    [bumpVersion, onRegistryError]
   )
 
   const registerActions = React.useCallback(
     (registration: ActionRegistration) => {
-      setActions((current) => new Map(current).set(registration.namespace, registration))
+      setActions((current) => {
+        if (
+          !canAcceptRegistration(
+            current.get(registration.namespace),
+            registration,
+            `actions:${registration.namespace}`,
+            onRegistryError
+          )
+        ) {
+          return current
+        }
+        return new Map(current).set(registration.namespace, registration)
+      })
       bumpVersion()
       return () => {
         setActions((current) => {
+          if (!isRegistrationOwner(current.get(registration.namespace), registration)) return current
           const next = new Map(current)
           next.delete(registration.namespace)
           return next
@@ -673,7 +1661,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         bumpVersion()
       }
     },
-    [bumpVersion]
+    [bumpVersion, onRegistryError]
   )
 
   const value = React.useMemo<RuntimeContextValue>(
@@ -681,9 +1669,19 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       snapshot,
       lastResolution,
       getSnapshot,
+      getActiveTurn,
+      getTurn,
+      resolveVoice,
+      submitVoice,
+      confirmTurn,
+      cancelTurn,
       resolveText,
       dispatchResolution,
+      dispatchBatchResolutions,
       submitUtterance,
+      recordEvent,
+      setSemanticFocus,
+      invalidateSnapshot,
       registerNode,
       registerGroup,
       registerObject,
@@ -693,7 +1691,14 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     }),
     [
       dispatchResolution,
+      dispatchBatchResolutions,
       getSnapshot,
+      getActiveTurn,
+      getTurn,
+      resolveVoice,
+      submitVoice,
+      confirmTurn,
+      cancelTurn,
       lastResolution,
       registerActions,
       registerGroup,
@@ -704,6 +1709,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       resolveText,
       snapshot,
       submitUtterance,
+      recordEvent,
+      setSemanticFocus,
+      invalidateSnapshot,
     ]
   )
 
@@ -740,6 +1748,7 @@ export function useInteractionNode<TElement extends HTMLElement>(
   const { registerNode } = useMultimodalRuntime()
   const generatedId = React.useId().replace(/:/g, "")
   const id = options.id ?? `node.${generatedId}`
+  const ownerIdRef = React.useRef(createRuntimeOwnerId("node"))
   const [element, setElement] = React.useState<TElement | null>(null)
   const optionSignature = stableStringify({
     id,
@@ -762,6 +1771,7 @@ export function useInteractionNode<TElement extends HTMLElement>(
 
     return registerNode({
       id,
+      ownerId: ownerIdRef.current,
       role: options.role,
       label: options.label,
       labelFrom: options.labelFrom,
@@ -789,10 +1799,11 @@ export type MultimodalPageProps = React.HTMLAttributes<HTMLDivElement> & {
 
 export function MultimodalPage({ id, title, route, state, children, ...props }: MultimodalPageProps) {
   const { registerPage } = useMultimodalRuntime()
+  const ownerIdRef = React.useRef(createRuntimeOwnerId("page"))
   const pageSignature = stableStringify({ id, title, route, state })
 
-  React.useEffect(
-    () => registerPage({ id, title, route, state }),
+  React.useLayoutEffect(
+    () => registerPage({ id, ownerId: ownerIdRef.current, title, route, state }),
     [id, pageSignature, registerPage, route, title]
   )
 
@@ -825,6 +1836,7 @@ export function MultimodalGroup({
   ...props
 }: MultimodalGroupProps) {
   const { registerGroup } = useMultimodalRuntime()
+  const ownerIdRef = React.useRef(createRuntimeOwnerId("group"))
   const [element, setElement] = React.useState<HTMLDivElement | null>(null)
   const groupSignature = stableStringify({ id, role, label, aliases, entity, state, indexBy })
 
@@ -839,6 +1851,7 @@ export function MultimodalGroup({
 
     return registerGroup({
       id,
+      ownerId: ownerIdRef.current,
       role,
       label,
       aliases,
@@ -858,20 +1871,24 @@ export function MultimodalGroup({
 
 export function useInteractionObject(object: InteractionObject): void {
   const { registerObject } = useMultimodalRuntime()
+  const ownerIdRef = React.useRef(createRuntimeOwnerId("object"))
   const objectSignature = stableStringify(object)
 
   React.useEffect(
-    () => registerObject(object),
+    () => registerObject({ ...object, ownerId: ownerIdRef.current }),
     [object.id, objectSignature, registerObject]
   )
 }
 
 export function useInteractionObjects(objects: InteractionObject[]): void {
   const { registerObject } = useMultimodalRuntime()
+  const ownerIdRef = React.useRef(createRuntimeOwnerId("objects"))
   const objectsSignature = stableStringify(objects)
 
   React.useEffect(() => {
-    const disposers = objects.map((object) => registerObject(object))
+    const disposers = objects.map((object) =>
+      registerObject({ ...object, ownerId: `${ownerIdRef.current}:${object.id}` })
+    )
     return () => {
       disposers.forEach((dispose) => dispose())
     }
@@ -901,6 +1918,7 @@ export function useInteractionActions<TAction extends ActionPayload = ActionPayl
   options: UseInteractionActionsOptions<TAction>
 ): void {
   const { registerActions } = useMultimodalRuntime()
+  const ownerIdRef = React.useRef(createRuntimeOwnerId("actions"))
   const executeRef = React.useRef(options.execute)
   executeRef.current = options.execute
   const stableExecute = React.useCallback<ActionExecutor>(
@@ -918,6 +1936,7 @@ export function useInteractionActions<TAction extends ActionPayload = ActionPayl
     () =>
       registerActions({
         namespace: options.namespace,
+        ownerId: ownerIdRef.current,
         actions: options.actions as Record<string, DomainActionSpec>,
         execute: options.execute ? stableExecute : undefined,
       }),
@@ -945,9 +1964,19 @@ export function useInteractionApi(): InteractionApi {
     snapshot,
     lastResolution,
     getSnapshot,
+    getActiveTurn,
+    getTurn,
+    resolveVoice,
+    submitVoice,
+    confirmTurn,
+    cancelTurn,
     resolveText,
     dispatchResolution,
+    dispatchBatchResolutions,
     submitUtterance,
+    recordEvent,
+    setSemanticFocus,
+    invalidateSnapshot,
   } = useMultimodalRuntime()
 
   return React.useMemo(
@@ -955,11 +1984,38 @@ export function useInteractionApi(): InteractionApi {
       snapshot,
       lastResolution,
       getSnapshot,
+      getActiveTurn,
+      getTurn,
+      resolveVoice,
+      submitVoice,
+      confirmTurn,
+      cancelTurn,
       resolveText,
       dispatchResolution,
+      dispatchBatchResolutions,
       submitUtterance,
+      recordEvent,
+      setSemanticFocus,
+      invalidateSnapshot,
     }),
-    [dispatchResolution, getSnapshot, lastResolution, resolveText, snapshot, submitUtterance]
+    [
+      dispatchResolution,
+      dispatchBatchResolutions,
+      getSnapshot,
+      getActiveTurn,
+      getTurn,
+      resolveVoice,
+      submitVoice,
+      confirmTurn,
+      cancelTurn,
+      invalidateSnapshot,
+      lastResolution,
+      recordEvent,
+      resolveText,
+      setSemanticFocus,
+      snapshot,
+      submitUtterance,
+    ]
   )
 }
 
@@ -1182,6 +2238,247 @@ function isIgnoredRuntimeTarget(target: EventTarget | Node | null): boolean {
   return Boolean(element?.closest("[data-mm-ignore='true']"))
 }
 
+function findObjectIdForDomTarget(
+  target: EventTarget | null,
+  elementMap: Map<string, HTMLElement>
+): string | undefined {
+  if (!(target instanceof Node)) return undefined
+
+  return Array.from(elementMap.entries())
+    .filter(([, element]) => element === target || element.contains(target))
+    .sort(([, a], [, b]) => {
+      if (a === b) return 0
+      if (a.contains(b)) return 1
+      if (b.contains(a)) return -1
+      return 0
+    })[0]?.[0]
+}
+
+function readInputEventValue(target: EventTarget | null): Record<string, unknown> | undefined {
+  if (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  ) {
+    return {
+      value: target.value,
+      inputType: target instanceof HTMLInputElement ? target.type : target.tagName.toLowerCase(),
+      required: "required" in target ? Boolean(target.required) : undefined,
+      invalid: "validity" in target ? !target.validity.valid : undefined,
+    }
+  }
+
+  return undefined
+}
+
+type ResolutionProvenance = NonNullable<ResolvedInteraction["provenance"]>
+
+function stampResolutionProvenance(
+  resolution: ResolvedInteraction,
+  snapshot: InteractionSnapshot,
+  options: {
+    turnId: string
+    modality: CommandSource["modality"]
+  }
+): ResolvedInteraction {
+  const resolverIds = [resolution.resolverId].filter((id): id is string => Boolean(id))
+  return {
+    ...resolution,
+    provenance: {
+      turnId: options.turnId,
+      anchor: createSnapshotAnchor(snapshot),
+      source: {
+        modality: options.modality,
+        resolverIds,
+        modelGenerated: resolverIds.some(isModelResolverId),
+      },
+      resolvedAt: Date.now(),
+    },
+  }
+}
+
+function resolveDispatchProvenance(
+  resolution: ResolvedInteraction,
+  snapshot: InteractionSnapshot,
+  options: InteractionSubmitOptions
+): ResolutionProvenance | undefined {
+  if (resolution.provenance) return resolution.provenance
+  if (typeof options.baseStateVersion !== "number") return undefined
+
+  const resolverIds = [resolution.resolverId ?? "legacy"].filter(Boolean)
+  const modelGenerated = resolverIds.some(isModelResolverId)
+  return {
+    turnId: `legacy_${options.baseStateVersion}_${resolution.targetId ?? "unknown"}`,
+    anchor: {
+      ...createSnapshotAnchor(snapshot),
+      stateVersion: options.baseStateVersion,
+    },
+    source: {
+      modality: modelGenerated ? "assistant" : "text",
+      resolverIds,
+      modelGenerated,
+    },
+    resolvedAt: Date.now(),
+  }
+}
+
+function createLegacyConfirmationGrant(
+  command: CommandEnvelope,
+  confirmedActionId: string | undefined
+): ConfirmationGrant | undefined {
+  if (command.kind !== "domain" || confirmedActionId !== command.actionId) return undefined
+
+  return createConfirmationGrant(command, {
+    confirmedBy: "text",
+  })
+}
+
+function stripActionType(action: ActionPayload): Record<string, unknown> {
+  const { type: _type, ...params } = action
+  return params
+}
+
+function toInteractionSubmitResult(input: {
+  baseResult: InteractionResolutionResult
+  dispatchResult: DispatchResult
+  pendingCommand?: CommandEnvelope
+  execution: NonNullable<InteractionSubmitResult["execution"]>
+  target?: InteractionObject
+  action?: ActionPayload
+}): InteractionSubmitResult {
+  const { baseResult, dispatchResult, pendingCommand, execution, target, action } = input
+  const executed = dispatchResult.ok && dispatchResult.status !== "rejected" && dispatchResult.status !== "failed"
+  const validation = dispatchResult.validation
+  const error =
+    dispatchResult.error?.message ??
+    (validation && !validation.ok ? validation.reason : undefined)
+
+  return {
+    ...baseResult,
+    ok: dispatchResult.ok,
+    executed,
+    pendingCommand,
+    dispatch: dispatchResult,
+    execution: executed ? execution : undefined,
+    target,
+    action,
+    validation,
+    error,
+  }
+}
+
+function isTerminalTurnStatus(status: InteractionTurn["status"]): boolean {
+  return [
+    "committed",
+    "unverified",
+    "noop",
+    "rejected",
+    "failed",
+    "cancelled",
+    "superseded",
+    "expired",
+  ].includes(status)
+}
+
+function turnStatusForDispatchResult(result: DispatchResult): InteractionTurn["status"] {
+  if (result.status === "committed") return "committed"
+  if (result.status === "noop") return "noop"
+  if (result.status === "unverified" || result.status === "pending") return "unverified"
+  if (result.status === "failed") return "failed"
+  return "rejected"
+}
+
+function dispatchRuntimeError(result: DispatchResult) {
+  return {
+    code:
+      result.error?.code ??
+      (result.validation && !result.validation.ok ? result.validation.code : undefined) ??
+      result.status,
+    message:
+      result.error?.message ??
+      (result.validation && !result.validation.ok ? result.validation.reason : undefined) ??
+      result.status,
+  }
+}
+
+function withForcedDomainConfirmation(
+  snapshot: InteractionSnapshot,
+  actionId: string
+): InteractionSnapshot {
+  const spec = snapshot.actionSpecs[actionId]
+  if (!spec) return snapshot
+
+  return {
+    ...snapshot,
+    actionSpecs: {
+      ...snapshot.actionSpecs,
+      [actionId]: {
+        ...spec,
+        confirmation: {
+          ...spec.confirmation,
+          required: true,
+        },
+      },
+    },
+  }
+}
+
+function shouldRetryConfirmedCommandAfterIrrelevantStateDrift(
+  result: DispatchResult,
+  snapshot: InteractionSnapshot,
+  command: CommandEnvelope,
+  explicitInvalidationVersions: number[]
+): boolean {
+  if (!result.validation || result.validation.ok || result.validation.code !== "state_changed") {
+    return false
+  }
+  if (command.anchor.contextHash !== snapshot.contextHash) return false
+  if (command.anchor.focusRevision !== snapshot.focusRevision) return false
+  if (!snapshot.visibleObjects.some((object) => object.id === command.targetId)) return false
+
+  return !explicitInvalidationVersions.some(
+    (version) => version > command.anchor.stateVersion && version <= snapshot.stateVersion
+  )
+}
+
+function isModelResolverId(id: string): boolean {
+  return /llm|model|openai|anthropic|assistant/i.test(id)
+}
+
+function canAcceptRegistration<T extends { ownerId?: string }>(
+  existing: T | undefined,
+  next: T,
+  key: string,
+  onError?: (error: Error) => void
+): boolean {
+  if (!existing) return true
+  if (!existing.ownerId || !next.ownerId || existing.ownerId === next.ownerId) return true
+
+  onError?.(
+    new Error(
+      `Duplicate multimodal registration for ${key}: owner ${next.ownerId} attempted to replace ${existing.ownerId}.`
+    )
+  )
+  return false
+}
+
+function isRegistrationOwner<T extends { ownerId?: string }>(
+  current: T | undefined,
+  candidate: T
+): boolean {
+  if (!current) return false
+  if (current === candidate) return true
+  if (!current.ownerId || !candidate.ownerId) return current === candidate
+  return current.ownerId === candidate.ownerId
+}
+
+let runtimeOwnerCounter = 0
+
+function createRuntimeOwnerId(prefix: string): string {
+  runtimeOwnerCounter += 1
+  return `${prefix}_${runtimeOwnerCounter}`
+}
+
 async function resolveCandidate(
   utterance: string,
   snapshot: InteractionSnapshot,
@@ -1189,13 +2486,15 @@ async function resolveCandidate(
     localResolvers?: IntentResolver[]
     resolvers?: IntentResolver[]
     resolverMode: ResolverMode
+    signal?: AbortSignal
+    turnId?: string
   }
 ): Promise<ResolvedInteraction> {
   // 中文：解析策略支持 rule-only、rule-first 和 llm-first；默认先用本地规则，置信度不足再走外部 resolver。
   // English: Resolution supports rule-only, rule-first, and llm-first; the default tries local rules before external resolvers.
   if (options.resolverMode !== "llm-first" && options.localResolvers?.length) {
     const localResult = await resolveWithResolvers(
-      { utterance, snapshot },
+      { utterance, snapshot, signal: options.signal, turnId: options.turnId },
       options.localResolvers,
       0.8
     )
@@ -1215,7 +2514,7 @@ async function resolveCandidate(
 
   if (options.resolverMode === "llm-first") {
     return resolveWithResolvers(
-      { utterance, snapshot: compactSnapshot },
+      { utterance, snapshot: compactSnapshot, signal: options.signal, turnId: options.turnId },
       [...externalResolvers, ...(options.localResolvers ?? []), ruleResolver],
       0.7
     )
@@ -1226,7 +2525,7 @@ async function resolveCandidate(
   }
 
   const resolverResult = await resolveWithResolvers(
-    { utterance, snapshot: compactSnapshot },
+    { utterance, snapshot: compactSnapshot, signal: options.signal, turnId: options.turnId },
     externalResolvers,
     0.7
   )

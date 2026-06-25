@@ -15,8 +15,12 @@ npm install @omni-ui/core
 - Interaction object, snapshot, route, manifest, action, and resolver types.
 - Local configured rule resolver for deterministic commands.
 - Action validation and payload construction.
+- Immutable command envelopes, snapshot anchors, confirmation grants, and unified dispatch results.
+- Event buffers, unified focus, scope arbitration, privacy projection, verification, fusion ranking, and batch dispatch helpers.
 - LLM resolver helpers for trusted server runtimes.
 - Assistant prompt, reply parsing, local reply, and action policy helpers.
+
+Executors should return structured results such as `{ status: "changed" }`, `{ status: "noop", reason }`, `{ status: "rejected", reason }`, or `{ status: "pending", operationId }`. A legacy `void` return is preserved for compatibility but is reported as `unverified`.
 
 ## Custom Resolver Example
 

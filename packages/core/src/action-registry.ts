@@ -16,9 +16,9 @@ export function actionMatchesObject(
 ): boolean {
   const attachTo = spec.attachTo
 
-  if (attachTo?.id) return object.id === attachTo.id
-  if (attachTo?.entityType) return object.entity?.type === attachTo.entityType
-  if (attachTo?.role) return object.role === attachTo.role
+  if (attachTo?.id && object.id === attachTo.id) return true
+  if (attachTo?.entityType && object.entity?.type === attachTo.entityType) return true
+  if (attachTo?.role && object.role === attachTo.role) return true
 
   if (spec.executeScope === "page") return object.type === "page"
   if (spec.executeScope === "container") return object.type === "container"

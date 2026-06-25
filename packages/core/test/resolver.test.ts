@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest"
 import {
   createConfiguredRuleResolver,
   createInteractionSnapshot,
+  createUnifiedFocus,
   NAVIGATION_GOTO_ACTION_ID,
   resolveUtterance,
+  setSemanticFocus,
   type ResolvedInteraction,
 } from "../src"
 
@@ -253,6 +255,73 @@ describe("resolver", () => {
     expect(resolveUtterance("完成评审方案", snapshot)).toMatchObject({
       status: "not_found",
       targetId: "task.item.task_1",
+    })
+  })
+
+  it("asks for clarification when spoken text matches multiple actionable objects", () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "task.item.today",
+          type: "composite",
+          role: "list_item",
+          label: "开会",
+          entity: { type: "task", id: "today" },
+          actions: ["task.complete"],
+        },
+        {
+          id: "task.item.tomorrow",
+          type: "composite",
+          role: "list_item",
+          label: "开会",
+          entity: { type: "task", id: "tomorrow" },
+          actions: ["task.complete"],
+        },
+      ],
+    })
+
+    expect(resolveUtterance("完成开会", snapshot)).toMatchObject({
+      status: "needs_clarification",
+      targetCandidates: [
+        { id: "task.item.today" },
+        { id: "task.item.tomorrow" },
+      ],
+    })
+  })
+
+  it("resolves deictic text from semantic focus", () => {
+    const focus = setSemanticFocus(createUnifiedFocus(), "task.item.tomorrow", {
+      timestamp: 100,
+    })
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      unifiedFocus: focus,
+      visibleObjects: [
+        {
+          id: "task.item.today",
+          type: "composite",
+          role: "list_item",
+          label: "开会",
+          entity: { type: "task", id: "today" },
+          actions: ["task.complete"],
+        },
+        {
+          id: "task.item.tomorrow",
+          type: "composite",
+          role: "list_item",
+          label: "开会",
+          entity: { type: "task", id: "tomorrow" },
+          actions: ["task.complete"],
+        },
+      ],
+    })
+
+    expect(resolveUtterance("完成这个", snapshot)).toMatchObject({
+      status: "resolved",
+      targetId: "task.item.tomorrow",
+      actionId: "task.complete",
+      reason: "deictic",
     })
   })
 })

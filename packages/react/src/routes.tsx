@@ -107,6 +107,8 @@ export function useInteractionRoutes<TRoute = unknown>(
       [actionId]: {
         attachTo: { role },
         executeScope,
+        modelCallable: true,
+        risk: "low" as const,
         // 中文：从被命中的 route object 提取业务路由参数，交给应用的 execute 回调。
         // English: Reads route params from the matched route object before invoking the app's execute callback.
         paramsFrom: ({ target }: ActionContext) => ({
@@ -121,11 +123,12 @@ export function useInteractionRoutes<TRoute = unknown>(
   useInteractionActions<NavigationActionPayload>({
     namespace,
     actions,
-    execute: (action, context) => {
+    execute: async (action, context) => {
       const routeId = String(action.routeId ?? "")
       const item = routesRef.current.find((candidate) => candidate.id === routeId)
-      if (!item) return
-      return executeRef.current(item.route, item, action, context)
+      if (!item) return { status: "rejected", reason: "Route is no longer registered." }
+      await executeRef.current(item.route, item, action, context)
+      return { status: "changed" }
     },
   })
 }
@@ -173,6 +176,8 @@ export function useInteractionNavigationHistory(
     () => ({
       [backActionId]: {
         executeScope,
+        modelCallable: true,
+        risk: "low" as const,
         availableWhen: (context: ActionContext) =>
           resolveNavigationHistoryAvailability(
             optionsRef.current.canGoBack,
@@ -182,6 +187,8 @@ export function useInteractionNavigationHistory(
       },
       [forwardActionId]: {
         executeScope,
+        modelCallable: true,
+        risk: "low" as const,
         availableWhen: (context: ActionContext) =>
           resolveNavigationHistoryAvailability(
             optionsRef.current.canGoForward,
@@ -196,14 +203,18 @@ export function useInteractionNavigationHistory(
   useInteractionActions<NavigationHistoryActionPayload>({
     namespace,
     actions,
-    execute: (action, context) => {
+    execute: async (action, context) => {
       if (action.type === backActionId) {
-        return optionsRef.current.goBack(action, context)
+        await optionsRef.current.goBack(action, context)
+        return { status: "changed" }
       }
 
       if (action.type === forwardActionId) {
-        return optionsRef.current.goForward(action, context)
+        await optionsRef.current.goForward(action, context)
+        return { status: "changed" }
       }
+
+      return { status: "rejected", reason: "Unknown navigation history action." }
     },
   })
 }

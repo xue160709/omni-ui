@@ -1,4 +1,4 @@
-import type { InteractionSubmitResult } from "@omni-ui/core"
+import type { CommandEnvelope, DispatchResult, InteractionSubmitResult } from "@omni-ui/core"
 import * as React from "react"
 import {
   useInteractionAssistant,
@@ -6,6 +6,7 @@ import {
   type InteractionAssistantApi,
   type UseInteractionAssistantOptions,
 } from "./assistant"
+import { useInteractionApi } from "./runtime"
 
 export type AssistantConversationStatus = "ready" | "sending" | "error"
 
@@ -21,8 +22,19 @@ export type AssistantConversationMessageInput = Omit<AssistantConversationMessag
 }
 
 export type PendingAssistantModelAction = {
-  content: string
-  utterance: string
+  turnId: string
+  command: CommandEnvelope
+  summary: {
+    actionLabel: string
+    targetLabel?: string
+    parameterSummary?: string
+  }
+  expiresAt: number
+  /** @deprecated Pending confirmations dispatch the frozen command by turnId. */
+  content?: string
+  /** @deprecated Pending confirmations dispatch the frozen command by turnId. */
+  utterance?: string
+  /** @deprecated Use summary.actionLabel. */
   actionId: string
   targetLabel?: string
 }
@@ -65,6 +77,7 @@ export function useAssistantConversation(
   options: UseAssistantConversationOptions = {}
 ): AssistantConversationApi {
   const createdAssistant = useInteractionAssistant(options.assistantOptions)
+  const interaction = useInteractionApi()
   const assistant = options.assistant ?? createdAssistant
   const optionsRef = React.useRef(options)
   optionsRef.current = options
@@ -120,8 +133,9 @@ export function useAssistantConversation(
     const formatter = optionsRef.current.formatPendingAction
     if (formatter) return formatter(action)
 
-    const target = action.targetLabel ? ` (${action.targetLabel})` : ""
-    return `This action requires confirmation: ${action.actionId}${target}.`
+    const target = action.summary.targetLabel ? ` (${action.summary.targetLabel})` : ""
+    const params = action.summary.parameterSummary ? ` ${action.summary.parameterSummary}` : ""
+    return `This action requires confirmation: ${action.summary.actionLabel}${target}${params}.`
   }, [])
 
   const confirmPendingModelAction = React.useCallback(
@@ -129,49 +143,44 @@ export function useAssistantConversation(
       if (!pendingModelAction || status === "sending") return
 
       const pending = pendingModelAction
-      const pendingId = `assistant_${nextMessageId.current++}`
-
-      setPendingModelAction(null)
-      setMessages((current) => [
-        ...current,
-        createMessage({ role: "user", content: message }),
-        createMessage({
-          id: pendingId,
-          role: "assistant",
-          content: optionsRef.current.confirmingMessage ?? "Confirming action...",
-          state: "sending",
-        }),
-      ])
-      setDraft("")
-      setStatus("sending")
 
       try {
-        const modelInteraction = await assistant.trySubmitModelReply(
-          pending.content,
-          pending.utterance,
-          { confirmedActionId: pending.actionId }
+        const dispatch = await interaction.confirmTurn(pending.turnId)
+        const nextState = dispatch.ok ? "ready" : "error"
+        const replyContent = formatDispatchConfirmationReply(
+          dispatch,
+          pending,
+          optionsRef.current.assistantOptions?.localReply
         )
-        const nextState = modelInteraction.reply?.state === "error" ? "error" : "ready"
-        const replyContent =
-          modelInteraction.reply?.content ||
-          modelInteraction.content ||
-          optionsRef.current.emptyModelMessage ||
-          defaultEmptyModelMessage
 
-        replaceMessage(pendingId, {
-          content: replyContent,
-          state: nextState,
-        })
+        setPendingModelAction(null)
+        setMessages((current) => [
+          ...current,
+          createMessage({ role: "user", content: message }),
+          createMessage({
+            role: "assistant",
+            content: replyContent,
+            state: nextState,
+          }),
+        ])
+        setDraft("")
         setStatus(nextState)
       } catch (error) {
-        replaceMessage(pendingId, {
-          content: error instanceof Error ? error.message : "Request failed",
-          state: "error",
-        })
+        setPendingModelAction(null)
+        setMessages((current) => [
+          ...current,
+          createMessage({ role: "user", content: message }),
+          createMessage({
+            role: "assistant",
+            content: error instanceof Error ? error.message : "Request failed",
+            state: "error",
+          }),
+        ])
+        setDraft("")
         setStatus("error")
       }
     },
-    [assistant, createMessage, pendingModelAction, replaceMessage, status]
+    [createMessage, interaction, pendingModelAction, status]
   )
 
   const cancelPendingModelAction = React.useCallback(
@@ -179,6 +188,7 @@ export function useAssistantConversation(
       if (!pendingModelAction) return
 
       setPendingModelAction(null)
+      interaction.cancelTurn(pendingModelAction.turnId, "assistant conversation canceled")
       setMessages((current) => [
         ...current,
         createMessage({ role: "user", content: message }),
@@ -191,7 +201,7 @@ export function useAssistantConversation(
       setDraft("")
       setStatus("ready")
     },
-    [createMessage, pendingModelAction]
+    [createMessage, interaction, pendingModelAction]
   )
 
   const submitMessage = React.useCallback(
@@ -354,14 +364,101 @@ function createPendingModelAction(
 ): PendingAssistantModelAction | null {
   if (!result?.validation || result.validation.ok) return null
   if (result.validation.code !== "confirmation_required") return null
+  if (!result.pendingCommand) return null
 
-  const actionId = result.resolution.actionId
-  if (!actionId) return null
+  const actionId =
+    result.pendingCommand.kind === "domain"
+      ? result.pendingCommand.actionId
+      : result.pendingCommand.primitiveAction
 
   return {
+    turnId: result.pendingCommand.turnId,
+    command: result.pendingCommand,
+    summary: {
+      actionLabel: actionId,
+      targetLabel: result.target?.label,
+      parameterSummary: summarizeCommandParams(result.pendingCommand.params),
+    },
+    expiresAt: Date.now() + 30_000,
     content,
     utterance,
     actionId,
     targetLabel: result.target?.label,
   }
+}
+
+function summarizeCommandParams(params: Readonly<Record<string, unknown>>): string | undefined {
+  const entries = Object.entries(params).filter(([, value]) => value != null)
+  if (!entries.length) return undefined
+  return entries
+    .slice(0, 3)
+    .map(([key, value]) => `${key}=${String(value)}`)
+    .join(", ")
+}
+
+function formatDispatchConfirmationReply(
+  dispatch: DispatchResult,
+  pending: PendingAssistantModelAction,
+  localReply?: UseInteractionAssistantOptions["localReply"]
+): string {
+  if (dispatch.ok) {
+    const formatter = localReply?.actionReplies?.[pending.actionId]
+    const formatted = formatConfiguredConfirmationReply(formatter, pending)
+    if (formatted) return formatted
+    if (dispatch.status === "committed") return "Action completed."
+    if (dispatch.status === "unverified") return "Action submitted."
+    if (dispatch.status === "pending") return "Action is pending."
+    if (dispatch.status === "noop") return executionReason(dispatch) ?? "No change was needed."
+  }
+
+  return (
+    dispatch.error?.message ??
+    (dispatch.validation && !dispatch.validation.ok ? dispatch.validation.reason : undefined) ??
+    defaultEmptyModelMessage
+  )
+}
+
+function formatConfiguredConfirmationReply(
+  formatter:
+    | NonNullable<
+        NonNullable<UseInteractionAssistantOptions["localReply"]>["actionReplies"]
+      >[string]
+    | undefined,
+  pending: PendingAssistantModelAction
+): string | undefined {
+  if (!formatter) return undefined
+  const targetLabel = pending.summary.targetLabel ? `「${pending.summary.targetLabel}」` : "目标"
+  if (typeof formatter === "string") {
+    return formatter
+      .replace(/\{target\}/g, targetLabel)
+      .replace(/\{action\}/g, pending.actionId)
+  }
+
+  const reply = formatter({
+    result: undefined as never,
+    resolution: {
+      status: "resolved",
+      utterance: pending.utterance ?? "",
+      targetId: pending.command.targetId,
+      actionId: pending.command.kind === "domain" ? pending.command.actionId : undefined,
+      primitiveAction:
+        pending.command.kind === "primitive" ? pending.command.primitiveAction : undefined,
+      confidence: 1,
+    },
+    action: {
+      type: pending.actionId,
+      ...pending.command.params,
+    },
+    actionType: pending.actionId,
+    targetLabel,
+  })
+
+  if (!reply) return undefined
+  return typeof reply === "string" ? reply : reply.content
+}
+
+function executionReason(dispatch: DispatchResult): string | undefined {
+  const execution = dispatch.execution
+  if (!execution) return undefined
+  return "reason" in execution ? execution.reason : undefined
 }

@@ -49,12 +49,15 @@ function TodoPage() {
       "todo.complete": {
         attachTo: { entityType: "todo" },
         executeScope: "object",
+        modelCallable: true,
+        risk: "low",
         paramsFrom: ({ target }) => ({ todoId: target.entity?.id }),
         availableWhen: ({ target }) => target.state?.completed === false,
       },
     },
     execute: (action) => {
       completeTodo(String(action.todoId))
+      return { status: "changed" }
     },
   })
 
@@ -88,8 +91,10 @@ Domain actions such as `todo.complete`, `issue.close`, or `order.refund` are app
 - `useInteractionNode`: registers an existing DOM control with multimodal semantics.
 - `useInteractionRoutes`: registers global route targets and the built-in `navigation.goto` action.
 - `useInteractionActions`: registers app-owned action specs and executors.
-- `useInteractionApi`: low-level `getSnapshot`, `resolveText`, `dispatchResolution`, and `submitUtterance` API.
+- `useInteractionApi`: low-level snapshot, text/voice resolution, turn lookup, confirmation, cancellation, and dispatch APIs.
 - `useAssistantConversation`: chat state, local fast path, LLM fallback, and confirmation flow.
+
+For model-triggered actions, enable both the assistant/runtime policy and the action spec (`modelCallable: true`). Risky actions can require confirmation; confirmation stores and dispatches the frozen command for the original turn rather than reparsing model text.
 
 ## More Documentation
 
