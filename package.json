@@ -12,14 +12,15 @@
     "build:packages": "npm run build:runtime",
     "build:registry": "npm --workspace @omni-ui/shadcn run build",
     "build:all": "npm run build && npm run build:registry",
-    "build": "npm run build:runtime && npm --workspace apps/docs run build",
-    "dev": "npm --workspace apps/docs run dev",
+    "build": "npm run build:runtime && npm --workspace apps/demo-todo run build",
+    "dev": "npm --workspace apps/demo-todo run dev",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm --workspace @omni-ui/core run build && npm run typecheck --workspaces --if-present",
     "registry:build": "npm run build:registry",
     "verify": "npm run typecheck && npm test && npm run build",
     "verify:registry": "npm --workspace @omni-ui/shadcn run test && npm run registry:build",
-    "verify:package-consumer": "npm run build:runtime && npm --workspace apps/docs run typecheck:package-consumer && npm --workspace apps/docs run test:package-consumer && npm --workspace apps/docs run build:package-consumer"
+    "verify:examples": "npm --prefix examples/react-vite-minimal run typecheck && npm --prefix examples/react-vite-minimal run build",
+    "verify:package-consumer": "node -e \"fs.rmSync('/tmp/omni-ui-pack',{recursive:true,force:true});fs.rmSync('/tmp/omni-ui-npm-cache',{recursive:true,force:true});fs.mkdirSync('/tmp/omni-ui-pack',{recursive:true});fs.mkdirSync('/tmp/omni-ui-npm-cache',{recursive:true})\" && npm_config_cache=/tmp/omni-ui-npm-cache npm run build:runtime && npm_config_cache=/tmp/omni-ui-npm-cache npm pack --workspace @omni-ui/core --pack-destination /tmp/omni-ui-pack && npm_config_cache=/tmp/omni-ui-npm-cache npm pack --workspace @omni-ui/react --pack-destination /tmp/omni-ui-pack && node scripts/verify-package-consumer.mjs /tmp/omni-ui-pack && npm_config_cache=/tmp/omni-ui-npm-cache npm --workspace apps/demo-todo run typecheck:package-consumer && npm_config_cache=/tmp/omni-ui-npm-cache npm --workspace apps/demo-todo run test:package-consumer && npm_config_cache=/tmp/omni-ui-npm-cache npm --workspace apps/demo-todo run build:package-consumer"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",

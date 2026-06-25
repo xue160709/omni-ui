@@ -165,6 +165,45 @@ describe("fusion ranker", () => {
       decision: { targetId: "button.archive", primitiveAction: "press" },
     })
   })
+
+  it("does not infer the first action when no action is explicitly eligible", () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "todo.complete": {
+          id: "todo.complete",
+          attachTo: { entityType: "todo" },
+          executeScope: "object",
+          risk: "low",
+        },
+        "todo.delete": {
+          id: "todo.delete",
+          attachTo: { entityType: "todo" },
+          executeScope: "object",
+          risk: "high",
+        },
+      },
+      visibleObjects: [
+        {
+          id: "todo.1",
+          type: "composite",
+          role: "list_item",
+          label: "复盘",
+          entity: { type: "todo", id: "1" },
+          actions: ["todo.complete", "todo.delete"],
+        },
+      ],
+    })
+
+    expect(
+      rankInteractionCandidates(snapshot, [
+        hypothesis({ kind: "label", text: "复盘" }, { actionHint: undefined }),
+      ])
+    ).toMatchObject({
+      status: "needs_clarification",
+      reason: "action_ambiguous",
+    })
+  })
 })
 
 function hypothesis(

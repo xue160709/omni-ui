@@ -64,6 +64,53 @@ describe("dispatcher", () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
+  it("can accept explicitly allowed irrelevant anchor state drift", async () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+          execute: vi.fn(),
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          actions: ["task.complete"],
+        },
+      ],
+    })
+    const nextSnapshot = {
+      ...snapshot,
+      stateVersion: 2,
+    }
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "domain",
+      actionId: "task.complete",
+      source,
+      targetId: "task.item.task_1",
+      anchor: anchorFor(snapshot),
+    })
+
+    await expect(validateCommand(nextSnapshot, command)).resolves.toMatchObject({
+      ok: false,
+      code: "state_changed",
+    })
+    await expect(
+      validateCommand(nextSnapshot, command, {
+        allowIrrelevantAnchorStateDrift: true,
+      })
+    ).resolves.toEqual({ ok: true })
+  })
+
   it("rejects domain commands when the target did not expose the action capability", async () => {
     const actionSpecs: Record<string, RegisteredActionSpec> = {
       "task.complete": {
@@ -220,5 +267,54 @@ describe("dispatcher", () => {
       validation: { code: "state_changed" },
     })
     expect(execute).not.toHaveBeenCalled()
+  })
+
+  it("publishes realtime validation, execution, and verification phases", async () => {
+    const phases: string[] = []
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+          execute: () => ({ status: "changed" }),
+          postcondition: () => true,
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+        },
+      ],
+    })
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "domain",
+      actionId: "task.complete",
+      source,
+      targetId: "task.item.task_1",
+      anchor: anchorFor(snapshot),
+    })
+
+    await expect(
+      dispatchCommand(snapshot, command, {
+        onPhase: (event) => phases.push(`${event.phase}.${event.state}`),
+      })
+    ).resolves.toMatchObject({ status: "committed" })
+
+    expect(phases).toEqual([
+      "validation.started",
+      "validation.passed",
+      "execution.started",
+      "execution.completed",
+      "verification.started",
+      "verification.passed",
+    ])
   })
 })

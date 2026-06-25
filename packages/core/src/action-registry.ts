@@ -2,11 +2,32 @@ import type {
   ActionContext,
   ActionPayload,
   DispatchContext,
+  DomainActionSpec,
   InteractionObject,
   InteractionSnapshot,
   RegisteredActionSpec,
   ValidationResult,
 } from "./types"
+
+export type ActionDefinition<TParams extends Record<string, unknown> = Record<string, unknown>> =
+  DomainActionSpec<ActionPayload> & {
+    id: string
+    title: string
+    paramsSchema?: DomainActionSpec["paramsSchema"] & {
+      __params?: TParams
+    }
+  }
+
+export function defineAction<
+  TParams extends Record<string, unknown> = Record<string, unknown>
+>(definition: ActionDefinition<TParams>): ActionDefinition<TParams> {
+  return {
+    voiceCallable: true,
+    modelCallable: false,
+    stalePolicy: { mode: "strict" },
+    ...definition,
+  }
+}
 
 // 中文：判断 action spec 是否可挂到某个对象上，优先使用显式 attachTo，再按执行作用域兜底。
 // English: Checks whether an action spec attaches to an object, using attachTo first and executeScope as fallback.

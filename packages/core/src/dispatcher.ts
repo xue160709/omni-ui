@@ -10,6 +10,7 @@ import {
 import type {
   CommandEnvelope,
   ConfirmationGrant,
+  DispatchPhaseEvent,
   DispatchResult,
 } from "./command"
 import type {
@@ -20,6 +21,7 @@ import type {
   InteractionSnapshot,
   RegisteredActionSpec,
   ResolvedInteraction,
+  ValidationCode,
   ValidationResult,
 } from "./types"
 
@@ -38,16 +40,65 @@ export type DispatchCommandOptions = {
   executePrimitive?: PrimitiveExecutor
   getSnapshot?: () => InteractionSnapshot
   conflictLock?: CommandConflictLock
+  signal?: AbortSignal
+  onPhase?: (event: DispatchPhaseEvent) => void
+  policyAdapter?: PolicyAdapter
+  allowIrrelevantAnchorStateDrift?: boolean
 }
+
+export type PolicyAdapterDecision =
+  | { ok: true }
+  | { ok: false; code?: ValidationCode; reason: string }
+
+export type PolicyAdapter = (input: {
+  snapshot: InteractionSnapshot
+  command: CommandEnvelope
+  candidate?: ResolvedInteraction
+  utterance?: string
+}) => PolicyAdapterDecision | Promise<PolicyAdapterDecision>
 
 export async function dispatchCommand(
   snapshot: InteractionSnapshot,
   command: CommandEnvelope,
   options: DispatchCommandOptions = {}
 ): Promise<DispatchResult> {
+  if (options.signal?.aborted) {
+    emitPhase(options, { phase: "execution", state: "cancelled", at: Date.now() })
+    return createCancelledResult(command)
+  }
+
+  emitPhase(options, { phase: "validation", state: "started", at: Date.now() })
   const validation = await validateCommand(snapshot, command, options)
   if (!validation.ok) {
+    emitPhase(options, {
+      phase: "validation",
+      state: "rejected",
+      at: Date.now(),
+      validation,
+    })
     return createRejectedResult(command, validation)
+  }
+  emitPhase(options, {
+    phase: "validation",
+    state: "passed",
+    at: Date.now(),
+    validation,
+  })
+
+  if (options.policyAdapter) {
+    const policy = await options.policyAdapter({
+      snapshot,
+      command,
+      candidate: options.candidate,
+      utterance: options.utterance,
+    })
+    if (!policy.ok) {
+      return createRejectedResult(command, {
+        ok: false,
+        code: policy.code ?? "policy_denied",
+        reason: policy.reason,
+      })
+    }
   }
 
   if (command.kind === "primitive") {
@@ -69,9 +120,21 @@ export async function dispatchCommand(
     }
 
     try {
+      if (options.signal?.aborted) {
+        emitPhase(options, { phase: "execution", state: "cancelled", at: Date.now() })
+        return createCancelledResult(command)
+      }
+      emitPhase(options, { phase: "execution", state: "started", at: Date.now() })
       const execution = await options.executePrimitive(command, { target, snapshot })
+      emitPhase(options, {
+        phase: "execution",
+        state: "completed",
+        at: Date.now(),
+        execution,
+      })
       return normalizeExecutionResult(command, execution)
     } catch (error) {
+      emitPhase(options, { phase: "execution", state: "failed", at: Date.now() })
       return {
         ok: false,
         status: "failed",
@@ -104,20 +167,35 @@ export async function dispatchCommand(
     actionId: command.actionId,
     target,
     snapshot,
+    command,
+    turnId: command.turnId,
+    signal: options.signal,
     candidate: options.candidate,
     utterance: options.utterance,
   }
 
   try {
     const runExecution = async () => {
+      if (options.signal?.aborted) {
+        emitPhase(options, { phase: "execution", state: "cancelled", at: Date.now() })
+        return createCancelledResult(command)
+      }
+      emitPhase(options, { phase: "execution", state: "started", at: Date.now() })
       const execution = await execute(action, context)
       const normalizedExecution = normalizeLegacyExecution(execution)
+      emitPhase(options, {
+        phase: "execution",
+        state: "completed",
+        at: Date.now(),
+        execution: normalizedExecution,
+      })
       const result = normalizeExecutionResult(command, normalizedExecution)
 
       if (
         spec.postcondition &&
         (normalizedExecution.status === "changed" || normalizedExecution.status === "unverified")
       ) {
+        emitPhase(options, { phase: "verification", state: "started", at: Date.now() })
         const verification = await waitForCommandPostcondition({
           command,
           before: snapshot,
@@ -126,6 +204,12 @@ export async function dispatchCommand(
           execution: normalizedExecution,
           postcondition: spec.postcondition,
           timeoutMs: spec.verificationTimeoutMs,
+        })
+        emitPhase(options, {
+          phase: "verification",
+          state: verification.ok ? "passed" : "failed",
+          at: Date.now(),
+          verification,
         })
         return applyVerificationToDispatchResult(result, verification)
       }
@@ -144,6 +228,7 @@ export async function dispatchCommand(
       ? await options.conflictLock.run(conflictKey, runExecution)
       : await runExecution()
   } catch (error) {
+    emitPhase(options, { phase: "execution", state: "failed", at: Date.now() })
     return {
       ok: false,
       status: "failed",
@@ -163,9 +248,14 @@ export async function dispatchCommand(
 export async function validateCommand(
   snapshot: InteractionSnapshot,
   command: CommandEnvelope,
-  options: Pick<DispatchCommandOptions, "candidate" | "utterance" | "confirmation"> = {}
+  options: Pick<
+    DispatchCommandOptions,
+    "candidate" | "utterance" | "confirmation" | "allowIrrelevantAnchorStateDrift"
+  > = {}
 ): Promise<ValidationResult> {
-  const anchorValidation = validateCommandAnchor(snapshot, command)
+  const anchorValidation = validateCommandAnchor(snapshot, command, {
+    allowIrrelevantStateDrift: options.allowIrrelevantAnchorStateDrift,
+  })
   if (!anchorValidation.ok) return anchorValidation
 
   const target = snapshot.visibleObjects.find((object) => object.id === command.targetId)
@@ -312,7 +402,10 @@ export async function validateCommand(
 
 export function validateCommandAnchor(
   snapshot: InteractionSnapshot,
-  command: CommandEnvelope
+  command: CommandEnvelope,
+  options: {
+    allowIrrelevantStateDrift?: boolean
+  } = {}
 ): ValidationResult {
   if (!command.anchor) {
     return {
@@ -323,6 +416,9 @@ export function validateCommandAnchor(
   }
 
   if (command.anchor.stateVersion !== snapshot.stateVersion) {
+    if (canAcceptIrrelevantStateDrift(snapshot, command, options)) {
+      return { ok: true }
+    }
     return {
       ok: false,
       code: "state_changed",
@@ -338,7 +434,32 @@ export function validateCommandAnchor(
     }
   }
 
+  if (command.anchor.contextEpoch !== snapshot.contextEpoch) {
+    return {
+      ok: false,
+      code: "context_changed",
+      reason: "界面上下文已变化，请重新确认操作目标",
+    }
+  }
+
   return { ok: true }
+}
+
+function canAcceptIrrelevantStateDrift(
+  snapshot: InteractionSnapshot,
+  command: CommandEnvelope,
+  options: {
+    allowIrrelevantStateDrift?: boolean
+  }
+): boolean {
+  return (
+    options.allowIrrelevantStateDrift === true &&
+    command.anchor.stateVersion < snapshot.stateVersion &&
+    command.anchor.contextHash === snapshot.contextHash &&
+    command.anchor.contextEpoch === snapshot.contextEpoch &&
+    command.anchor.focusRevision === snapshot.focusRevision &&
+    snapshot.visibleObjects.some((object) => object.id === command.targetId)
+  )
 }
 
 export function buildCommandActionPayload(
@@ -493,6 +614,14 @@ function normalizeExecutionResult(
     }
   }
 
+  if (execution.status === "unchanged") {
+    return {
+      ...base,
+      ok: true,
+      status: "noop",
+    }
+  }
+
   if (execution.status === "failed") {
     return {
       ...base,
@@ -518,9 +647,14 @@ function normalizeExecutionResult(
 }
 
 function createRejectedResult(command: CommandEnvelope, validation: ValidationResult): DispatchResult {
+  const status =
+    !validation.ok && validation.code === "confirmation_required"
+      ? "confirmation_required"
+      : "rejected"
+
   return {
     ok: false,
-    status: "rejected",
+    status,
     commandId: command.commandId,
     turnId: command.turnId,
     targetId: command.targetId,
@@ -534,4 +668,24 @@ function createRejectedResult(command: CommandEnvelope, validation: ValidationRe
           message: validation.reason,
         },
   }
+}
+
+function createCancelledResult(command: CommandEnvelope): DispatchResult {
+  return {
+    ok: false,
+    status: "cancelled",
+    commandId: command.commandId,
+    turnId: command.turnId,
+    targetId: command.targetId,
+    actionId: command.kind === "domain" ? command.actionId : undefined,
+    primitiveAction: command.kind === "primitive" ? command.primitiveAction : undefined,
+    error: {
+      code: "dispatch_cancelled",
+      message: "Dispatch was cancelled before a committed side effect.",
+    },
+  }
+}
+
+function emitPhase(options: DispatchCommandOptions, event: DispatchPhaseEvent): void {
+  options.onPhase?.(event)
 }

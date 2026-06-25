@@ -8,11 +8,13 @@ import type {
   VerificationResult,
 } from "./types"
 import { normalizePrimitiveAction } from "./primitive"
+import type { InteractionDecision, InteractionTurn } from "./turn"
 
 export type SnapshotAnchor = {
   snapshotId: string
   stateVersion: number
   contextHash: string
+  contextEpoch: number
   focusRevision: number
   capturedAt: number
 }
@@ -31,6 +33,8 @@ export type DecisionBinding = {
 export type BaseCommandEnvelope = {
   commandId: string
   turnId: string
+  candidateId?: string
+  decisionFingerprint?: string
   source: CommandSource
   targetId: string
   params: Readonly<Record<string, unknown>>
@@ -54,6 +58,7 @@ export type CommandEnvelope = DomainCommandEnvelope | PrimitiveCommandEnvelope
 export type BuildCommandEnvelopeInput = {
   commandId: string
   turnId: string
+  candidateId?: string
   source: CommandSource
   targetId: string
   params?: Record<string, unknown>
@@ -77,6 +82,28 @@ export type DispatchStatus =
   | "noop"
   | "rejected"
   | "failed"
+  | "cancelled"
+  | "confirmation_required"
+
+export type DispatchPhaseEvent =
+  | {
+      phase: "validation"
+      state: "started" | "passed" | "rejected"
+      at: number
+      validation?: ValidationResult
+    }
+  | {
+      phase: "execution"
+      state: "started" | "completed" | "failed" | "cancelled"
+      at: number
+      execution?: ActionExecutionResult
+    }
+  | {
+      phase: "verification"
+      state: "started" | "passed" | "failed"
+      at: number
+      verification?: VerificationResult
+    }
 
 export type RuntimeError = {
   code: string
@@ -131,6 +158,7 @@ export function createSnapshotAnchor(
     snapshotId: snapshot.snapshotId,
     stateVersion: snapshot.stateVersion,
     contextHash: options.contextHash ?? snapshot.contextHash ?? createContextHash(snapshot),
+    contextEpoch: snapshot.contextEpoch,
     focusRevision: options.focusRevision ?? snapshot.focusRevision ?? 0,
     capturedAt: options.capturedAt ?? Date.now(),
   }
@@ -152,6 +180,8 @@ export function buildCommandEnvelope(input: BuildCommandEnvelopeInput): CommandE
     const command: DomainCommandEnvelope = {
       commandId: input.commandId,
       turnId: input.turnId,
+      candidateId: input.candidateId,
+      decisionFingerprint: decisionBinding.fingerprint,
       source: deepFreeze(cloneSerializableValue(input.source, "source") as CommandSource),
       targetId: input.targetId,
       params: deepFreeze(params),
@@ -177,6 +207,8 @@ export function buildCommandEnvelope(input: BuildCommandEnvelopeInput): CommandE
   const command: PrimitiveCommandEnvelope = {
     commandId: input.commandId,
     turnId: input.turnId,
+    candidateId: input.candidateId,
+    decisionFingerprint: decisionBinding.fingerprint,
     source: deepFreeze(cloneSerializableValue(input.source, "source") as CommandSource),
     targetId: input.targetId,
     params: deepFreeze(params),
@@ -196,7 +228,7 @@ export function createDecisionBinding(input: {
   targetId: string
   actionIdOrPrimitive: string
   params: Record<string, unknown>
-  anchor: Pick<SnapshotAnchor, "stateVersion" | "contextHash" | "focusRevision">
+    anchor: Pick<SnapshotAnchor, "stateVersion" | "contextHash" | "focusRevision">
 }): DecisionBinding {
   const canonical = stableStringify({
     turnId: input.turnId,
@@ -204,17 +236,88 @@ export function createDecisionBinding(input: {
     targetId: input.targetId,
     actionIdOrPrimitive: input.actionIdOrPrimitive,
     params: input.params,
-    anchor: {
-      stateVersion: input.anchor.stateVersion,
-      contextHash: input.anchor.contextHash,
-      focusRevision: input.anchor.focusRevision,
-    },
+      anchor: {
+        stateVersion: input.anchor.stateVersion,
+        contextHash: input.anchor.contextHash,
+        contextEpoch: "contextEpoch" in input.anchor ? input.anchor.contextEpoch : 0,
+        focusRevision: input.anchor.focusRevision,
+      },
   })
 
   return {
     canonical,
     fingerprint: fingerprint(canonical),
   }
+}
+
+export function buildCommandFromTurnDecision(input: {
+  commandId: string
+  turn: InteractionTurn
+  snapshot: InteractionSnapshot
+  source?: CommandSource
+  createdAt?: number
+}): CommandEnvelope {
+  const { turn } = input
+  const decision = turn.decision
+  if (turn.status !== "ready") {
+    throw new Error(`Cannot build a command from a ${turn.status} turn.`)
+  }
+  if (!decision) {
+    throw new Error("Cannot build a command without a turn decision.")
+  }
+  if (decision.contextEpoch !== undefined && decision.contextEpoch !== turn.contextEpoch) {
+    throw new Error("Cannot build a command from a stale decision context epoch.")
+  }
+  if (!decision.actionId && !decision.primitiveAction) {
+    throw new Error("Cannot build a command without a domain or primitive action.")
+  }
+  if (input.snapshot.contextEpoch !== turn.contextEpoch) {
+    throw new Error("Cannot build a command after the context epoch changed.")
+  }
+
+  const source =
+    input.source ??
+    ({
+      modality: turn.source,
+      resolverIds: uniqueResolverIds(turn, decision),
+      modelGenerated: turn.hypotheses.some((hypothesis) => hypothesis.source === "llm"),
+    } satisfies CommandSource)
+
+  if (decision.actionId) {
+    return buildCommandEnvelope({
+      commandId: input.commandId,
+      turnId: turn.id,
+      candidateId: decision.candidateId,
+      kind: "domain",
+      actionId: decision.actionId,
+      targetId: decision.targetId,
+      params: decision.params,
+      source,
+      anchor: turn.anchor,
+      createdAt: input.createdAt,
+    })
+  }
+
+  return buildCommandEnvelope({
+    commandId: input.commandId,
+    turnId: turn.id,
+    candidateId: decision.candidateId,
+    kind: "primitive",
+    primitiveAction: decision.primitiveAction!,
+    targetId: decision.targetId,
+    params: decision.params,
+    source,
+    anchor: turn.anchor,
+    createdAt: input.createdAt,
+  })
+}
+
+function uniqueResolverIds(turn: InteractionTurn, decision: InteractionDecision): string[] {
+  const ids = new Set<string>()
+  const hypothesis = turn.hypotheses.find((item) => item.id === decision.hypothesisId)
+  if (hypothesis?.resolverId) ids.add(hypothesis.resolverId)
+  turn.hypotheses.forEach((item) => ids.add(item.resolverId))
+  return [...ids]
 }
 
 export function cloneSerializableCommandParams(

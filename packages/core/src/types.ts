@@ -111,7 +111,7 @@ export type ContextObject = {
 
 export type FocusInfo = {
   objectId: string
-  source: "gui" | "voice" | "gaze" | "gesture" | "keyboard" | "programmatic"
+  source: "gui" | "voice" | "assistant" | "gaze" | "gesture" | "keyboard" | "programmatic"
   confidence?: number
 }
 
@@ -120,6 +120,9 @@ export type InteractionEvent = {
   sequence?: number
   modality: "gui" | "voice" | "gaze" | "gesture" | "touch" | "keyboard" | "remote"
   type: string
+  turnId?: string
+  commandId?: string
+  contextEpoch?: number
   text?: string
   target?: string
   targetHint?: string
@@ -187,6 +190,9 @@ export type ActionContext = {
   actionId: string
   target: InteractionObject
   snapshot: InteractionSnapshot
+  command?: import("./command").CommandEnvelope
+  turnId?: string
+  signal?: AbortSignal
   candidate?: ResolvedInteraction
   utterance?: string
 }
@@ -198,7 +204,8 @@ export type ActionParamResolver =
 export type ActionAvailability = (context: ActionContext) => boolean
 
 export type ActionExecutionResult =
-  | { status: "changed"; effectId?: string; data?: unknown }
+  | { status: "changed"; effectId?: string; data?: unknown; message?: string }
+  | { status: "unchanged"; reason?: string; data?: unknown }
   | { status: "unverified"; reason: string; effectId?: string; data?: unknown }
   | { status: "noop"; reason: string }
   | { status: "rejected"; reason: string; code?: string }
@@ -231,6 +238,8 @@ export type ActionExecutor<TAction extends ActionPayload = ActionPayload> = (
 ) => void | ActionExecutionResult | Promise<void | ActionExecutionResult>
 
 export type DomainActionSpec<TAction extends ActionPayload = ActionPayload> = {
+  title?: string
+  description?: string
   attachTo?: ActionAttachTarget
   executeScope: ExecuteScope
   paramsFrom?: ActionParamResolver
@@ -248,6 +257,18 @@ export type DomainActionSpec<TAction extends ActionPayload = ActionPayload> = {
   }
   voiceCallable?: boolean
   modelCallable?: boolean
+  voiceAliases?: string[]
+  intentAliases?: string[]
+  implicitSelection?: {
+    enabled: boolean
+    modalities?: Array<"voice" | "text" | "assistant">
+  }
+  stalePolicy?:
+    | { mode: "strict" }
+    | {
+        mode: "revalidate"
+        stateKeys?: string[]
+      }
   allowWhenModalOpen?: boolean
   conflictKey?: string | ((context: ActionContext) => string | undefined)
   postcondition?: ActionPostcondition
@@ -266,6 +287,7 @@ export type InteractionSnapshot = {
   snapshotId: string
   stateVersion: number
   contextHash: string
+  contextEpoch: number
   focusRevision: number
   eventSequence: number
   manifest?: import("./manifest").AppInteractionManifest

@@ -1,61 +1,66 @@
-# VUI + GUI Runtime Refactor Completion Audit
+# Unified Runtime + DX Refactor Completion Audit
 
 Date: 2026-06-25
 
-Spec: `OMNI_UI_VUI_GUI_RUNTIME_REFACTOR_SPEC.md`
+Spec: `OMNI_UI_UNIFIED_RUNTIME_DX_REFACTOR_SPEC.md`
 
-This audit maps the spec Definition of Done to current repository evidence. It is meant to make review reproducible rather than relying on a conversational summary.
+Baseline HEAD: `e06a7191f61c22da5975ddd41963162eac2b8662`
+
+This audit maps the unified runtime/DX checklist to repository evidence and repeatable verification commands.
 
 ## Verification Snapshot
 
 Commands run successfully:
 
 ```bash
-npm run verify
+npm --workspace @omni-ui/core run build
+npm --workspace @omni-ui/core run test
+npm --workspace @omni-ui/react run build
+npm --workspace @omni-ui/react run test
+npm run verify:package-consumer
 npm run verify:registry
+npm run verify:examples
+npm run verify
 ```
 
 Observed passing coverage:
 
-- `@omni-ui/core`: 18 test files, 81 tests passed.
-- `@omni-ui/react`: 1 test file, 36 tests passed.
+- `@omni-ui/core`: 20 test files, 87 tests passed.
+- `@omni-ui/react`: 1 test file, 37 tests passed.
 - `@omni-ui/shadcn`: 1 test file, 1 test passed.
-- `apps/docs`: 1 test file, 28 tests passed.
-- Runtime package builds, docs production build, and registry generation passed.
-- Registry build generated 54 public registry items.
+- `apps/demo-todo`: 1 test file, 28 tests passed.
+- `examples/react-vite-minimal`: typecheck and production build passed.
+- `npm pack` consumer verification passed for `@omni-ui/core` and `@omni-ui/react`.
+- Registry build generated 54 public registry items in `apps/demo-todo/public/r`.
 
 ## Definition of Done Evidence
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
-| All execution paths enter the unified Dispatcher. | Done | Domain, primitive, confirmation, and batch paths call `dispatchCommand` / `dispatchBatchCommands` in `packages/react/src/runtime.tsx`; dispatcher behavior is covered by `packages/core/test/dispatcher.test.ts`, `packages/core/test/batch.test.ts`, and `packages/react/test/runtime.test.tsx`. |
-| Detached resolutions without an anchor cannot execute. | Done | `dispatchResolution` returns `missing_anchor`; dispatcher rejects missing anchors. Covered by `packages/core/test/p0-regression.todo.test.ts` and React runtime tests. |
-| action-target, capability, scope, enabled, schema, confirmation, and authorization are checked before execution. | Done | Validator chain is implemented in `packages/core/src/dispatcher.ts`; legacy validation is hardened in `packages/core/src/action-registry.ts`. Covered by dispatcher, action-registry, scope, schema, and P0 regression tests. |
-| Confirmation is not bound only to `actionId` and model text is not reparsed. | Done | Confirmation grants bind frozen `CommandEnvelope` canonical data in `packages/core/src/confirmation.ts`; assistant conversation calls `interaction.confirmTurn(turnId)`. Covered by P0 confirmation tests and React confirmation tests. |
-| Primitive unsupported/no-op results are not reported as success. | Done | Primitive execution returns structured statuses in `packages/react/src/primitive-executor.ts`; dispatch maps unsupported/noop distinctly. Covered by P0 primitive tests and runtime tests. |
-| password/OTP/API key values are excluded from model context and trace by default. | Done | Model projection and event redaction live in `packages/core/src/privacy.ts`; DOM extraction avoids sensitive values. Covered by privacy tests and P0 sensitive regression tests. |
-| Model actions default to off or double allowlist. | Done | Assistant default policy is `mode: "off"`; model proposals require runtime policy and `modelCallable: true`. Covered by assistant policy tests and React model policy tests. |
-| Runtime has formal InteractionTurn, cancellation, and supersede protection. | Done | Turn state and transition reducer live in `packages/core/src/turn.ts`; runtime stores turns and abort controllers. Covered by turn tests and P0 stale resolver tests. |
-| Event Buffer and UnifiedFocus are injected into Snapshot. | Done | Implemented in `packages/core/src/events.ts`, `packages/core/src/focus.ts`, `packages/core/src/snapshot.ts`, and React runtime event capture. Covered by events, focus, snapshot, fusion, and React deictic tests. |
-| Deictic references such as this/that/it can use recent GUI behavior. | Done | Fusion uses `UnifiedFocus` and recent targets; React records GUI events. Covered by fusion deictic test and React recent GUI semantic focus test. |
-| Same-label objects do not silently choose the first target. | Done | Fusion returns clarification when scores are close; resolver no longer relies on first match for ambiguous labels. Covered by fusion, resolver, and React same-label clarification tests. |
-| Modal scope is a hard execution constraint. | Done | `packages/core/src/scope.ts` is called by dispatcher and fusion hard filters. Covered by scope tests and React modal-first tests. |
-| ASR partial never executes; final creates/submits the formal turn. | Done | `resolveVoice` handles partial preview turns; `submitVoice` submits finals. `VoiceAdapter` seam is exposed in `packages/react/src/voice.ts`. Covered by partial, n-best, VoiceAdapter, and voice clarification tests. |
-| Executor results distinguish committed/noop/pending/unverified/rejected/failed. | Done | Structured dispatch statuses live in `packages/core/src/command.ts` and dispatcher normalization. Covered by dispatcher, verification, batch, and assistant reply tests. |
-| Registry cleanup uses owner token. | Done | React runtime assigns `ownerId` to registrations and only disposes matching owners. Covered by duplicate group/action registration tests. |
-| Unit, React integration, concurrency, and privacy tests pass. | Done | `npm run verify` passes core and React suites; P0 stale resolver and privacy tests cover concurrency and redaction. |
-| README, migration notes, and examples are synchronized. | Done | `README.md`, `README_CN.md`, `packages/react/README.md`, and `packages/教程.md` document Dispatcher, Turn APIs, `interaction_hypotheses`, `VoiceAdapter`, confirmation, and verification commands. |
-| `npm run verify` passes. | Done | Verified on 2026-06-25. |
+| Turn is the single source of truth for hypotheses, candidates, decisions, commands, and results. | Done | `packages/core/src/turn.ts`, `packages/core/src/turn-store.ts`, and `packages/react/src/runtime.tsx`; covered by `packages/core/test/turn-store.test.ts` and `packages/react/test/runtime.test.tsx`. |
+| Partial/final voice input in the same session stays in the same Turn. | Done | Voice session reuse is implemented in `resolveVoice`; covered by `keeps partial and final voice input in the same session turn`. |
+| Each Turn has independent cancellation and CAS write protection. | Done | Turn store CAS and per-turn abort controllers prevent late writes; covered by turn store and runtime tests. |
+| Terminal Turns are immutable and active pointer never returns terminal Turns. | Done | `isTerminalTurnStatus` and active cleanup live in `packages/core/src/turn.ts` and `packages/core/src/turn-store.ts`. |
+| Resolver V2 emits hypotheses and Fusion uses formal temporal context. | Done | `packages/core/src/resolution.ts` and `packages/core/src/fusion-context.ts`; legacy resolvers adapt into `ResolutionBundle`. |
+| No first-item fallback remains in Fusion/Runtime execution. | Done | Removed target/action first fallback; `action_ambiguous` clarification is tested in `packages/core/test/fusion.test.ts`. |
+| Commands are built from Turn decisions and no snapshot is forged. | Done | `buildCommandFromTurnDecision` and `submitTurn(turnId)` replace formal `lastResolution` execution. |
+| Confirmation binds frozen commands and tolerates only irrelevant state drift. | Done | Confirmation grants bind command fingerprints; dispatcher keeps strict context/focus validation and has explicit irrelevant state-drift coverage in `packages/core/test/dispatcher.test.ts`. |
+| Dispatcher publishes realtime phases and Trace uses real phase timing. | Done | `DispatchPhaseEvent` flows through React turn phase history and `packages/core/src/observability.ts`. |
+| Provider uses shared conflict lock. | Done | React runtime passes one `CommandConflictLock` through domain, primitive, batch, confirmation, and Turn submission paths. |
+| Stale policy defaults strict. | Done | `defineAction` defaults `stalePolicy` to `strict`; dispatcher validates anchor state, context hash, context epoch, and focus revision. |
+| Action events and Focus form a feedback loop. | Done | Committed action events update semantic focus only after committed dispatch results. |
+| Public API separates root, advanced, devtools, testing, server, protocol, and styles. | Done | Package exports exist for `@omni-ui/core/advanced`, `server`, `testing`, `protocol`; React exports include `advanced`, `devtools`, `server`, `testing`, `styles`. |
+| `defineAction` and `useActionExecutor` are available. | Done | Implemented in core and React, with minimal Vite example using both. |
+| `modelCallable` defaults false. | Done | `defineAction` and registry normalization keep model execution opt-in. |
+| Errors use stable `OmniError` codes. | Done | `packages/core/src/errors.ts` provides stable error constants and mapping helpers. |
+| DevTools are Turn/Trace based and support diagnostics/export. | Done | `packages/react/src/devtools.tsx` renders turns, candidates, evidence, phases, result status, diagnostics, and sanitized export. |
+| Snapshot/Trace/Event privacy boundary remains intact. | Done | Existing privacy redaction remains covered by core privacy tests; DevTools export is sanitized. |
+| README and five-minute tutorial are consumer-first and need no API key. | Done | `README.md`, `README_CN.md`, and `examples/react-vite-minimal` use local actions first. |
+| Example source is unambiguous. | Done | Todo demo is `apps/demo-todo`; registry/docs references were updated away from `apps/docs`. |
+| Package consumer CI, CSS export, peer dependencies, and guides exist. | Done | `npm run verify:package-consumer`, `@omni-ui/react/styles`, React 18/19 peer range, and guides under `docs/guides/`. |
+| Changesets/release/protocol docs exist. | Done | `.changeset/config.json`, `docs/release.md`, and `@omni-ui/core/protocol` with version negotiation and envelopes. |
 
-## Additional Implemented Spec Items
+## Notes
 
-- LLM semantic hypotheses are supported by `packages/core/src/llm-resolver.ts` and assistant model replies via `interaction_hypotheses`.
-- Assistant model output remains a proposal; Runtime/Fusion/Dispatcher perform local arbitration and execution.
-- `ActionTransactionAdapter` support covers atomic batch dispatch when a transaction adapter is supplied.
-- Postcondition verification waits for refreshed snapshots before classifying execution as committed or failed.
-- Public shadcn registry output is regenerated and verified separately with `npm run verify:registry`.
-
-## Residual Non-Blocking Notes
-
-- `packages/react/src/runtime.tsx` remains a large module. The highest-risk behavior has been moved into deeper core modules and tested, but further mechanical extraction could improve locality later.
-- The project has a large in-flight refactor diff. Review should prefer reading by module clusters: core safety chain, React runtime bridge, assistant/LLM proposal path, shadcn registry, and docs.
+- `packages/react/src/runtime.tsx` is still intentionally the composition layer; the lower-level safety, resolution, store, protocol, and observability behavior now lives in core modules with focused tests.
+- The standalone CLI package remains a future release surface on top of the now-exported protocol/server/testing APIs; this implementation added the protocol anchor and package-consumer checks that the CLI would depend on.

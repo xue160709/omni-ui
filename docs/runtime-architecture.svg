@@ -1,0 +1,214 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1180" viewBox="0 0 1800 1180" role="img" aria-labelledby="title desc">
+  <title id="title">OmniUI Runtime 机制与架构</title>
+  <desc id="desc">OmniUI runtime-first architecture showing input surfaces, React registration and snapshot building, resolver pipeline, turn and command envelopes, dispatcher validation gates, execution paths, and feedback loop.</desc>
+  <defs>
+    <style>
+      .bg { fill: #f7f4ee; }
+      .ink { fill: #20232a; }
+      .muted { fill: #5f6673; }
+      .tiny { font-size: 20px; }
+      .small { font-size: 23px; }
+      .body { font-size: 27px; }
+      .label { font-size: 30px; font-weight: 700; }
+      .section { font-size: 33px; font-weight: 800; }
+      .title { font-size: 58px; font-weight: 900; }
+      .mono { font-family: "SFMono-Regular", "Menlo", "Consolas", monospace; }
+      .sans { font-family: "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif; }
+      .card { fill: #fffdfa; stroke: #282c34; stroke-width: 3; }
+      .soft { stroke: #282c34; stroke-width: 2.5; }
+      .dash { stroke-dasharray: 10 9; }
+      .arrow { fill: none; stroke: #282c34; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+      .arrow-soft { fill: none; stroke: #5f6673; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .pill { stroke: #282c34; stroke-width: 2.5; }
+      .teal { fill: #b9eadf; }
+      .green { fill: #cfe7b8; }
+      .blue { fill: #bfd8ff; }
+      .amber { fill: #ffe19a; }
+      .rose { fill: #ffc4c7; }
+      .violet { fill: #d8c8ff; }
+      .mint { fill: #c8f0cc; }
+      .cream { fill: #fff1cf; }
+      .peach { fill: #ffd3ad; }
+      .line-blue { stroke: #2f69bf; }
+      .line-teal { stroke: #157f72; }
+      .line-amber { stroke: #b56a00; }
+      .line-rose { stroke: #b73b55; }
+      .line-green { stroke: #4f7b20; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1800" height="1180"/>
+  <path d="M48 102 C156 38 284 33 410 72 C552 116 658 97 786 54 C968 -7 1140 22 1264 88 C1392 156 1522 165 1738 82 L1738 0 L48 0 Z" fill="#e6efe9"/>
+  <path d="M0 1020 C186 956 334 974 492 1034 C650 1094 788 1096 938 1030 C1112 954 1248 966 1404 1020 C1532 1064 1658 1067 1800 1018 L1800 1180 L0 1180 Z" fill="#efe5d8"/>
+
+  <text x="72" y="86" class="sans title ink">OmniUI Runtime 机制与架构</text>
+  <text x="76" y="126" class="sans body muted">runtime-first 多模态交互：把 GUI 暴露为可解析、可校验、可确认、可回放的本地命令系统</text>
+  <text x="1410" y="88" class="sans small muted">当前源码视图</text>
+  <text x="1410" y="122" class="mono tiny muted">core + react + docs demo</text>
+
+  <!-- Package rail -->
+  <rect x="70" y="170" width="1660" height="82" rx="20" class="card"/>
+  <text x="105" y="222" class="sans section ink">包分层</text>
+  <rect x="270" y="184" width="285" height="42" rx="21" class="pill blue"/>
+  <text x="295" y="213" class="mono small ink">@omni-ui/react</text>
+  <rect x="595" y="184" width="285" height="42" rx="21" class="pill teal"/>
+  <text x="622" y="213" class="mono small ink">@omni-ui/core</text>
+  <rect x="920" y="184" width="310" height="42" rx="21" class="pill amber"/>
+  <text x="946" y="213" class="mono small ink">@omni-ui/shadcn</text>
+  <rect x="1270" y="184" width="370" height="42" rx="21" class="pill rose"/>
+  <text x="1296" y="213" class="mono small ink">apps/demo-todo Todo demo</text>
+  <text x="276" y="242" class="sans tiny muted">Provider / hooks / DOM adapter</text>
+  <text x="601" y="242" class="sans tiny muted">snapshot / resolver / dispatcher</text>
+  <text x="926" y="242" class="sans tiny muted">可选可编辑组件注册表</text>
+  <text x="1276" y="242" class="sans tiny muted">本地示例 + chat fallback</text>
+
+  <!-- Main lanes -->
+  <rect x="70" y="298" width="300" height="690" rx="28" fill="#fff9ed" stroke="#282c34" stroke-width="3"/>
+  <rect x="410" y="298" width="390" height="690" rx="28" fill="#eef8ff" stroke="#282c34" stroke-width="3"/>
+  <rect x="840" y="298" width="430" height="690" rx="28" fill="#f1fff5" stroke="#282c34" stroke-width="3"/>
+  <rect x="1310" y="298" width="420" height="690" rx="28" fill="#fff0f2" stroke="#282c34" stroke-width="3"/>
+
+  <text x="105" y="347" class="sans section ink">输入面与宿主应用</text>
+  <text x="445" y="347" class="sans section ink">React Runtime 适配层</text>
+  <text x="875" y="347" class="sans section ink">Core Runtime 内核</text>
+  <text x="1345" y="347" class="sans section ink">执行、反馈与闭环</text>
+
+  <!-- Input cards -->
+  <rect x="105" y="390" width="230" height="105" rx="18" class="card"/>
+  <circle cx="135" cy="426" r="12" class="blue soft"/>
+  <text x="158" y="430" class="sans label ink">GUI</text>
+  <text x="126" y="465" class="sans small muted">click / focus / input</text>
+  <text x="126" y="490" class="sans small muted">DOM -> version++</text>
+
+  <rect x="105" y="520" width="230" height="115" rx="18" class="card"/>
+  <circle cx="135" cy="558" r="12" class="teal soft"/>
+  <text x="158" y="562" class="sans label ink">VoiceAdapter</text>
+  <text x="126" y="596" class="sans small muted">ASR partial 预览</text>
+  <text x="126" y="622" class="sans small muted">final 自动提交</text>
+
+  <rect x="105" y="660" width="230" height="128" rx="18" class="card"/>
+  <circle cx="135" cy="700" r="12" class="violet soft"/>
+  <text x="158" y="704" class="sans label ink">Chat / Text</text>
+  <text x="126" y="738" class="sans small muted">local fast path</text>
+  <text x="126" y="764" class="sans small muted">LLM fallback proposal</text>
+
+  <rect x="105" y="813" width="230" height="130" rx="18" class="card"/>
+  <circle cx="135" cy="854" r="12" class="amber soft"/>
+  <text x="158" y="858" class="sans label ink">App State</text>
+  <text x="126" y="891" class="sans small muted">routes / todos / projects</text>
+  <text x="126" y="918" class="sans small muted">业务 reducer / service</text>
+
+  <!-- React runtime cards -->
+  <rect x="445" y="390" width="320" height="146" rx="18" class="card"/>
+  <text x="474" y="428" class="sans label ink">注册表</text>
+  <text x="474" y="462" class="sans small muted">Page / Group / Node</text>
+  <text x="474" y="488" class="sans small muted">Virtual Object / Manifest</text>
+  <text x="474" y="514" class="sans small muted">ActionSpec + executor</text>
+
+  <rect x="445" y="562" width="320" height="140" rx="18" class="card"/>
+  <text x="474" y="600" class="sans label ink">DOM / ARIA 抽取</text>
+  <text x="474" y="634" class="sans small muted">label, role, state, options</text>
+  <text x="474" y="660" class="sans small muted">primitiveActions 自动推断</text>
+  <text x="474" y="686" class="sans small muted">elementByObjectId 本地映射</text>
+
+  <rect x="445" y="728" width="320" height="176" rx="18" class="card"/>
+  <text x="474" y="766" class="sans label ink">Snapshot Builder</text>
+  <text x="474" y="800" class="sans small muted">合并 DOM、注册对象、页面</text>
+  <text x="474" y="826" class="sans small muted">生成 contextStack / modal scope</text>
+  <text x="474" y="852" class="sans small muted">推断 list visible_order index</text>
+  <text x="474" y="878" class="sans small muted">附加当前可用 domain actions</text>
+
+  <rect x="432" y="924" width="350" height="38" rx="19" class="pill mint"/>
+  <text x="471" y="951" class="sans small ink">Provider 暴露 InteractionApi</text>
+
+  <!-- Core runtime cards -->
+  <rect x="875" y="390" width="360" height="148" rx="18" class="card"/>
+  <text x="904" y="428" class="sans label ink">两层上下文</text>
+  <text x="904" y="462" class="sans small muted">Interaction Snapshot：页面事实</text>
+  <text x="904" y="488" class="sans small muted">App Manifest：跨页能力</text>
+  <text x="904" y="514" class="sans small muted">LLM 只看精简投影，不看源码</text>
+
+  <rect x="875" y="562" width="360" height="172" rx="18" class="card"/>
+  <text x="904" y="600" class="sans label ink">Resolver Pipeline</text>
+  <text x="904" y="634" class="sans small muted">configured rules → builtin rule</text>
+  <text x="904" y="660" class="sans small muted">LLM proposal / hypotheses</text>
+  <text x="904" y="686" class="sans small muted">Fusion ranker → local decision</text>
+  <text x="904" y="712" class="sans small muted">ready / clarify / not_found</text>
+
+  <rect x="875" y="758" width="360" height="174" rx="18" class="card"/>
+  <text x="904" y="796" class="sans label ink">Turn + Command</text>
+  <text x="904" y="830" class="sans small muted">InteractionTurn 状态机</text>
+  <text x="904" y="856" class="sans small muted">SnapshotAnchor: state/context/focus</text>
+  <text x="904" y="882" class="sans small muted">CommandEnvelope 不可变冻结</text>
+  <text x="904" y="908" class="sans small muted">DecisionBinding 防止确认错配</text>
+
+  <!-- Execution cards -->
+  <rect x="1345" y="390" width="350" height="230" rx="18" class="card"/>
+  <text x="1374" y="428" class="sans label ink">Dispatcher 硬闸门</text>
+  <text x="1374" y="462" class="sans small muted">anchor: stateVersion</text>
+  <text x="1374" y="488" class="sans small muted">contextHash / focusRevision</text>
+  <text x="1374" y="514" class="sans small muted">target enabled + action attach</text>
+  <text x="1374" y="540" class="sans small muted">modelCallable / voiceCallable</text>
+  <text x="1374" y="566" class="sans small muted">scope + schema + authorize</text>
+  <text x="1374" y="592" class="sans small muted">confirmation + conflict lock</text>
+
+  <rect x="1345" y="646" width="350" height="114" rx="18" class="card"/>
+  <text x="1374" y="684" class="sans label ink">执行分叉</text>
+  <text x="1374" y="718" class="sans small muted">domain action → app executor</text>
+  <text x="1374" y="744" class="sans small muted">primitive action → DOM events</text>
+
+  <rect x="1345" y="786" width="350" height="176" rx="18" class="card"/>
+  <text x="1374" y="824" class="sans label ink">结果与闭环</text>
+  <text x="1374" y="858" class="sans small muted">postcondition verification</text>
+  <text x="1374" y="884" class="sans small muted">committed / unverified / noop</text>
+  <text x="1374" y="910" class="sans small muted">feedback data-mm-feedback</text>
+  <text x="1374" y="936" class="sans small muted">bumpVersion → 新 snapshot</text>
+
+  <!-- Center spine -->
+  <path d="M370 442 H445" class="arrow line-blue"/>
+  <polygon points="445,442 429,433 429,451" fill="#2f69bf"/>
+  <path d="M370 578 H445" class="arrow line-teal"/>
+  <polygon points="445,578 429,569 429,587" fill="#157f72"/>
+  <path d="M370 724 H445" class="arrow line-amber"/>
+  <polygon points="445,724 429,715 429,733" fill="#b56a00"/>
+  <path d="M370 874 H445" class="arrow-soft"/>
+  <polygon points="445,874 429,865 429,883" fill="#5f6673"/>
+
+  <path d="M765 462 H875" class="arrow line-blue"/>
+  <polygon points="875,462 859,453 859,471" fill="#2f69bf"/>
+  <path d="M765 632 H875" class="arrow line-teal"/>
+  <polygon points="875,632 859,623 859,641" fill="#157f72"/>
+  <path d="M765 816 H875" class="arrow line-green"/>
+  <polygon points="875,816 859,807 859,825" fill="#4f7b20"/>
+
+  <path d="M1235 648 H1345" class="arrow line-teal"/>
+  <polygon points="1345,648 1329,639 1329,657" fill="#157f72"/>
+  <path d="M1235 846 H1345" class="arrow line-green"/>
+  <polygon points="1345,846 1329,837 1329,855" fill="#4f7b20"/>
+  <path d="M1235 464 H1345" class="arrow line-rose"/>
+  <polygon points="1345,464 1329,455 1329,473" fill="#b73b55"/>
+
+  <!-- Feedback loop -->
+  <path d="M1520 962 V1000 H612 V962" class="arrow-soft dash"/>
+  <polygon points="612,962 603,978 621,978" fill="#5f6673"/>
+  <text x="828" y="1028" class="sans small muted">执行结果、DOM 事件、显式 invalidateSnapshot() 共同推动下一轮 stateVersion</text>
+
+  <!-- Gate strip -->
+  <rect x="100" y="1045" width="1630" height="96" rx="28" fill="#ffffff" stroke="#282c34" stroke-width="3"/>
+  <text x="132" y="1087" class="sans section ink">安全原则</text>
+  <rect x="322" y="1065" width="210" height="48" rx="24" class="pill blue"/>
+  <text x="350" y="1098" class="sans small ink">模型只能提案</text>
+  <rect x="552" y="1065" width="245" height="48" rx="24" class="pill teal"/>
+  <text x="582" y="1098" class="sans small ink">本地按 snapshot 裁决</text>
+  <rect x="817" y="1065" width="260" height="48" rx="24" class="pill amber"/>
+  <text x="846" y="1098" class="sans small ink">确认绑定同一 command</text>
+  <rect x="1097" y="1065" width="275" height="48" rx="24" class="pill rose"/>
+  <text x="1126" y="1098" class="sans small ink">GUI 点击与语音同 executor</text>
+  <rect x="1392" y="1065" width="285" height="48" rx="24" class="pill mint"/>
+  <text x="1422" y="1098" class="sans small ink">隐私投影后再给 LLM</text>
+
+  <!-- Small file annotations -->
+  <text x="468" y="382" class="mono tiny muted">packages/react/src/runtime.tsx</text>
+  <text x="902" y="382" class="mono tiny muted">packages/core/src/*</text>
+  <text x="1370" y="382" class="mono tiny muted">dispatcher.ts</text>
+</svg>

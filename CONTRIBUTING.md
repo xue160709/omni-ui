@@ -25,4 +25,4 @@ npm run verify
 - Do not add per-control voice scripts as the primary API.
 - LLM resolvers may propose candidates, but validation and dispatch stay local.
 - Do not execute string expressions with `eval`.
-- Keep generated registry items under `apps/docs/public/r` reproducible from `packages/shadcn/registry`.
+- Keep generated registry items under `apps/demo-todo/public/r` reproducible from `packages/shadcn/registry`.

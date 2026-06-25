@@ -1,6 +1,7 @@
 import type {
   CommandEnvelope,
   ConfirmationGrant,
+  DispatchPhaseEvent,
   DispatchResult,
   RuntimeError,
   SnapshotAnchor,
@@ -106,6 +107,8 @@ export type RankedInteractionCandidate = {
 }
 
 export type InteractionDecision = {
+  candidateId?: string
+  hypothesisId?: string
   targetId: string
   actionId?: string
   primitiveAction?: PrimitiveAction
@@ -113,17 +116,27 @@ export type InteractionDecision = {
   score: number
   confidenceMargin: number
   evidence: FusionEvidence[]
+  contextEpoch?: number
+  decidedAt?: number
 }
 
 export type ClarificationRequest = {
   id: string
+  turnId?: string
+  resolutionRevision?: number
+  contextEpoch?: number
   prompt: string
+  kind?: "target" | "action" | "slot" | "context"
+  candidateIds?: string[]
   candidates?: RankedInteractionCandidate[]
+  missingSlots?: string[]
   createdAt: number
+  expiresAt?: number
 }
 
 export type InteractionTurnStatus =
   | "created"
+  | "listening"
   | "resolving"
   | "needs_clarification"
   | "awaiting_confirmation"
@@ -133,6 +146,7 @@ export type InteractionTurnStatus =
   | "verifying"
   | "committed"
   | "unverified"
+  | "pending"
   | "noop"
   | "rejected"
   | "failed"
@@ -143,10 +157,14 @@ export type InteractionTurnStatus =
 export type InteractionTurn = {
   id: string
   revision: number
+  inputRevision: number
+  resolutionRevision: number
   status: InteractionTurnStatus
   source: "voice" | "assistant" | "text"
   input: VoiceInput | TextInput
+  transcriptRevisions?: VoiceInput[]
   anchor: SnapshotAnchor
+  contextEpoch: number
   hypotheses: SemanticIntentHypothesis[]
   candidates: RankedInteractionCandidate[]
   decision?: InteractionDecision
@@ -154,11 +172,32 @@ export type InteractionTurn = {
   confirmation?: ConfirmationGrant
   result?: DispatchResult
   clarification?: ClarificationRequest
+  phaseHistory: TurnPhaseRecord[]
   createdAt: number
   updatedAt: number
   expiresAt?: number
   supersededBy?: string
   error?: RuntimeError
+}
+
+export type TurnPhaseRecord = {
+  name:
+    | "created"
+    | "listening"
+    | "resolution"
+    | "clarification"
+    | "confirmation"
+    | "validation"
+    | "execution"
+    | "verification"
+    | "result"
+    | "cancelled"
+    | "superseded"
+    | "expired"
+  state?: string
+  startedAt: number
+  endedAt?: number
+  outcome?: string
 }
 
 export type CreateInteractionTurnInput = {
@@ -174,9 +213,14 @@ export type TurnEvent = {
   type: "transition"
   status: InteractionTurnStatus
   at?: number
+  input?: InteractionTurn["input"]
+  inputRevision?: number
+  resolutionRevision?: number
+  transcriptRevision?: VoiceInput
   hypotheses?: SemanticIntentHypothesis[]
   candidates?: RankedInteractionCandidate[]
   decision?: InteractionDecision
+  dispatchPhase?: DispatchPhaseEvent
   pendingCommand?: CommandEnvelope
   confirmation?: ConfirmationGrant
   result?: DispatchResult
@@ -186,7 +230,8 @@ export type TurnEvent = {
 }
 
 const allowedTransitions: Record<InteractionTurnStatus, readonly InteractionTurnStatus[]> = {
-  created: ["resolving", "cancelled"],
+  created: ["listening", "resolving", "cancelled"],
+  listening: ["listening", "resolving", "cancelled", "superseded", "expired"],
   resolving: [
     "needs_clarification",
     "awaiting_confirmation",
@@ -198,12 +243,13 @@ const allowedTransitions: Record<InteractionTurnStatus, readonly InteractionTurn
   ],
   needs_clarification: ["resolving", "cancelled", "superseded", "expired"],
   awaiting_confirmation: ["ready", "cancelled", "superseded", "expired"],
-  ready: ["awaiting_confirmation", "validating", "superseded"],
-  validating: ["executing", "rejected"],
-  executing: ["verifying", "failed"],
-  verifying: ["committed", "unverified", "noop", "failed"],
+  ready: ["awaiting_confirmation", "validating", "superseded", "cancelled"],
+  validating: ["executing", "rejected", "failed", "cancelled"],
+  executing: ["verifying", "committed", "pending", "noop", "failed", "cancelled"],
+  verifying: ["committed", "unverified", "pending", "noop", "failed", "cancelled"],
   committed: [],
   unverified: [],
+  pending: [],
   noop: [],
   rejected: [],
   failed: [],
@@ -217,12 +263,22 @@ export function createInteractionTurn(input: CreateInteractionTurnInput): Intera
   return {
     id: input.id,
     revision: 0,
+    inputRevision: 0,
+    resolutionRevision: 0,
     status: "created",
     source: input.source,
     input: input.input,
     anchor: input.anchor,
+    contextEpoch: input.anchor.contextEpoch ?? 0,
     hypotheses: [],
     candidates: [],
+    phaseHistory: [
+      {
+        name: "created",
+        startedAt: now,
+        outcome: "created",
+      },
+    ],
     createdAt: now,
     updatedAt: now,
     expiresAt: input.expiresAt,
@@ -248,6 +304,15 @@ export function transitionTurn(turn: InteractionTurn, event: TurnEvent): Interac
     updatedAt: event.at ?? Date.now(),
   }
 
+  if (event.input) next.input = event.input
+  if (typeof event.inputRevision === "number") next.inputRevision = event.inputRevision
+  if (typeof event.resolutionRevision === "number") next.resolutionRevision = event.resolutionRevision
+  if (event.transcriptRevision) {
+    next.transcriptRevisions = [
+      ...(turn.transcriptRevisions ?? []),
+      event.transcriptRevision,
+    ].slice(-10)
+  }
   if (event.hypotheses) next.hypotheses = event.hypotheses
   if (event.candidates) next.candidates = event.candidates
   if (event.decision) next.decision = event.decision
@@ -257,6 +322,63 @@ export function transitionTurn(turn: InteractionTurn, event: TurnEvent): Interac
   if (event.clarification) next.clarification = event.clarification
   if (event.supersededBy) next.supersededBy = event.supersededBy
   if (event.error) next.error = event.error
+  next.phaseHistory = appendTurnPhase(turn, event, next)
 
   return next
+}
+
+export function isTerminalTurnStatus(status: InteractionTurnStatus): boolean {
+  return [
+    "committed",
+    "unverified",
+    "pending",
+    "noop",
+    "rejected",
+    "failed",
+    "cancelled",
+    "superseded",
+    "expired",
+  ].includes(status)
+}
+
+function appendTurnPhase(
+  turn: InteractionTurn,
+  event: TurnEvent,
+  next: InteractionTurn
+): TurnPhaseRecord[] {
+  const at = event.at ?? next.updatedAt
+  const phase = phaseForTurnEvent(event)
+  const previous = turn.phaseHistory ?? []
+  if (!phase) return previous
+  return [
+    ...previous,
+    {
+      ...phase,
+      startedAt: at,
+    },
+  ]
+}
+
+function phaseForTurnEvent(event: TurnEvent): Omit<TurnPhaseRecord, "startedAt"> | undefined {
+  if (event.dispatchPhase) {
+    return {
+      name: event.dispatchPhase.phase,
+      state: event.dispatchPhase.state,
+      outcome: event.dispatchPhase.state,
+      endedAt: event.dispatchPhase.state === "started" ? undefined : event.dispatchPhase.at,
+    }
+  }
+
+  if (event.status === "listening") return { name: "listening", outcome: event.status }
+  if (event.status === "resolving") return { name: "resolution", outcome: event.status }
+  if (event.status === "needs_clarification") return { name: "clarification", outcome: event.status }
+  if (event.status === "awaiting_confirmation") return { name: "confirmation", outcome: event.status }
+  if (event.status === "validating") return { name: "validation", outcome: event.status }
+  if (event.status === "executing") return { name: "execution", outcome: event.status }
+  if (event.status === "verifying") return { name: "verification", outcome: event.status }
+  if (event.status === "cancelled") return { name: "cancelled", outcome: event.error?.message ?? event.status }
+  if (event.status === "superseded") return { name: "superseded", outcome: event.supersededBy ?? event.status }
+  if (event.status === "expired") return { name: "expired", outcome: event.status }
+  if (isTerminalTurnStatus(event.status)) return { name: "result", outcome: event.status }
+  return undefined
 }

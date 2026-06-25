@@ -372,6 +372,60 @@ function PartialVoicePreviewHarness() {
   )
 }
 
+function VoiceSessionHarness() {
+  const api = useInteractionApi()
+  const [summary, setSummary] = React.useState("")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+      },
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const partial = await api.resolveVoice({
+            kind: "partial",
+            text: "完成评审",
+            sessionId: "same-session",
+            receivedAt: Date.now(),
+          })
+          const final = await api.resolveVoice({
+            kind: "final",
+            text: "完成评审方案",
+            sessionId: "same-session",
+            receivedAt: Date.now() + 10,
+          })
+          setSummary(
+            `${partial.id === final.id}:${final.inputRevision > partial.inputRevision}:${final.input.kind}:${final.status}`
+          )
+        }}
+      >
+        voice session
+      </button>
+      <div data-testid="voice-session-summary">{summary}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+        >
+          评审方案
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
 function AtomicBatchHarness() {
   const api = useInteractionApi()
   const [executed, setExecuted] = React.useState(0)
@@ -1775,6 +1829,22 @@ describe("MultimodalProvider", () => {
         "true:ready:true:true:voice-target"
       )
       expect(screen.getByTestId("partial-executed").textContent).toBe("0")
+    })
+  })
+
+  it("keeps partial and final voice input in the same session turn", async () => {
+    render(
+      <MultimodalProvider>
+        <VoiceSessionHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "voice session" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("voice-session-summary").textContent).toBe(
+        "true:true:final:ready"
+      )
     })
   })
 

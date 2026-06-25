@@ -1,6 +1,7 @@
 import { actionMatchesObject } from "./action-registry"
 import { normalizePrimitiveAction, normalizePrimitiveActions } from "./primitive"
 import { validateCommandScope } from "./scope"
+import { temporalDecay } from "./fusion-context"
 import type {
   FusionEvidence,
   InteractionDecision,
@@ -44,15 +45,19 @@ export function rankInteractionCandidates(
   const candidates = hypotheses.flatMap((hypothesis) =>
     createCandidatesForHypothesis(snapshot, hypothesis)
   )
-  const accepted = candidates
+  const deduped = dedupeCandidates(candidates)
+  const accepted = deduped
     .filter((candidate) => !candidate.rejected)
     .sort((a, b) => b.score - a.score)
 
   if (accepted.length === 0) {
+    const actionAmbiguous = deduped.some(
+      (candidate) => candidate.rejected?.code === "missing_action"
+    )
     return {
-      status: "not_found",
-      candidates,
-      reason: "没有通过硬性校验的候选目标",
+      status: actionAmbiguous ? "needs_clarification" : "not_found",
+      candidates: deduped,
+      reason: actionAmbiguous ? "action_ambiguous" : "没有通过硬性校验的候选目标",
     }
   }
 
@@ -64,7 +69,7 @@ export function rankInteractionCandidates(
   if (top.score < minClarificationCandidateScore) {
     return {
       status: "not_found",
-      candidates,
+      candidates: deduped,
       reason: "候选置信度不足",
     }
   }
@@ -72,7 +77,7 @@ export function rankInteractionCandidates(
   if (top.score < minAutoExecuteScore) {
     return {
       status: "needs_clarification",
-      candidates,
+      candidates: deduped,
       reason: "候选置信度不足",
     }
   }
@@ -87,8 +92,10 @@ export function rankInteractionCandidates(
 
   return {
     status: "ready",
-    candidates,
+    candidates: deduped,
     decision: {
+      candidateId: top.id,
+      hypothesisId: top.hypothesisId,
       targetId: top.targetId,
       actionId: top.actionId,
       primitiveAction: top.primitiveAction,
@@ -96,6 +103,8 @@ export function rankInteractionCandidates(
       score: top.score,
       confidenceMargin: second ? top.score - second.score : top.score,
       evidence: top.evidence,
+      contextEpoch: snapshot.contextEpoch,
+      decidedAt: Date.now(),
     },
   }
 }
@@ -108,15 +117,10 @@ function createCandidatesForHypothesis(
   const actionHint = hypothesis.actionHint
 
   return targets.map((target, index) => {
-    const actionId = actionHint && target.actions?.includes(actionHint) ? actionHint : target.actions?.[0]
+    const action = resolveCandidateAction(snapshot, target, hypothesis)
+    const actionId = action.actionId
+    const primitiveAction = action.primitiveAction
     const normalizedPrimitiveActions = normalizePrimitiveActions(target.primitiveActions)
-    const normalizedPrimitiveHint = actionHint ? normalizePrimitiveAction(actionHint) : undefined
-    const primitiveAction: PrimitiveAction | undefined =
-      !actionId && normalizedPrimitiveActions?.length
-        ? normalizedPrimitiveHint && normalizedPrimitiveActions.includes(normalizedPrimitiveHint)
-          ? normalizedPrimitiveHint
-          : normalizedPrimitiveActions[0]
-        : undefined
     const evidence = scoreEvidence(snapshot, target, hypothesis, index)
     const score = clamp01(hypothesis.confidence * 0.55 + evidence.reduce((sum, item) => sum + item.score, 0))
     const rejected = hardReject(snapshot, target, actionId, primitiveAction)
@@ -133,6 +137,41 @@ function createCandidatesForHypothesis(
       rejected,
     }
   })
+}
+
+function resolveCandidateAction(
+  snapshot: InteractionSnapshot,
+  target: InteractionObject,
+  hypothesis: SemanticIntentHypothesis
+): { actionId?: string; primitiveAction?: PrimitiveAction } {
+  const actionHint = hypothesis.actionHint
+  if (actionHint) {
+    const normalizedPrimitiveHint = normalizePrimitiveAction(actionHint)
+    if (snapshot.actionSpecs[actionHint]) return { actionId: actionHint }
+    if (normalizePrimitiveActions(target.primitiveActions)?.includes(normalizedPrimitiveHint)) {
+      return { primitiveAction: normalizedPrimitiveHint }
+    }
+    return snapshot.actionSpecs[actionHint]
+      ? { actionId: actionHint }
+      : { primitiveAction: normalizedPrimitiveHint }
+  }
+
+  const eligibleDomainActions = (target.actions ?? [])
+    .map((actionId) => snapshot.actionSpecs[actionId])
+    .filter((spec): spec is NonNullable<typeof spec> => Boolean(spec))
+    .filter((spec) => actionMatchesObject(spec, target))
+    .filter((spec) => spec.implicitSelection?.enabled === true)
+    .filter((spec) => (spec.risk ?? "medium") === "low")
+    .filter((spec) => {
+      const modality = hypothesis.source === "llm" ? "assistant" : "voice"
+      return !spec.implicitSelection?.modalities || spec.implicitSelection.modalities.includes(modality)
+    })
+
+  if (eligibleDomainActions.length === 1) {
+    return { actionId: eligibleDomainActions[0].id }
+  }
+
+  return {}
 }
 
 function resolveHypothesisTargets(
@@ -206,7 +245,27 @@ function scoreEvidence(
   if (snapshot.unifiedFocus.selectedObjectIds.includes(target.id)) evidence.push({ type: "gui_selection", score: 0.2, objectId: target.id })
   if (snapshot.unifiedFocus.semanticFocus?.objectId === target.id) evidence.push({ type: "semantic_focus", score: 0.24, objectId: target.id })
   if (snapshot.unifiedFocus.inputFocus?.objectId === target.id) evidence.push({ type: "input_focus", score: 0.08, objectId: target.id })
-  if (snapshot.unifiedFocus.recentTargets.some((item) => item.objectId === target.id)) evidence.push({ type: "recent_gui_target", score: 0.18, objectId: target.id })
+  const recentFocus = snapshot.unifiedFocus.recentTargets.find((item) => item.objectId === target.id)
+  if (recentFocus) {
+    evidence.push({
+      type: "recent_gui_target",
+      score: 0.18,
+      objectId: target.id,
+      timestamp: recentFocus.timestamp,
+    })
+  }
+  const pointerEvent = [...snapshot.recentEvents]
+    .reverse()
+    .find((event) => event.target === target.id && event.type === "gui.pointer.activated")
+  if (pointerEvent) {
+    evidence.push({
+      type: "recent_gui_target",
+      score: 0.24 * temporalDecay(pointerEvent.timestamp, Date.now(), 2500),
+      objectId: target.id,
+      eventId: pointerEvent.id,
+      timestamp: pointerEvent.timestamp,
+    })
+  }
   if (hypothesis.modelTargetIdHint === target.id) evidence.push({ type: "model_suggested_target", score: 0.08, objectId: target.id })
   const normalizedPrimitiveHint = hypothesis.actionHint
     ? normalizePrimitiveAction(hypothesis.actionHint)
@@ -215,7 +274,6 @@ function scoreEvidence(
     target.actions?.includes(hypothesis.actionHint ?? "") ||
     (normalizedPrimitiveHint && normalizePrimitiveActions(target.primitiveActions)?.includes(normalizedPrimitiveHint))
   ) evidence.push({ type: "action_compatibility", score: 0.15, objectId: target.id })
-  if (index > 0) evidence.push({ type: "scope_penalty", score: -0.02 * index, objectId: target.id })
 
   return evidence
 }
@@ -258,6 +316,47 @@ function hardReject(
   }
 
   return { code: "missing_action", reason: "候选没有可执行动作" }
+}
+
+function dedupeCandidates(
+  candidates: RankedInteractionCandidate[]
+): RankedInteractionCandidate[] {
+  const byKey = new Map<string, RankedInteractionCandidate>()
+  for (const candidate of candidates) {
+    const key = stableCandidateKey(candidate)
+    const existing = byKey.get(key)
+    if (!existing) {
+      byKey.set(key, candidate)
+      continue
+    }
+    byKey.set(key, {
+      ...existing,
+      score: Math.max(existing.score, candidate.score),
+      evidence: mergeEvidence(existing.evidence, candidate.evidence),
+      rejected: existing.rejected && !candidate.rejected ? undefined : existing.rejected,
+    })
+  }
+  return [...byKey.values()]
+}
+
+function stableCandidateKey(candidate: RankedInteractionCandidate): string {
+  return JSON.stringify({
+    targetId: candidate.targetId,
+    actionId: candidate.actionId,
+    primitiveAction: candidate.primitiveAction,
+    params: candidate.params,
+  })
+}
+
+function mergeEvidence(
+  left: RankedInteractionCandidate["evidence"],
+  right: RankedInteractionCandidate["evidence"]
+): RankedInteractionCandidate["evidence"] {
+  const byKey = new Map<string, RankedInteractionCandidate["evidence"][number]>()
+  for (const item of [...left, ...right]) {
+    byKey.set(`${item.type}:${item.objectId ?? ""}:${item.eventId ?? ""}:${item.detail ?? ""}`, item)
+  }
+  return [...byKey.values()]
 }
 
 function normalize(value: string): string {

@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const packageRoot = path.resolve(__dirname, "..")
 const repoRoot = path.resolve(packageRoot, "../..")
 const registryRoot = path.join(packageRoot, "registry")
-const outputRoot = path.join(repoRoot, "apps/docs/public/r")
+const outputRoot = path.join(repoRoot, "apps/demo-todo/public/r")
 
 const source = JSON.parse(await readFile(path.join(registryRoot, "registry.json"), "utf8"))
 

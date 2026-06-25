@@ -2,135 +2,85 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-OmniUI: Multimodal components for AI-native interfaces.
+Let an existing React page safely accept text, voice, and AI-assisted commands without replacing your UI kit or business state.
 
-OmniUI turns the current GUI into a compact Interaction Snapshot, resolves visible speech commands such as "click add" or "complete the first item", validates the requested action, and dispatches through the same command handler used by GUI clicks.
-
-The core product is `@omni-ui/react`: use it to add multimodal behavior to an existing React app without replacing your UI library. The shadcn registry is optional; it provides editable starter components and recipes for teams that want a faster default UI kit.
-
-## Packages
-
-- `@omni-ui/core`: framework-agnostic types, snapshot creation, action registry, resolver contracts, validation, and feedback primitives.
-- `@omni-ui/react`: React runtime, DOM/ARIA extraction, provider, hooks, and default feedback styles.
-- `@omni-ui/shadcn`: optional shadcn registry source for editable wrappers and starter recipes installed into `components/multimodal/*`.
-- `apps/docs`: local mobile TodoList project with bottom tabs, todo detail screens, a floating Chatbot, and settings.
-
-Start here for the project overview. For step-by-step app integration, see [packages/README.md](packages/README.md). Package-specific npm README files live in [packages/react/README.md](packages/react/README.md), [packages/core/README.md](packages/core/README.md), and [packages/shadcn/README.md](packages/shadcn/README.md).
-
-## Two Product Lines
-
-**Runtime integration** is the default path for existing apps:
-
-```text
-Use @omni-ui/react with your current Button, Input, Dialog, Table, routes, and state.
-Mark business objects with MultimodalGroup.
-Register domain actions with useInteractionActions.
-```
-
-**UI kit / registry** is the optional path for new projects or shadcn users:
-
-```text
-Install editable source files from the registry into components/multimodal/*.
-Keep using your local components/ui/* and theme tokens.
-Customize the installed code like any other app code.
-```
-
-## Quick Start
-
-Install dependencies and run the local TodoList app:
+Install the runtime:
 
 ```bash
-npm install
-npm run dev
+npm install @omni-ui/react
 ```
 
-Open:
+React + shadcn/ui users can also install optional editable registry components from `@omni-ui/shadcn`. Non-React runtimes and server adapters can build on `@omni-ui/core`.
 
-```text
-http://127.0.0.1:5173/
-```
+## 5-Minute Local Command
 
-The local app exposes `/`, `/todos`, `/todos/:id`, `/projects`, `/projects/:id`, `/calendar`, `/kanban`, `/analytics`, and `/settings`. Chatbot is a global floating sheet opened from the bottom tab, so it stays available while you move between pages. Visiting `/chat` opens the same floating sheet over Home for compatibility. Enter your SiliconFlow API key in the Settings tab before sending messages.
-
-You can also set `SILICONFLOW_API_KEY` before starting Vite as a server-side fallback, but local UI usage should go through Settings.
-
-Do not open `apps/docs/index.html` directly with `file://`; the TodoList app is served by Vite.
-
-Try these utterances in the demo:
-
-```text
-完成第一个
-打开 Chatbot
-只看今天
-清空已完成
-把买牛奶那个完成
-只显示还没做完的
-```
-
-## Minimal React Usage
+The first command needs no model API key, microphone permission, or shadcn dependency.
 
 ```tsx
 import {
-  defineMultimodalConfig,
-  MultimodalProvider,
-  MultimodalPage,
+  CommandInput,
   MultimodalGroup,
-  useInteractionActions,
+  MultimodalPage,
+  MultimodalProvider,
+  defineAction,
+  defineMultimodalConfig,
+  useActionExecutor,
 } from "@omni-ui/react"
 
-const multimodalConfig = defineMultimodalConfig({
+const completeTodo = defineAction({
+  id: "todo.complete",
+  title: "Complete todo",
+  attachTo: { entityType: "todo" },
+  executeScope: "object",
+  risk: "low",
+  modelCallable: false,
+  paramsFrom: ({ target }) => ({ todoId: target.entity?.id }),
+})
+
+const config = defineMultimodalConfig({
   rules: [
     {
-      id: "navigation.goto",
-      patterns: ["打开{route}", "去{route}", "进入{route}", "回到{route}"],
-      target: "route.byLabel",
-      actionId: "navigation.goto",
+      id: "todo.complete",
+      patterns: ["完成第{item}个任务", "完成{target}"],
+      target: "entity.todo.byLabelOrIndex",
+      actionId: "todo.complete",
     },
   ],
 })
 
 function App() {
   return (
-    <MultimodalProvider config={multimodalConfig}>
-      <MultimodalPage id="page.todo" title="Todo" route="/todo">
-        <TodoPage />
-      </MultimodalPage>
+    <MultimodalProvider config={config}>
+      <TodoPage />
     </MultimodalProvider>
   )
 }
 
-function TodoItem({ todo, executeTodoAction }) {
+function TodoPage() {
+  const todos = useTodos()
+
+  useActionExecutor(completeTodo, async ({ todoId }) => {
+    await todoService.complete(todoId)
+    return { status: "changed" }
+  })
+
   return (
-    <MultimodalGroup
-      id={`todo.item.${todo.id}`}
-      role="list_item"
-      label={todo.title}
-      entity={{ type: "todo", id: todo.id }}
-    >
-      <button onClick={() => executeTodoAction({ type: "todo.complete", todoId: todo.id })}>
-        完成
-      </button>
-      <span>{todo.title}</span>
-    </MultimodalGroup>
+    <MultimodalPage id="page.todos" title="Todos" route="/todos">
+      <CommandInput placeholder="完成第一个任务" />
+      {todos.map((todo) => (
+        <MultimodalGroup
+          key={todo.id}
+          id={`todo.item.${todo.id}`}
+          role="list_item"
+          label={todo.title}
+          entity={{ type: "todo", id: todo.id }}
+        >
+          <TodoItem todo={todo} />
+        </MultimodalGroup>
+      ))}
+    </MultimodalPage>
   )
 }
-```
-
-Register domain actions once in the page:
-
-```tsx
-useInteractionActions({
-  namespace: "todo",
-  actions: {
-    "todo.complete": {
-      attachTo: { entityType: "todo" },
-      executeScope: "object",
-      paramsFrom: ({ target }) => ({ todoId: target.entity?.id }),
-      availableWhen: ({ target }) => target.state?.completed === false,
-    },
-  },
-  execute: executeTodoAction,
-})
 ```
 
 `todo.complete` is app-owned. OmniUI does not ship Todo, CRM, inbox, or other domain actions. Apps register their own domain actions and execute them through the same reducer/service used by GUI clicks.
@@ -189,7 +139,7 @@ The route rule uses the library-provided `navigation.goto`. The `issue.close` ac
 
 ## Optional shadcn Registry
 
-The registry is not required for runtime integration. It is a source-code starter kit for teams that want shadcn-style multimodal components and recipes. Generated registry files are written to `apps/docs/public/r`.
+The registry is not required for runtime integration. It is a source-code starter kit for teams that want shadcn-style multimodal components and recipes. Generated registry files are written to `apps/demo-todo/public/r`.
 
 ```bash
 npm run registry:build

@@ -13,9 +13,21 @@ export type InteractionEventType =
   | "voice.intent.hypothesized"
   | "voice.clarification.requested"
   | "voice.confirmation.received"
+  | "fusion.completed"
+  | "turn.created"
+  | "turn.superseded"
+  | "turn.cancelled"
+  | "action.validation.started"
   | "action.validated"
+  | "action.rejected"
+  | "action.execution.started"
   | "action.committed"
+  | "action.unverified"
+  | "action.pending"
   | "action.noop"
+  | "action.verification.started"
+  | "action.verification.passed"
+  | "action.verification.failed"
   | "action.failed"
 
 export type InteractionEventBufferOptions = {
@@ -101,6 +113,9 @@ class RingInteractionEventBuffer implements InteractionEventBuffer {
       sequence,
       modality: event.modality,
       type: event.type,
+      turnId: event.turnId,
+      commandId: event.commandId,
+      contextEpoch: event.contextEpoch,
       text: event.text,
       target: event.target,
       targetHint: event.targetHint,

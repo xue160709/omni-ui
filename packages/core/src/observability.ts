@@ -45,7 +45,7 @@ export function createInteractionTrace(turn: InteractionTurn, now = Date.now()):
     turnId: turn.id,
     source: turn.source,
     startedAt: now,
-    phases: inferTracePhases(turn, now),
+    phases: tracePhasesForTurn(turn, now),
     hypothesisSummaries: turn.hypotheses.map((hypothesis) => ({
       resolverId: hypothesis.resolverId,
       intent: hypothesis.intent,
@@ -173,4 +173,59 @@ function inferTracePhases(
   }
 
   return phases
+}
+
+function tracePhasesForTurn(
+  turn: InteractionTurn,
+  now: number
+): InteractionTrace["phases"] {
+  const phases = turn.phaseHistory?.length
+    ? turn.phaseHistory.map((phase) => ({
+        name: normalizePhaseName(phase.name),
+        startedAt: phase.startedAt,
+        endedAt: phase.endedAt,
+        outcome: phase.outcome ?? phase.state,
+      }))
+    : inferTracePhases(turn, now)
+
+  if (turn.result) {
+    const hasValidation = phases.some((phase) => phase.name === "validation")
+    if (!hasValidation) {
+      phases.push({
+        name: "validation",
+        startedAt: turn.updatedAt,
+        endedAt: now,
+        outcome:
+          turn.result.validation && !turn.result.validation.ok
+            ? turn.result.validation.code
+            : "ok",
+      })
+    }
+    if (turn.result.execution && !phases.some((phase) => phase.name === "execution")) {
+      phases.push({
+        name: "execution",
+        startedAt: turn.updatedAt,
+        endedAt: now,
+        outcome: turn.result.execution.status,
+      })
+    }
+    if (turn.result.verification && !phases.some((phase) => phase.name === "verification")) {
+      phases.push({
+        name: "verification",
+        startedAt: turn.updatedAt,
+        endedAt: now,
+        outcome: turn.result.verification.ok ? "ok" : turn.result.verification.code,
+      })
+    }
+  }
+
+  return phases
+}
+
+function normalizePhaseName(name: InteractionTurn["phaseHistory"][number]["name"]): InteractionTracePhaseName {
+  if (name === "resolution") return "resolve"
+  if (name === "result") return "verification"
+  if (name === "created" || name === "listening") return "snapshot"
+  if (name === "cancelled" || name === "superseded" || name === "expired") return "verification"
+  return name
 }

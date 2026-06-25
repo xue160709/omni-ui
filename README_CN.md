@@ -2,135 +2,85 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-面向 React 的 runtime-first 多模态交互基础库。
+让现有 React 页面在不更换 UI 组件库、不替换业务状态的前提下，安全支持文本、语音和 AI 辅助操作。
 
-OmniUI 会把当前 GUI 转成精简的 Interaction Snapshot，解析“点击新增”“完成第一项”这类可见界面语音命令，校验目标 action，然后通过和 GUI 点击相同的业务处理器执行。
-
-核心产品是 `@omni-ui/react`：你可以在不替换现有 UI 库的前提下，把多模态能力接入已有 React 应用。shadcn registry 是可选能力，为希望快速获得默认 UI kit 的团队提供可编辑 starter components 和 recipes。
-
-## 包结构
-
-- `@omni-ui/core`：框架无关的类型、snapshot 创建、action registry、resolver contract、validation 和 feedback primitives。
-- `@omni-ui/react`：React runtime、DOM/ARIA 抽取、provider、hooks 和默认反馈样式。
-- `@omni-ui/shadcn`：可选 shadcn registry source，会把可编辑 wrappers 和 starter recipes 安装到 `components/multimodal/*`。
-- `apps/docs`：本地移动端 TodoList 示例项目，包含底部 tabs、todo 详情页、浮动 Chatbot 和 settings。
-
-这里是项目总览。逐步接入指南见 [packages/README.md](packages/README.md)。包级 README 分别在 [packages/react/README.md](packages/react/README.md)、[packages/core/README.md](packages/core/README.md) 和 [packages/shadcn/README.md](packages/shadcn/README.md)。
-
-## 两条产品线
-
-**Runtime integration** 是已有应用的默认路径：
-
-```text
-Use @omni-ui/react with your current Button, Input, Dialog, Table, routes, and state.
-Mark business objects with MultimodalGroup.
-Register domain actions with useInteractionActions.
-```
-
-**UI kit / registry** 是新项目或 shadcn 用户的可选路径：
-
-```text
-Install editable source files from the registry into components/multimodal/*.
-Keep using your local components/ui/* and theme tokens.
-Customize the installed code like any other app code.
-```
-
-## 快速开始
-
-安装依赖并启动本地 TodoList 应用：
+安装 runtime：
 
 ```bash
-npm install
-npm run dev
+npm install @omni-ui/react
 ```
 
-打开：
+React + shadcn/ui 用户可以选装 `@omni-ui/shadcn` 的可编辑 registry 组件。非 React runtime 和服务端 adapter 可基于 `@omni-ui/core` 构建。
 
-```text
-http://127.0.0.1:5173/
-```
+## 5 分钟本地命令
 
-本地应用暴露 `/`、`/todos`、`/todos/:id`、`/projects`、`/projects/:id`、`/calendar`、`/kanban`、`/analytics` 和 `/settings`。Chatbot 是从底部 tab 打开的全局浮动 sheet，所以切换页面时依然可用。访问 `/chat` 会为了兼容性在 Home 上打开同一个浮动 sheet。发送消息前，请先在 Settings tab 填入 SiliconFlow API key。
-
-也可以在启动 Vite 前设置 `SILICONFLOW_API_KEY` 作为服务端 fallback，但本地 UI 使用建议走 Settings。
-
-不要直接用 `file://` 打开 `apps/docs/index.html`；TodoList 应用需要通过 Vite 服务访问。
-
-可以在 demo 中试这些指令：
-
-```text
-完成第一个
-打开 Chatbot
-只看今天
-清空已完成
-把买牛奶那个完成
-只显示还没做完的
-```
-
-## 最小 React 用法
+第一次接入不需要模型 API Key、麦克风权限或 shadcn 依赖。
 
 ```tsx
 import {
-  defineMultimodalConfig,
-  MultimodalProvider,
-  MultimodalPage,
+  CommandInput,
   MultimodalGroup,
-  useInteractionActions,
+  MultimodalPage,
+  MultimodalProvider,
+  defineAction,
+  defineMultimodalConfig,
+  useActionExecutor,
 } from "@omni-ui/react"
 
-const multimodalConfig = defineMultimodalConfig({
+const completeTodo = defineAction({
+  id: "todo.complete",
+  title: "完成任务",
+  attachTo: { entityType: "todo" },
+  executeScope: "object",
+  risk: "low",
+  modelCallable: false,
+  paramsFrom: ({ target }) => ({ todoId: target.entity?.id }),
+})
+
+const config = defineMultimodalConfig({
   rules: [
     {
-      id: "navigation.goto",
-      patterns: ["打开{route}", "去{route}", "进入{route}", "回到{route}"],
-      target: "route.byLabel",
-      actionId: "navigation.goto",
+      id: "todo.complete",
+      patterns: ["完成第{item}个任务", "完成{target}"],
+      target: "entity.todo.byLabelOrIndex",
+      actionId: "todo.complete",
     },
   ],
 })
 
 function App() {
   return (
-    <MultimodalProvider config={multimodalConfig}>
-      <MultimodalPage id="page.todo" title="Todo" route="/todo">
-        <TodoPage />
-      </MultimodalPage>
+    <MultimodalProvider config={config}>
+      <TodoPage />
     </MultimodalProvider>
   )
 }
 
-function TodoItem({ todo, executeTodoAction }) {
+function TodoPage() {
+  const todos = useTodos()
+
+  useActionExecutor(completeTodo, async ({ todoId }) => {
+    await todoService.complete(todoId)
+    return { status: "changed" }
+  })
+
   return (
-    <MultimodalGroup
-      id={`todo.item.${todo.id}`}
-      role="list_item"
-      label={todo.title}
-      entity={{ type: "todo", id: todo.id }}
-    >
-      <button onClick={() => executeTodoAction({ type: "todo.complete", todoId: todo.id })}>
-        完成
-      </button>
-      <span>{todo.title}</span>
-    </MultimodalGroup>
+    <MultimodalPage id="page.todos" title="Todos" route="/todos">
+      <CommandInput placeholder="完成第一个任务" />
+      {todos.map((todo) => (
+        <MultimodalGroup
+          key={todo.id}
+          id={`todo.item.${todo.id}`}
+          role="list_item"
+          label={todo.title}
+          entity={{ type: "todo", id: todo.id }}
+        >
+          <TodoItem todo={todo} />
+        </MultimodalGroup>
+      ))}
+    </MultimodalPage>
   )
 }
-```
-
-在页面中注册一次业务 action：
-
-```tsx
-useInteractionActions({
-  namespace: "todo",
-  actions: {
-    "todo.complete": {
-      attachTo: { entityType: "todo" },
-      executeScope: "object",
-      paramsFrom: ({ target }) => ({ todoId: target.entity?.id }),
-      availableWhen: ({ target }) => target.state?.completed === false,
-    },
-  },
-  execute: executeTodoAction,
-})
 ```
 
 `todo.complete` 由应用拥有。OmniUI 不内置 Todo、CRM、inbox 或其他业务 action。应用需要注册自己的 domain actions，并通过 GUI 点击也使用的 reducer/service 执行。
@@ -189,7 +139,7 @@ route 规则使用库提供的 `navigation.goto`。`issue.close` 仍然由应用
 
 ## 可选 shadcn Registry
 
-Runtime 接入不需要 registry。registry 是 source-code starter kit，适合想使用 shadcn 风格多模态组件和 recipes 的团队。生成后的 registry 文件会写入 `apps/docs/public/r`。
+Runtime 接入不需要 registry。registry 是 source-code starter kit，适合想使用 shadcn 风格多模态组件和 recipes 的团队。生成后的 registry 文件会写入 `apps/demo-todo/public/r`。
 
 ```bash
 npm run registry:build

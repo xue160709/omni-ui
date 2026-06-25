@@ -4,7 +4,7 @@
   "description": "React runtime for OmniUI.",
   "type": "module",
   "license": "MIT",
-  "sideEffects": ["./src/styles.css"],
+  "sideEffects": ["**/*.css"],
   "files": [
     "dist",
     "README.md"
@@ -19,8 +19,8 @@
     "url": "https://github.com/xue160709/omni-ui/issues"
   },
   "peerDependencies": {
-    "react": ">=18.2.0",
-    "react-dom": ">=18.2.0"
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
   },
   "dependencies": {
     "@omni-ui/core": "0.1.0"
@@ -30,6 +30,23 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./advanced": {
+      "types": "./dist/advanced.d.ts",
+      "import": "./dist/advanced.js"
+    },
+    "./devtools": {
+      "types": "./dist/devtools.d.ts",
+      "import": "./dist/devtools.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    },
+    "./styles": "./dist/styles.css",
     "./styles.css": "./dist/styles.css"
   },
   "main": "./dist/index.js",

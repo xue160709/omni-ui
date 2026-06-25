@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OmniUI Runtime 机制与架构</title>
+    <style>
+      :root {
+        color: #20232a;
+        background: #f7f4ee;
+        font-family: Inter, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      main {
+        padding: 24px;
+      }
+
+      img {
+        display: block;
+        width: min(100%, 1800px);
+        height: auto;
+        margin: 0 auto;
+        border: 1px solid #d0cbc2;
+        background: #f7f4ee;
+      }
+
+      p {
+        max-width: 1800px;
+        margin: 16px auto 0;
+        color: #5f6673;
+        font-size: 15px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="./runtime-architecture.svg" alt="OmniUI Runtime 机制与架构图" />
+      <p>本图基于当前 packages/core、packages/react 与 apps/demo-todo 的源码绘制，重点展示 runtime 的采集、解析、命令冻结、校验、执行与反馈闭环。</p>
+    </main>
+  </body>
+</html>

@@ -59,7 +59,7 @@ Generate local registry JSON for preview:
 npm run registry:build
 ```
 
-The generated files are written to `apps/docs/public/r`.
+The generated files are written to `apps/demo-todo/public/r`.
 
 Run registry tests and rebuild the registry output:
 

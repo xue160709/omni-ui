@@ -30,6 +30,7 @@ let snapshotCounter = 0
 
 export type CreateSnapshotInput = {
   stateVersion: number
+  contextEpoch?: number
   manifest?: AppInteractionManifest
   page?: PageObject
   contextStack?: ContextObject[]
@@ -82,6 +83,7 @@ export type LlmSnapshotContextAction = {
 export type LlmSnapshotContext = {
   snapshotId: string
   stateVersion: number
+  contextEpoch: number
   session?: InteractionSnapshot["session"]
   contextStack: ContextObject[]
   page?: LlmSnapshotContextObject
@@ -135,6 +137,7 @@ export function createInteractionSnapshot(input: CreateSnapshotInput): Interacti
   const base = {
     snapshotId,
     stateVersion: input.stateVersion,
+    contextEpoch: input.contextEpoch ?? 0,
     contextHash:
       input.contextHash ??
       createSnapshotContextHash({
@@ -216,6 +219,7 @@ export function createLlmSnapshotContext(
   return {
     snapshotId: projected.snapshotId,
     stateVersion: projected.stateVersion,
+    contextEpoch: projected.contextEpoch,
     session: projected.session,
     contextStack: projected.contextStack,
     page: pageObject ? summarizeObjectForLlm(pageObject) : undefined,
