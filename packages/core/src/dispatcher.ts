@@ -1,10 +1,11 @@
 import { actionMatchesObject } from "./action-registry"
 import { confirmationGrantMatchesCommand } from "./confirmation"
+import { normalizePrimitiveActions } from "./primitive"
 import { safeParseRuntimeSchema } from "./schema"
 import { validateCommandScope } from "./scope"
 import {
   applyVerificationToDispatchResult,
-  verifyCommandPostcondition,
+  waitForCommandPostcondition,
 } from "./verification"
 import type {
   CommandEnvelope,
@@ -117,14 +118,14 @@ export async function dispatchCommand(
         spec.postcondition &&
         (normalizedExecution.status === "changed" || normalizedExecution.status === "unverified")
       ) {
-        const after = options.getSnapshot?.() ?? snapshot
-        const verification = await verifyCommandPostcondition({
+        const verification = await waitForCommandPostcondition({
           command,
           before: snapshot,
-          after,
+          getSnapshot: options.getSnapshot ?? (() => snapshot),
           targetBefore: target,
           execution: normalizedExecution,
           postcondition: spec.postcondition,
+          timeoutMs: spec.verificationTimeoutMs,
         })
         return applyVerificationToDispatchResult(result, verification)
       }
@@ -188,7 +189,7 @@ export async function validateCommand(
       }
     }
 
-    if (!target.primitiveActions?.includes(command.primitiveAction)) {
+    if (!normalizePrimitiveActions(target.primitiveActions)?.includes(command.primitiveAction)) {
       return {
         ok: false,
         code: "capability_missing",

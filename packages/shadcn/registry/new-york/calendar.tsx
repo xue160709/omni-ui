@@ -23,7 +23,7 @@ export function MultimodalCalendar({
     role: "calendar",
     label: interactionLabel,
     labelFrom: "aria",
-    actions: ["selectDate", "nextMonth", "previousMonth"],
+    actions: ["press"],
     hint: interactionHint,
   })
 
@@ -33,4 +33,3 @@ export function MultimodalCalendar({
     </div>
   )
 }
-

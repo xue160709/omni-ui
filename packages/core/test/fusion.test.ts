@@ -138,6 +138,33 @@ describe("fusion ranker", () => {
       decision: { targetId: "todo.1", actionId: "todo.complete" },
     })
   })
+
+  it("uses primitive action hints when a target exposes multiple primitive actions", () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "button.archive",
+          type: "raw",
+          role: "button",
+          label: "归档",
+          primitiveActions: ["focus", "press"],
+        },
+      ],
+    })
+
+    expect(
+      rankInteractionCandidates(snapshot, [
+        hypothesis(
+          { kind: "explicit_id", objectId: "button.archive" },
+          { actionHint: "press", confidence: 0.95 }
+        ),
+      ])
+    ).toMatchObject({
+      status: "ready",
+      decision: { targetId: "button.archive", primitiveAction: "press" },
+    })
+  })
 })
 
 function hypothesis(

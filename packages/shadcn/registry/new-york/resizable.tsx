@@ -74,8 +74,8 @@ type MultimodalResizableHandleProps = React.ComponentProps<typeof ShadcnResizabl
   interactionHint?: InteractionHint
 }
 
-// 中文：Handle 注册 resize/increase/decrease，为后续可访问式调节和业务执行留目标。
-// English: Handle registers resize/increase/decrease as a target for accessible resizing or domain execution.
+// 中文：Handle 注册 ext:resize/increase/decrease，为后续可访问式调节和业务执行留目标。
+// English: Handle registers ext:resize/increase/decrease as a target for accessible resizing or domain execution.
 export const MultimodalResizableHandle = React.forwardRef<
   React.ElementRef<typeof ShadcnResizableHandle>,
   MultimodalResizableHandleProps
@@ -85,11 +85,10 @@ export const MultimodalResizableHandle = React.forwardRef<
     role: "resize_handle",
     label: interactionLabel,
     labelFrom: "aria",
-    actions: ["resize", "increase", "decrease"],
+    actions: ["ext:resize", "increase", "decrease"],
     hint: interactionHint,
   })
 
   return <ShadcnResizableHandle ref={composeRefs(ref, mmRef)} {...props} />
 })
 MultimodalResizableHandle.displayName = "MultimodalResizableHandle"
-

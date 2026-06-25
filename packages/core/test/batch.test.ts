@@ -110,6 +110,57 @@ describe("batch dispatcher", () => {
       items: [{ error: { code: "atomic_not_supported" } }],
     })
   })
+
+  it("executes atomic batches through a transaction adapter", async () => {
+    const execute = vi.fn(() => ({ status: "changed" as const }))
+    const snapshot = createBatchSnapshot(execute)
+    const anchor = createSnapshotAnchor(snapshot, { capturedAt: 100 })
+    const commands = ["todo.1", "todo.2"].map((targetId, index) =>
+      buildCommandEnvelope({
+        commandId: `command_${index + 1}`,
+        turnId: "turn_1",
+        kind: "domain",
+        actionId: "todo.complete",
+        source,
+        targetId,
+        anchor,
+      })
+    )
+    const batch = buildBatchCommandEnvelope({
+      batchId: "batch_1",
+      turnId: "turn_1",
+      mode: "atomic",
+      commands,
+    })
+
+    await expect(
+      dispatchBatchCommands(snapshot, batch, {
+        transaction: {
+          canHandle: (items) => items.every((item) => item.kind === "domain"),
+          executeAtomic: async (items) => ({
+            ok: true,
+            status: "committed",
+            batchId: "batch_1",
+            turnId: "turn_1",
+            items: items.map((item) => ({
+              ok: true,
+              status: "committed",
+              commandId: item.commandId,
+              turnId: item.turnId,
+              targetId: item.targetId,
+              actionId: item.kind === "domain" ? item.actionId : undefined,
+              execution: { status: "changed" as const },
+            })),
+          }),
+        },
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      status: "committed",
+      items: [{ status: "committed" }, { status: "committed" }],
+    })
+    expect(execute).not.toHaveBeenCalled()
+  })
 })
 
 function createBatchSnapshot(execute: RegisteredActionSpec["execute"]) {

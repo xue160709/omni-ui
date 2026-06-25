@@ -111,6 +111,40 @@ describe("assistant action policy", () => {
 })
 
 describe("assistant model reply parser", () => {
+  it("parses semantic hypotheses as assistant model proposals", () => {
+    const parsed = parseInteractionAssistantModelReply(
+      JSON.stringify({
+        type: "interaction_hypotheses",
+        hypotheses: [
+          {
+            intent: "task.complete",
+            actionHint: "task.complete",
+            targetReference: { kind: "label", text: "评审方案" },
+            slots: { source: "chat" },
+            confidence: 0.93,
+          },
+        ],
+        reply: "已提交完成操作。",
+      }),
+      "完成评审方案"
+    )
+
+    expect(parsed).toMatchObject({
+      type: "interaction_hypotheses",
+      hypotheses: [
+        {
+          resolverId: "assistant-llm",
+          source: "llm",
+          intent: "task.complete",
+          actionHint: "task.complete",
+          targetReference: { kind: "label", text: "评审方案" },
+          slots: { source: "chat" },
+        },
+      ],
+      reply: "已提交完成操作。",
+    })
+  })
+
   it("parses batched interaction action JSON", () => {
     const parsed = parseInteractionAssistantModelReply(
       JSON.stringify({

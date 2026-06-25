@@ -3,9 +3,11 @@ import type {
   InteractionObject,
   InteractionSnapshot,
   PrimitiveAction,
+  PrimitiveActionId,
   ValidationResult,
   VerificationResult,
 } from "./types"
+import { normalizePrimitiveAction } from "./primitive"
 
 export type SnapshotAnchor = {
   snapshotId: string
@@ -44,7 +46,7 @@ export type DomainCommandEnvelope = BaseCommandEnvelope & {
 
 export type PrimitiveCommandEnvelope = BaseCommandEnvelope & {
   kind: "primitive"
-  primitiveAction: PrimitiveAction
+  primitiveAction: PrimitiveActionId
 }
 
 export type CommandEnvelope = DomainCommandEnvelope | PrimitiveCommandEnvelope
@@ -89,7 +91,7 @@ export type DispatchResult = {
   turnId: string
   targetId?: string
   actionId?: string
-  primitiveAction?: PrimitiveAction
+  primitiveAction?: PrimitiveActionId
   validation?: ValidationResult
   execution?: ActionExecutionResult
   verification?: VerificationResult
@@ -137,18 +139,42 @@ export function createSnapshotAnchor(
 export function buildCommandEnvelope(input: BuildCommandEnvelopeInput): CommandEnvelope {
   const params = cloneSerializableCommandParams(input.params ?? {})
   const createdAt = input.createdAt ?? Date.now()
-  const actionIdOrPrimitive =
-    input.kind === "domain" ? input.actionId : input.primitiveAction
+
+  if (input.kind === "domain") {
+    const decisionBinding = createDecisionBinding({
+      turnId: input.turnId,
+      kind: input.kind,
+      targetId: input.targetId,
+      actionIdOrPrimitive: input.actionId,
+      params,
+      anchor: input.anchor,
+    })
+    const command: DomainCommandEnvelope = {
+      commandId: input.commandId,
+      turnId: input.turnId,
+      source: deepFreeze(cloneSerializableValue(input.source, "source") as CommandSource),
+      targetId: input.targetId,
+      params: deepFreeze(params),
+      anchor: deepFreeze({ ...input.anchor }),
+      decisionBinding,
+      createdAt,
+      kind: "domain",
+      actionId: input.actionId,
+    }
+    return deepFreeze(command)
+  }
+
+  const primitiveAction = normalizePrimitiveAction(input.primitiveAction)
   const decisionBinding = createDecisionBinding({
     turnId: input.turnId,
     kind: input.kind,
     targetId: input.targetId,
-    actionIdOrPrimitive,
+    actionIdOrPrimitive: primitiveAction,
     params,
     anchor: input.anchor,
   })
 
-  const base = {
+  const command: PrimitiveCommandEnvelope = {
     commandId: input.commandId,
     turnId: input.turnId,
     source: deepFreeze(cloneSerializableValue(input.source, "source") as CommandSource),
@@ -157,22 +183,11 @@ export function buildCommandEnvelope(input: BuildCommandEnvelopeInput): CommandE
     anchor: deepFreeze({ ...input.anchor }),
     decisionBinding,
     createdAt,
+    kind: "primitive",
+    primitiveAction,
   }
 
-  const envelope =
-    input.kind === "domain"
-      ? {
-          ...base,
-          kind: "domain" as const,
-          actionId: input.actionId,
-        }
-      : {
-          ...base,
-          kind: "primitive" as const,
-          primitiveAction: input.primitiveAction,
-        }
-
-  return deepFreeze(envelope)
+  return deepFreeze(command)
 }
 
 export function createDecisionBinding(input: {

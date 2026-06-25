@@ -1,4 +1,5 @@
 import { actionMatchesObject } from "./action-registry"
+import { normalizePrimitiveAction, normalizePrimitiveActions } from "./primitive"
 import { validateCommandScope } from "./scope"
 import type {
   FusionEvidence,
@@ -108,9 +109,13 @@ function createCandidatesForHypothesis(
 
   return targets.map((target, index) => {
     const actionId = actionHint && target.actions?.includes(actionHint) ? actionHint : target.actions?.[0]
-    const primitiveAction =
-      !actionId && target.primitiveActions?.length
-        ? (target.primitiveActions[0] as PrimitiveAction)
+    const normalizedPrimitiveActions = normalizePrimitiveActions(target.primitiveActions)
+    const normalizedPrimitiveHint = actionHint ? normalizePrimitiveAction(actionHint) : undefined
+    const primitiveAction: PrimitiveAction | undefined =
+      !actionId && normalizedPrimitiveActions?.length
+        ? normalizedPrimitiveHint && normalizedPrimitiveActions.includes(normalizedPrimitiveHint)
+          ? normalizedPrimitiveHint
+          : normalizedPrimitiveActions[0]
         : undefined
     const evidence = scoreEvidence(snapshot, target, hypothesis, index)
     const score = clamp01(hypothesis.confidence * 0.55 + evidence.reduce((sum, item) => sum + item.score, 0))
@@ -203,7 +208,13 @@ function scoreEvidence(
   if (snapshot.unifiedFocus.inputFocus?.objectId === target.id) evidence.push({ type: "input_focus", score: 0.08, objectId: target.id })
   if (snapshot.unifiedFocus.recentTargets.some((item) => item.objectId === target.id)) evidence.push({ type: "recent_gui_target", score: 0.18, objectId: target.id })
   if (hypothesis.modelTargetIdHint === target.id) evidence.push({ type: "model_suggested_target", score: 0.08, objectId: target.id })
-  if (target.actions?.includes(hypothesis.actionHint ?? "")) evidence.push({ type: "action_compatibility", score: 0.15, objectId: target.id })
+  const normalizedPrimitiveHint = hypothesis.actionHint
+    ? normalizePrimitiveAction(hypothesis.actionHint)
+    : undefined
+  if (
+    target.actions?.includes(hypothesis.actionHint ?? "") ||
+    (normalizedPrimitiveHint && normalizePrimitiveActions(target.primitiveActions)?.includes(normalizedPrimitiveHint))
+  ) evidence.push({ type: "action_compatibility", score: 0.15, objectId: target.id })
   if (index > 0) evidence.push({ type: "scope_penalty", score: -0.02 * index, objectId: target.id })
 
   return evidence
@@ -234,7 +245,11 @@ function hardReject(
   }
 
   if (primitiveAction) {
-    if (!target.primitiveActions?.includes(primitiveAction)) {
+    const normalizedPrimitiveAction = normalizePrimitiveActions([primitiveAction])?.[0]
+    if (
+      !normalizedPrimitiveAction ||
+      !normalizePrimitiveActions(target.primitiveActions)?.includes(normalizedPrimitiveAction)
+    ) {
       return { code: "capability_missing", reason: "目标未暴露 primitive 能力" }
     }
     const scope = validateCommandScope(snapshot, target)

@@ -4,6 +4,7 @@ import {
   createInteractionSnapshot,
   createLlmResolver,
   createOpenAIResolver,
+  normalizeLlmHypotheses,
   normalizeLlmOutput,
 } from "../src"
 
@@ -28,6 +29,127 @@ describe("llm resolver", () => {
       status: "resolved",
       targetId: "task.item.task_1",
       resolverId: "llm",
+    })
+  })
+
+  it("normalizes semantic hypotheses from model output", () => {
+    expect(
+      normalizeLlmHypotheses(
+        {
+          hypotheses: [
+            {
+              intent: "todo.complete",
+              actionHint: "todo.complete",
+              targetReference: { kind: "label", text: "复盘" },
+              slots: { source: "voice" },
+              confidence: 0.91,
+            },
+          ],
+        },
+        "完成复盘"
+      )
+    ).toMatchObject([
+      {
+        resolverId: "llm",
+        source: "llm",
+        intent: "todo.complete",
+        actionHint: "todo.complete",
+        targetReference: { kind: "label", text: "复盘" },
+        slots: { source: "voice" },
+      },
+    ])
+  })
+
+  it("ranks semantic hypotheses against the current snapshot before returning a legacy resolution", async () => {
+    const resolver = createLlmResolver({
+      complete: () => ({
+        hypotheses: [
+          {
+            intent: "task.complete",
+            actionHint: "task.complete",
+            targetReference: { kind: "label", text: "评审方案" },
+            slots: { priority: "normal" },
+            confidence: 0.94,
+          },
+        ],
+      }),
+    })
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+        },
+      ],
+    })
+
+    await expect(resolver.resolve({ utterance: "完成评审方案", snapshot })).resolves.toMatchObject({
+      status: "resolved",
+      intent: "task.complete",
+      targetId: "task.item.task_1",
+      actionId: "task.complete",
+      params: { priority: "normal" },
+      resolverId: "llm",
+    })
+  })
+
+  it("keeps ambiguous semantic hypotheses in clarification instead of choosing the first target", async () => {
+    const resolver = createLlmResolver({
+      complete: () => ({
+        hypotheses: [
+          {
+            intent: "task.complete",
+            actionHint: "task.complete",
+            targetReference: { kind: "label", text: "复盘" },
+            confidence: 0.96,
+          },
+        ],
+      }),
+    })
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "复盘",
+          entity: { type: "task", id: "task_1" },
+        },
+        {
+          id: "task.item.task_2",
+          type: "composite",
+          role: "list_item",
+          label: "复盘",
+          entity: { type: "task", id: "task_2" },
+        },
+      ],
+    })
+
+    await expect(resolver.resolve({ utterance: "完成复盘", snapshot })).resolves.toMatchObject({
+      status: "needs_clarification",
+      targetCandidates: [
+        { id: "task.item.task_1" },
+        { id: "task.item.task_2" },
+      ],
     })
   })
 
@@ -61,8 +183,54 @@ describe("llm resolver", () => {
     })
   })
 
+  it("passes AbortSignal into custom completion callbacks", async () => {
+    const controller = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+    const resolver = createLlmResolver({
+      complete: (input) => {
+        receivedSignal = input.signal
+        return {
+          status: "resolved",
+          utterance: "完成第一个",
+          targetId: "task.item.task_1",
+          actionId: "task.complete",
+          confidence: 0.91,
+        }
+      },
+    })
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          actions: ["task.complete"],
+        },
+      ],
+    })
+
+    await expect(
+      resolver.resolve({ utterance: "完成第一个", snapshot, signal: controller.signal })
+    ).resolves.toMatchObject({
+      status: "resolved",
+      targetId: "task.item.task_1",
+    })
+    expect(receivedSignal).toBe(controller.signal)
+  })
+
   it("calls OpenAI-compatible chat completions with env credentials", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = []
+    const controller = new AbortController()
     const resolver = createOpenAIResolver({
       baseUrl: "https://llm.example/v1",
       model: "test-model",
@@ -109,7 +277,9 @@ describe("llm resolver", () => {
       ],
     })
 
-    await expect(resolver.resolve({ utterance: "完成第一个", snapshot })).resolves.toMatchObject({
+    await expect(
+      resolver.resolve({ utterance: "完成第一个", snapshot, signal: controller.signal })
+    ).resolves.toMatchObject({
       status: "resolved",
       targetId: "task.item.task_1",
       actionId: "task.complete",
@@ -117,10 +287,12 @@ describe("llm resolver", () => {
     })
     expect(calls[0].url).toBe("https://llm.example/v1/chat/completions")
     expect((calls[0].init?.headers as Record<string, string>).authorization).toBe("Bearer sk-test")
+    expect(calls[0].init?.signal).toBe(controller.signal)
   })
 
   it("calls Anthropic messages with env credentials", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = []
+    const controller = new AbortController()
     const resolver = createAnthropicResolver({
       baseUrl: "https://anthropic.example/v1",
       model: "test-model",
@@ -165,7 +337,9 @@ describe("llm resolver", () => {
       ],
     })
 
-    await expect(resolver.resolve({ utterance: "打开蓝牙", snapshot })).resolves.toMatchObject({
+    await expect(
+      resolver.resolve({ utterance: "打开蓝牙", snapshot, signal: controller.signal })
+    ).resolves.toMatchObject({
       status: "resolved",
       targetId: "settings.bluetooth",
       actionId: "settings.bluetooth.turnOn",
@@ -173,6 +347,7 @@ describe("llm resolver", () => {
     })
     expect(calls[0].url).toBe("https://anthropic.example/v1/messages")
     expect((calls[0].init?.headers as Record<string, string>)["x-api-key"]).toBe("sk-ant-test")
+    expect(calls[0].init?.signal).toBe(controller.signal)
   })
 
   it("rejects model output that references targets or actions outside the snapshot", async () => {

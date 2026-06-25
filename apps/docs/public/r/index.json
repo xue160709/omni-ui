@@ -113,7 +113,7 @@
       "name": "multimodal-switch",
       "type": "registry:component",
       "title": "Multimodal Switch",
-      "description": "shadcn Switch wrapper that registers turnOn/turnOff semantics.",
+      "description": "shadcn Switch wrapper that registers canonical check/uncheck/toggle semantics.",
       "dependencies": [
         "@omni-ui/react"
       ],

@@ -43,8 +43,8 @@ type MultimodalTabsTriggerProps = React.ComponentProps<typeof ShadcnTabsTrigger>
   interactionHint?: InteractionHint
 }
 
-// 中文：TabsTrigger 注册 switchTo/select，适合“切到已完成/只看待处理”等筛选命令。
-// English: TabsTrigger registers switchTo/select for filter commands such as switching to completed or pending.
+// 中文：TabsTrigger 注册 press，适合“切到已完成/只看待处理”等筛选命令。
+// English: TabsTrigger registers press for filter commands such as switching to completed or pending.
 export const MultimodalTabsTrigger = React.forwardRef<
   React.ElementRef<typeof ShadcnTabsTrigger>,
   MultimodalTabsTriggerProps
@@ -54,7 +54,7 @@ export const MultimodalTabsTrigger = React.forwardRef<
     role: "tab",
     label: interactionLabel,
     labelFrom: "text",
-    actions: ["switchTo", "select"],
+    actions: ["press"],
     hint: interactionHint,
   })
 

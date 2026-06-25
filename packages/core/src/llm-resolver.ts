@@ -3,12 +3,17 @@ import type {
   InteractionSnapshot,
   ResolvedInteraction,
 } from "./types"
+import type { FusionRankerResult } from "./fusion"
+import type { RankedInteractionCandidate, SemanticIntentHypothesis, TargetReference } from "./turn"
 import { createLlmSnapshotContext } from "./snapshot"
+import { rankInteractionCandidates } from "./fusion"
+import { normalizePrimitiveAction, normalizePrimitiveActions } from "./primitive"
 
 export type LlmResolverInput = {
   utterance: string
   snapshot: InteractionSnapshot
   schema: typeof LLM_RESOLVER_SCHEMA
+  signal?: AbortSignal
 }
 
 export type LlmResolverCompletion = (
@@ -58,7 +63,7 @@ export type CreateAnthropicResolverOptions = {
 // English: The resolver schema is the model's minimal output contract; runtime policy and state validation still follow.
 export const LLM_RESOLVER_SCHEMA = {
   type: "object",
-  required: ["status", "utterance", "confidence"],
+  required: [],
   properties: {
     status: {
       enum: ["resolved", "needs_clarification", "not_found", "unsupported"],
@@ -81,26 +86,48 @@ export const LLM_RESOLVER_SCHEMA = {
     actionId: { type: "string" },
     primitiveAction: { type: "string" },
     params: { type: "object" },
+    hypotheses: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["intent", "targetReference", "confidence"],
+        properties: {
+          intent: { type: "string" },
+          actionHint: { type: "string" },
+          targetReference: { type: "object" },
+          slots: { type: "object" },
+          missingSlots: { type: "array", items: { type: "string" } },
+          confidence: { type: "number" },
+          reason: { type: "string" },
+          modelTargetIdHint: { type: "string" },
+        },
+      },
+    },
     confidence: { type: "number" },
     reason: { type: "string" },
   },
 } as const
 
 export const DEFAULT_LLM_RESOLVER_SYSTEM_PROMPT =
-  "You resolve natural-language UI commands against the provided Interaction Snapshot. Return only one JSON object matching the schema. Use only targetId, actionId, and primitiveAction values present in the snapshot. Prefer domain actionId when available. If the request is ambiguous, return needs_clarification."
+  "You resolve natural-language UI commands against the provided Interaction Snapshot. Return only one JSON object matching the schema. Prefer hypotheses: intent, actionHint, targetReference, slots, missingSlots, confidence, and optional modelTargetIdHint. Use only actionHint, targetId, and primitiveAction values present in the snapshot. If the request is ambiguous, return multiple hypotheses or needs_clarification."
 
 // 中文：通用 LLM resolver 只负责把 provider 输出归一化成 ResolvedInteraction，不直接执行任何操作。
 // English: The generic LLM resolver only normalizes provider output into ResolvedInteraction and never executes actions directly.
 export function createLlmResolver(options: CreateLlmResolverOptions): IntentResolver {
   return {
     id: options.id ?? "llm",
-    async resolve({ utterance, snapshot }) {
+    async resolve({ utterance, snapshot, signal }) {
       try {
         const output = await options.complete({
           utterance,
           snapshot,
           schema: LLM_RESOLVER_SCHEMA,
+          signal,
         })
+        const hypotheses = normalizeLlmHypotheses(output, utterance, options.id ?? "llm")
+        if (hypotheses.length) {
+          return resolveLlmHypothesesAgainstSnapshot(hypotheses, snapshot, utterance, options.id ?? "llm")
+        }
         const candidate = normalizeLlmOutput(output, utterance, options.id ?? "llm")
         return validateLlmResolutionAgainstSnapshot(candidate, snapshot)
       } catch (error) {
@@ -149,6 +176,7 @@ export function createOpenAIResolver(options: CreateOpenAIResolverOptions = {}):
             "content-type": "application/json",
             authorization: `Bearer ${config.apiKey}`,
           },
+          signal: input.signal,
           body: JSON.stringify(payload),
         },
         "OpenAI"
@@ -189,6 +217,7 @@ export function createAnthropicResolver(options: CreateAnthropicResolverOptions 
             "x-api-key": config.apiKey,
             "anthropic-version": config.version,
           },
+          signal: input.signal,
           body: JSON.stringify(payload),
         },
         "Anthropic"
@@ -252,13 +281,55 @@ export function normalizeLlmOutput(
     targetCandidates,
     actionId: typeof record.actionId === "string" ? record.actionId : undefined,
     primitiveAction: typeof record.primitiveAction === "string"
-      ? (record.primitiveAction as ResolvedInteraction["primitiveAction"])
+      ? normalizePrimitiveAction(record.primitiveAction)
       : undefined,
     params: isRecord(record.params) ? record.params : undefined,
     confidence,
     reason: typeof record.reason === "string" ? record.reason : undefined,
     resolverId,
   }
+}
+
+export function normalizeLlmHypotheses(
+  output: unknown,
+  fallbackUtterance: string,
+  resolverId = "llm"
+): SemanticIntentHypothesis[] {
+  const parsed = typeof output === "string" ? parseJsonObject(output) : output
+  if (!isRecord(parsed)) return []
+
+  const sources = Array.isArray(parsed.hypotheses)
+    ? parsed.hypotheses
+    : isHypothesisLike(parsed)
+      ? [parsed]
+      : []
+
+  return sources
+    .map((source, index) =>
+      normalizeHypothesisSource(source, fallbackUtterance, resolverId, index)
+    )
+    .filter((hypothesis): hypothesis is SemanticIntentHypothesis => Boolean(hypothesis))
+}
+
+export function resolveLlmHypothesesAgainstSnapshot(
+  hypotheses: SemanticIntentHypothesis[],
+  snapshot: InteractionSnapshot,
+  utterance: string,
+  resolverId = "llm"
+): ResolvedInteraction {
+  const missingSlots = hypotheses.flatMap((hypothesis) => hypothesis.missingSlots ?? [])
+  if (missingSlots.length > 0) {
+    return {
+      status: "needs_clarification",
+      utterance,
+      confidence: Math.max(...hypotheses.map((hypothesis) => hypothesis.confidence), 0),
+      reason: `Missing slots: ${[...new Set(missingSlots)].join(", ")}`,
+      resolverId,
+    }
+  }
+
+  const ranked = rankInteractionCandidates(snapshot, hypotheses)
+  return fusionResultToResolution(ranked, hypotheses, utterance, resolverId)
 }
 
 export function validateLlmResolutionAgainstSnapshot(
@@ -300,7 +371,12 @@ export function validateLlmResolutionAgainstSnapshot(
     }
   }
 
-  if (resolution.primitiveAction && !target.primitiveActions?.includes(resolution.primitiveAction)) {
+  if (
+    resolution.primitiveAction &&
+    !normalizePrimitiveActions(target.primitiveActions)?.includes(
+      normalizePrimitiveAction(resolution.primitiveAction)
+    )
+  ) {
     return {
       status: "unsupported",
       utterance: resolution.utterance,
@@ -325,6 +401,161 @@ export function validateLlmResolutionAgainstSnapshot(
   }
 
   return resolution
+}
+
+function fusionResultToResolution(
+  ranked: FusionRankerResult,
+  hypotheses: SemanticIntentHypothesis[],
+  utterance: string,
+  resolverId: string
+): ResolvedInteraction {
+  if (ranked.status === "ready") {
+    const selectedCandidate = ranked.candidates.find(
+      (candidate) =>
+        !candidate.rejected &&
+        candidate.targetId === ranked.decision.targetId &&
+        candidate.actionId === ranked.decision.actionId &&
+        candidate.primitiveAction === ranked.decision.primitiveAction
+    )
+    const selectedHypothesis = hypotheses.find(
+      (hypothesis) => hypothesis.id === selectedCandidate?.hypothesisId
+    )
+    return {
+      status: "resolved",
+      utterance,
+      intent: selectedHypothesis?.intent,
+      targetId: ranked.decision.targetId,
+      targetCandidates: candidateSummaries(ranked.candidates),
+      actionId: ranked.decision.actionId,
+      primitiveAction: ranked.decision.primitiveAction,
+      params: ranked.decision.params,
+      confidence: ranked.decision.score,
+      reason: "Resolved from semantic hypotheses and GUI fusion.",
+      resolverId,
+    }
+  }
+
+  return {
+    status: ranked.status === "needs_clarification" ? "needs_clarification" : "not_found",
+    utterance,
+    targetCandidates: candidateSummaries(ranked.candidates),
+    confidence: ranked.candidates[0]?.score ?? 0,
+    reason: ranked.reason,
+    resolverId,
+  }
+}
+
+function candidateSummaries(candidates: RankedInteractionCandidate[]) {
+  return candidates
+    .filter((candidate) => !candidate.rejected)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((candidate) => ({
+      id: candidate.targetId,
+      confidence: candidate.score,
+      reason: candidate.evidence.map((item) => item.type).join(","),
+    }))
+}
+
+function normalizeHypothesisSource(
+  source: unknown,
+  fallbackUtterance: string,
+  resolverId: string,
+  index: number
+): SemanticIntentHypothesis | undefined {
+  if (!isRecord(source)) return undefined
+  const targetReference = normalizeTargetReference(source.targetReference, source)
+  if (!targetReference) return undefined
+
+  const confidence = clampConfidence(source.confidence)
+  return {
+    id: typeof source.id === "string" ? source.id : `${resolverId}_hypothesis_${index + 1}`,
+    resolverId,
+    source: "llm",
+    intent:
+      typeof source.intent === "string"
+        ? source.intent
+        : typeof source.actionHint === "string"
+          ? source.actionHint
+          : fallbackUtterance,
+    actionHint:
+      typeof source.actionHint === "string"
+        ? source.actionHint
+        : typeof source.actionId === "string"
+          ? source.actionId
+          : typeof source.primitiveAction === "string"
+            ? normalizePrimitiveAction(source.primitiveAction)
+            : undefined,
+    targetReference,
+    slots: isRecord(source.slots)
+      ? source.slots
+      : isRecord(source.params)
+        ? source.params
+        : {},
+    missingSlots: Array.isArray(source.missingSlots)
+      ? source.missingSlots.filter((item): item is string => typeof item === "string")
+      : undefined,
+    confidence,
+    reason: typeof source.reason === "string" ? source.reason : undefined,
+    modelTargetIdHint:
+      typeof source.modelTargetIdHint === "string"
+        ? source.modelTargetIdHint
+        : typeof source.targetId === "string"
+          ? source.targetId
+          : undefined,
+  }
+}
+
+function normalizeTargetReference(
+  targetReference: unknown,
+  source: Record<string, unknown>
+): TargetReference | undefined {
+  if (isRecord(targetReference)) {
+    const kind = targetReference.kind
+    if (kind === "explicit_id" && typeof targetReference.objectId === "string") {
+      return { kind, objectId: targetReference.objectId }
+    }
+    if (kind === "label" && typeof targetReference.text === "string") {
+      return { kind, text: targetReference.text }
+    }
+    if (kind === "ordinal" && typeof targetReference.index === "number") {
+      return {
+        kind,
+        index: targetReference.index,
+        scopeHint:
+          typeof targetReference.scopeHint === "string"
+            ? targetReference.scopeHint
+            : undefined,
+      }
+    }
+    if (kind === "deictic" && typeof targetReference.expression === "string") {
+      return { kind, expression: targetReference.expression }
+    }
+    if (
+      kind === "focused" &&
+      (targetReference.focus === "semantic" ||
+        targetReference.focus === "selection" ||
+        targetReference.focus === "input")
+    ) {
+      return { kind, focus: targetReference.focus }
+    }
+    if (kind === "recent") {
+      return {
+        kind,
+        offset: typeof targetReference.offset === "number" ? targetReference.offset : undefined,
+      }
+    }
+    if (kind === "unspecified") return { kind }
+  }
+
+  if (typeof source.targetId === "string") return { kind: "explicit_id", objectId: source.targetId }
+  if (typeof source.label === "string") return { kind: "label", text: source.label }
+
+  return undefined
+}
+
+function isHypothesisLike(value: Record<string, unknown>): boolean {
+  return Boolean(value.targetReference || value.actionHint || value.modelTargetIdHint)
 }
 
 function resolveOpenAIConfig(options: CreateOpenAIResolverOptions) {

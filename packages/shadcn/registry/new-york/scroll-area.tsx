@@ -25,7 +25,7 @@ export const MultimodalScrollArea = React.forwardRef<
     role: "scroll_area",
     label: interactionLabel,
     labelFrom: "aria",
-    actions: ["scrollUp", "scrollDown", "scrollToTop", "scrollToBottom"],
+    actions: ["ext:scrollUp", "ext:scrollDown", "ext:scrollToTop", "ext:scrollToBottom"],
     hint: interactionHint,
   })
 
@@ -34,4 +34,3 @@ export const MultimodalScrollArea = React.forwardRef<
 MultimodalScrollArea.displayName = "MultimodalScrollArea"
 
 export { ScrollBar }
-

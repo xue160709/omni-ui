@@ -6,6 +6,7 @@ import {
   type AppInteractionManifest,
   type LlmInteractionManifest,
 } from "./manifest"
+import { normalizePrimitiveActions } from "./primitive"
 import { projectSnapshotForModel, redactInteractionState } from "./privacy"
 import type {
   ContextObject,
@@ -18,7 +19,7 @@ import type {
   InteractionObjectType,
   InteractionState,
   PageObject,
-  PrimitiveAction,
+  PrimitiveActionId,
   RiskLevel,
   RegisteredActionSpec,
 } from "./types"
@@ -65,7 +66,7 @@ export type LlmSnapshotContextObject = {
   entity?: EntityRef
   state?: InteractionState
   actions?: string[]
-  primitiveActions?: PrimitiveAction[]
+  primitiveActions?: PrimitiveActionId[]
   options?: InteractionObject["options"]
 }
 
@@ -162,7 +163,7 @@ export function createInteractionSnapshot(input: CreateSnapshotInput): Interacti
           ...input.visibleObjects.filter((object) => object.id !== input.page?.id),
         ]
       : [...manifestObjects, ...input.visibleObjects]
-  )
+  ).map(normalizeObjectPrimitiveActions)
 
   return {
     ...base,
@@ -241,6 +242,16 @@ function dedupeObjects(objects: InteractionObject[]): InteractionObject[] {
   const byId = new Map<string, InteractionObject>()
   objects.forEach((object) => byId.set(object.id, object))
   return Array.from(byId.values())
+}
+
+function normalizeObjectPrimitiveActions(object: InteractionObject): InteractionObject {
+  const primitiveActions = normalizePrimitiveActions(object.primitiveActions)
+  return primitiveActions === object.primitiveActions
+    ? object
+    : {
+        ...object,
+        primitiveActions,
+      }
 }
 
 function summarizeObjectForLlm(object: InteractionObject): LlmSnapshotContextObject {

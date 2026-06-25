@@ -22,8 +22,8 @@ type MultimodalCarouselProps = React.ComponentProps<typeof ShadcnCarousel> & {
   interactionHint?: InteractionHint
 }
 
-// 中文：Carousel 注册 next/previous/selectSlide 语义，适合“下一张/上一张/看第三张”。
-// English: Carousel registers next/previous/selectSlide for commands such as next, previous, or show third slide.
+// 中文：Carousel 作为语义容器，具体上一张/下一张按钮使用 press primitive。
+// English: Carousel is a semantic container; previous/next controls use the press primitive.
 export function MultimodalCarousel({
   interactionId,
   interactionLabel,
@@ -92,7 +92,7 @@ export const MultimodalCarouselPrevious = React.forwardRef<
     role: "button",
     label: interactionLabel,
     labelFrom: "aria",
-    actions: ["previous", "press"],
+    actions: ["press"],
     hint: interactionHint,
   })
 
@@ -115,7 +115,7 @@ export const MultimodalCarouselNext = React.forwardRef<
     role: "button",
     label: interactionLabel,
     labelFrom: "aria",
-    actions: ["next", "press"],
+    actions: ["press"],
     hint: interactionHint,
   })
 
@@ -124,4 +124,3 @@ export const MultimodalCarouselNext = React.forwardRef<
 MultimodalCarouselNext.displayName = "MultimodalCarouselNext"
 
 export { CarouselContent, type CarouselApi }
-

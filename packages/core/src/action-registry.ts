@@ -94,20 +94,44 @@ export function validateActionRequest(
     }
   }
 
-  if (spec.requiresConfirmation && context.confirmedActionId !== context.actionId) {
-    return {
-      ok: false,
-      code: "confirmation_required",
-      reason: "该操作需要确认",
-    }
-  }
-
   const target = snapshot.visibleObjects.find((object) => object.id === context.targetId)
   if (!target) {
     return {
       ok: false,
       code: "target_missing",
       reason: "没有找到对应的操作目标",
+    }
+  }
+
+  if (!actionMatchesObject(spec, target)) {
+    return {
+      ok: false,
+      code: "action_target_mismatch",
+      reason: "该操作不能作用于当前目标",
+    }
+  }
+
+  if (!target.actions?.includes(context.actionId)) {
+    return {
+      ok: false,
+      code: "capability_missing",
+      reason: "当前目标未暴露该操作能力",
+    }
+  }
+
+  if (target.state?.disabled === true || target.state?.enabled === false) {
+    return {
+      ok: false,
+      code: "target_disabled",
+      reason: "当前目标不可用",
+    }
+  }
+
+  if (spec.requiresConfirmation && context.confirmedActionId !== context.actionId) {
+    return {
+      ok: false,
+      code: "confirmation_required",
+      reason: "该操作需要确认",
     }
   }
 

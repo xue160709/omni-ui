@@ -548,14 +548,14 @@ function chooseAction(
   if (intent === "open") {
     const actionId = domain([".open", ".goto", ".navigate", "open", "turnOn", "goto", "navigate"])
     if (actionId) return { actionId }
-    const primitiveAction = primitive(["turnOn", "open", "toggle", "press"])
+    const primitiveAction = primitive(["check", "open", "toggle", "press"])
     if (primitiveAction) return { primitiveAction }
   }
 
   if (intent === "close") {
     const actionId = domain([".close", ".turnOff", "close", "turnOff", "cancel"])
     if (actionId) return { actionId }
-    const primitiveAction = primitive(["turnOff", "close", "cancel", "toggle", "press"])
+    const primitiveAction = primitive(["uncheck", "close", "toggle", "press"])
     if (primitiveAction) return { primitiveAction }
   }
 
@@ -568,28 +568,28 @@ function chooseAction(
     if (options.targetText && primitiveActions.includes("selectByLabel")) {
       return { primitiveAction: "selectByLabel", params: { label: options.targetText } }
     }
-    const primitiveAction = primitive(["select", "selectByLabel", "switchTo", "press"])
+    const primitiveAction = primitive(["selectByLabel", "press"])
     if (primitiveAction) return { primitiveAction }
   }
 
   if (intent === "navigate") {
     const actionId = domain([".goto", ".navigate", ".open", "goto", "navigate", "open", "switchTo"])
     if (actionId) return { actionId }
-    const primitiveAction = primitive(["press", "open", "switchTo", "select"])
+    const primitiveAction = primitive(["press", "open"])
     if (primitiveAction) return { primitiveAction }
   }
 
   if (intent === "confirm") {
     const actionId = domain([".confirm", "confirm"])
     if (actionId) return { actionId }
-    const primitiveAction = primitive(["confirm", "press", "select"])
+    const primitiveAction = primitive(["press"])
     if (primitiveAction) return { primitiveAction }
   }
 
   if (intent === "cancel") {
     const actionId = domain([".cancel", "cancel", ".close"])
     if (actionId) return { actionId }
-    const primitiveAction = primitive(["cancel", "close", "press"])
+    const primitiveAction = primitive(["close", "press"])
     if (primitiveAction) return { primitiveAction }
   }
 

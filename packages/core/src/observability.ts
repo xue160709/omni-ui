@@ -45,10 +45,23 @@ export function createInteractionTrace(turn: InteractionTurn, now = Date.now()):
     turnId: turn.id,
     source: turn.source,
     startedAt: now,
-    phases: [],
-    hypothesisSummaries: [],
-    candidateSummaries: [],
-    validationCodes: [],
+    phases: inferTracePhases(turn, now),
+    hypothesisSummaries: turn.hypotheses.map((hypothesis) => ({
+      resolverId: hypothesis.resolverId,
+      intent: hypothesis.intent,
+      confidence: hypothesis.confidence,
+    })),
+    candidateSummaries: turn.candidates.map((candidate) => ({
+      targetId: candidate.targetId,
+      actionId: candidate.actionId ?? candidate.primitiveAction,
+      score: candidate.score,
+      evidenceTypes: candidate.evidence.map((item) => item.type),
+    })),
+    validationCodes:
+      turn.result?.validation && !turn.result.validation.ok && turn.result.validation.code
+        ? [turn.result.validation.code]
+        : [],
+    resultStatus: turn.result?.status,
   }
 }
 
@@ -98,4 +111,66 @@ export function sanitizeRuntimeError(error: unknown): RuntimeError {
 
 function redactSecretText(value: string): string {
   return value.replace(/(authorization|api[_-]?key|token|secret|cookie)=?[^\s,;]+/gi, "$1=[redacted]")
+}
+
+function inferTracePhases(
+  turn: InteractionTurn,
+  now: number
+): InteractionTrace["phases"] {
+  const phases: InteractionTrace["phases"] = []
+
+  if (turn.updatedAt >= turn.createdAt) {
+    phases.push({
+      name: "resolve",
+      startedAt: turn.createdAt,
+      endedAt: ["created", "resolving"].includes(turn.status) ? undefined : turn.updatedAt,
+      outcome: turn.status,
+    })
+  }
+
+  if (turn.status === "needs_clarification" || turn.clarification) {
+    phases.push({
+      name: "clarification",
+      startedAt: turn.updatedAt,
+      outcome: turn.clarification?.prompt,
+    })
+  }
+
+  if (turn.status === "awaiting_confirmation" || turn.pendingCommand || turn.confirmation) {
+    phases.push({
+      name: "confirmation",
+      startedAt: turn.updatedAt,
+      outcome: turn.status,
+    })
+  }
+
+  if (turn.result) {
+    phases.push({
+      name: "validation",
+      startedAt: turn.updatedAt,
+      endedAt: now,
+      outcome:
+        turn.result.validation && !turn.result.validation.ok
+          ? turn.result.validation.code
+          : "ok",
+    })
+    if (turn.result.execution) {
+      phases.push({
+        name: "execution",
+        startedAt: turn.updatedAt,
+        endedAt: now,
+        outcome: turn.result.execution.status,
+      })
+    }
+    if (turn.result.verification) {
+      phases.push({
+        name: "verification",
+        startedAt: turn.updatedAt,
+        endedAt: now,
+        outcome: turn.result.verification.ok ? "ok" : turn.result.verification.code,
+      })
+    }
+  }
+
+  return phases
 }

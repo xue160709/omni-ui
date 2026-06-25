@@ -17,6 +17,12 @@ export type VerifyCommandOptions = {
   postcondition?: ActionPostcondition
 }
 
+export type WaitForCommandPostconditionOptions = Omit<VerifyCommandOptions, "after"> & {
+  getSnapshot: () => InteractionSnapshot
+  timeoutMs?: number
+  intervalMs?: number
+}
+
 export async function verifyCommandPostcondition(
   options: VerifyCommandOptions
 ): Promise<VerificationResult> {
@@ -45,6 +51,31 @@ export async function verifyCommandPostcondition(
   }
 }
 
+export async function waitForCommandPostcondition(
+  options: WaitForCommandPostconditionOptions
+): Promise<VerificationResult> {
+  const timeoutMs = Math.max(0, options.timeoutMs ?? 0)
+  const intervalMs = Math.max(0, options.intervalMs ?? 16)
+  const startedAt = Date.now()
+  let lastResult: VerificationResult | undefined
+
+  do {
+    lastResult = await verifyCommandPostcondition({
+      ...options,
+      after: options.getSnapshot(),
+    })
+    if (lastResult.ok) return lastResult
+    if (timeoutMs === 0) return lastResult
+    await sleep(intervalMs)
+  } while (Date.now() - startedAt < timeoutMs)
+
+  return lastResult ?? {
+    ok: false,
+    code: "verification_failed",
+    reason: "Postcondition did not pass before timeout.",
+  }
+}
+
 export function normalizeVerificationResult(
   result: boolean | VerificationResult
 ): VerificationResult {
@@ -54,6 +85,10 @@ export function normalizeVerificationResult(
       : { ok: false, code: "verification_failed", reason: "Postcondition returned false." }
   }
   return result
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 export function applyVerificationToDispatchResult(

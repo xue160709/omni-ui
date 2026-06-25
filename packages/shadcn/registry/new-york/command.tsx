@@ -58,7 +58,7 @@ export const MultimodalCommandInput = React.forwardRef<
     role: "textbox",
     label: interactionLabel,
     labelFrom: "aria",
-    actions: ["focus", "search", "clear"],
+    actions: ["focus", "clear"],
     hint: interactionHint,
   })
 
@@ -72,8 +72,8 @@ type MultimodalCommandItemProps = React.ComponentProps<typeof ShadcnCommandItem>
   interactionHint?: InteractionHint
 }
 
-// 中文：Command item 暴露 selectResult/select，表示选择搜索或命令结果。
-// English: Command item exposes selectResult/select to represent choosing a search or command result.
+// 中文：Command item 暴露 press，表示选择搜索或命令结果。
+// English: Command item exposes press to represent choosing a search or command result.
 export const MultimodalCommandItem = React.forwardRef<
   React.ElementRef<typeof ShadcnCommandItem>,
   MultimodalCommandItemProps
@@ -83,7 +83,7 @@ export const MultimodalCommandItem = React.forwardRef<
     role: "command_item",
     label: interactionLabel,
     labelFrom: "text",
-    actions: ["selectResult", "select"],
+    actions: ["press"],
     hint: interactionHint,
   })
 

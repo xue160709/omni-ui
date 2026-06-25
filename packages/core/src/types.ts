@@ -55,11 +55,10 @@ export type LegacyPrimitiveAction =
 
 export type PrimitiveActionId =
   | BuiltinPrimitiveAction
-  | LegacyPrimitiveAction
   | `ext:${string}`
 
 /** @deprecated Prefer PrimitiveActionId; arbitrary primitives should use the ext:* namespace. */
-export type PrimitiveAction = PrimitiveActionId
+export type PrimitiveAction = PrimitiveActionId | LegacyPrimitiveAction
 
 export type EntityRef = {
   type: string
@@ -90,7 +89,7 @@ export type InteractionObject = {
   entity?: EntityRef
   state?: InteractionState
   actions?: string[]
-  primitiveActions?: PrimitiveAction[]
+  primitiveActions?: PrimitiveActionId[]
   executeScope?: ExecuteScope
   indexBy?: "visible_order"
   options?: Array<{ label: string; value: string }>
@@ -346,6 +345,8 @@ export type InteractionSubmitOptions = {
   /** @deprecated Confirmation must bind a full immutable CommandEnvelope, not just an action id. */
   confirmedActionId?: string
   baseStateVersion?: number
+  batchMode?: "atomic" | "best_effort"
+  batchTransaction?: import("./batch").ActionTransactionAdapter
   /** @internal Used by assistant policy to turn risk confirmation into a frozen pending command. */
   forceConfirmation?: boolean
 }

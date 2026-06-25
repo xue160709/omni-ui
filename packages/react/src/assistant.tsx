@@ -3,6 +3,7 @@ import {
   createInteractionAssistantSystemPrompt,
   createLocalInteractionReply,
   parseInteractionAssistantModelReply,
+  resolveLlmHypothesesAgainstSnapshot,
   shouldSubmitResolvedInteraction,
   validateResolvedInteractionPolicy,
   type InteractionAssistantPromptOptions,
@@ -141,9 +142,25 @@ export function useInteractionAssistant(
       const currentOptions = optionsRef.current
       const parsed = parseInteractionAssistantModelReply(content, utterance)
 
-      // 中文：模型可以返回单个 action、批量 action，或普通消息；只有 action 会进入本地 dispatch。
-      // English: Model replies may contain one action, a batch of actions, or a plain message; only actions enter local dispatch.
+      // 中文：模型可以返回语义假设、单个 action、批量 action，或普通消息；只有 proposal 会进入本地裁决/dispatch。
+      // English: Model replies may contain semantic hypotheses, one action, a batch, or a plain message; only proposals enter local arbitration/dispatch.
       if (parsed.type !== "interaction_action") {
+        if (parsed.type === "interaction_hypotheses") {
+          const resolution = resolveLlmHypothesesAgainstSnapshot(
+            parsed.hypotheses,
+            interaction.getSnapshot(),
+            utterance,
+            "assistant-llm"
+          )
+          return submitModelResolution(
+            resolution,
+            parsed.reply,
+            submitOptions,
+            currentOptions,
+            interaction
+          )
+        }
+
         if (parsed.type === "interaction_actions") {
           const prepared: ResolvedInteraction[] = []
           let forceConfirmation = false

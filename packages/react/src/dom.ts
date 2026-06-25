@@ -3,7 +3,9 @@ import type {
   InteractionHint,
   InteractionObject,
   PrimitiveAction,
+  PrimitiveActionId,
 } from "@omni-ui/core"
+import { normalizePrimitiveAction, normalizePrimitiveActions } from "@omni-ui/core"
 
 let domNodeCounter = 0
 
@@ -81,20 +83,20 @@ export function getElementLabel(element: HTMLElement): string | undefined {
 
 // 中文：primitiveActions 表示无需业务 executor 也能安全尝试的基础 DOM 操作。
 // English: primitiveActions are basic DOM operations that can be attempted without a domain executor.
-export function inferPrimitiveActions(role: string, element?: HTMLElement): PrimitiveAction[] {
+export function inferPrimitiveActions(role: string, element?: HTMLElement): PrimitiveActionId[] {
   if (role === "button" || role === "link") return ["press"]
-  if (role === "switch") return ["turnOn", "turnOff", "toggle"]
+  if (role === "switch") return ["check", "uncheck", "toggle"]
   if (role === "checkbox") return ["check", "uncheck", "toggle"]
-  if (role === "radio") return ["select"]
+  if (role === "radio") return ["check", "press"]
   if (role === "radiogroup" || role === "toggle_group") return ["selectByLabel", "selectByIndex"]
   if (role === "slider") return ["setValue", "increase", "decrease"]
   if (role === "textbox") return ["focus", "setText", "appendText", "clear"]
-  if (role === "tab") return ["switchTo", "select"]
+  if (role === "tab") return ["press"]
   if (role === "select" || role === "combobox") return ["open", "selectByLabel", "selectByIndex"]
   if (role === "context_menu_trigger") return ["open"]
-  if (role === "menuitemcheckbox") return ["toggle", "select", "press"]
-  if (role === "menuitemradio") return ["select", "press"]
-  if (role === "option" || role === "menuitem") return ["select", "press"]
+  if (role === "menuitemcheckbox") return ["toggle", "press"]
+  if (role === "menuitemradio") return ["check", "press"]
+  if (role === "option" || role === "menuitem") return ["press"]
   if (element instanceof HTMLSelectElement) return ["selectByLabel", "selectByIndex"]
   return []
 }
@@ -188,6 +190,7 @@ export function applyPrimitiveAction(
   action: PrimitiveAction,
   params?: Record<string, unknown>
 ): ActionExecutionResult {
+  const normalizedAction = normalizePrimitiveAction(action)
   if (isDisabled(element) || element.hasAttribute("inert") || element.closest("[inert]")) {
     return { status: "rejected", reason: "Primitive target is disabled or inert.", code: "target_disabled" }
   }
@@ -195,13 +198,13 @@ export function applyPrimitiveAction(
     return { status: "rejected", reason: "Primitive target is hidden.", code: "target_hidden" }
   }
 
-  if (action === "focus") {
+  if (normalizedAction === "focus") {
     const before = element.ownerDocument.activeElement
     element.focus()
     return before === element ? { status: "noop", reason: "Element already focused." } : { status: "changed" }
   }
 
-  if (action === "setText" && "value" in element) {
+  if (normalizedAction === "setText" && "value" in element) {
     const target = element as HTMLInputElement | HTMLTextAreaElement
     const nextValue = String(params?.value ?? "")
     if (target.value === nextValue) return { status: "noop", reason: "Text already has the requested value." }
@@ -213,7 +216,7 @@ export function applyPrimitiveAction(
       : { status: "rejected", reason: "Text value did not update.", code: "value_not_applied" }
   }
 
-  if (action === "appendText" && "value" in element) {
+  if (normalizedAction === "appendText" && "value" in element) {
     const target = element as HTMLInputElement | HTMLTextAreaElement
     const append = String(params?.value ?? params?.text ?? "")
     if (!append) return { status: "noop", reason: "No text was provided." }
@@ -223,7 +226,7 @@ export function applyPrimitiveAction(
     return { status: "changed", data: { length: target.value.length } }
   }
 
-  if (action === "clear" && "value" in element) {
+  if (normalizedAction === "clear" && "value" in element) {
     const target = element as HTMLInputElement | HTMLTextAreaElement
     if (!target.value) return { status: "noop", reason: "Text is already empty." }
     setNativeValue(target, "")
@@ -234,7 +237,7 @@ export function applyPrimitiveAction(
       : { status: "rejected", reason: "Text value did not clear.", code: "value_not_applied" }
   }
 
-  if (element instanceof HTMLSelectElement && action === "selectByLabel") {
+  if (element instanceof HTMLSelectElement && normalizedAction === "selectByLabel") {
     const label = String(params?.label ?? params?.value ?? "")
     const option = Array.from(element.options).find(
       (item) => item.label === label || item.textContent?.trim() === label || item.value === label
@@ -248,7 +251,7 @@ export function applyPrimitiveAction(
     return { status: "rejected", reason: `No option matches "${label}".`, code: "option_not_found" }
   }
 
-  if (element instanceof HTMLSelectElement && action === "selectByIndex") {
+  if (element instanceof HTMLSelectElement && normalizedAction === "selectByIndex") {
     const index = Number(params?.index ?? 1) - 1
     const option = element.options.item(index)
     if (option) {
@@ -260,52 +263,24 @@ export function applyPrimitiveAction(
     return { status: "rejected", reason: `No option exists at index ${index + 1}.`, code: "option_not_found" }
   }
 
-  if (action === "setValue" && isSliderLike(element)) {
+  if (normalizedAction === "setValue" && isSliderLike(element)) {
     return setSliderValue(element, Number(params?.value))
   }
 
-  if (action === "increase" && isSliderLike(element)) {
+  if (normalizedAction === "increase" && isSliderLike(element)) {
     return stepSliderValue(element, 1)
   }
 
-  if (action === "decrease" && isSliderLike(element)) {
+  if (normalizedAction === "decrease" && isSliderLike(element)) {
     return stepSliderValue(element, -1)
   }
 
-  if (action === "check" && element instanceof HTMLInputElement && !element.checked) {
-    element.click()
-    return { status: "changed" }
+  if (normalizedAction === "check") {
+    return applyCheckedPrimitive(element, true)
   }
 
-  if (action === "check" && element instanceof HTMLInputElement && element.checked) {
-    return { status: "noop", reason: "Checkbox is already checked." }
-  }
-
-  if (action === "uncheck" && element instanceof HTMLInputElement && element.checked) {
-    element.click()
-    return { status: "changed" }
-  }
-
-  if (action === "uncheck" && element instanceof HTMLInputElement && !element.checked) {
-    return { status: "noop", reason: "Checkbox is already unchecked." }
-  }
-
-  if (action === "turnOn" && getElementState(element).checked === false) {
-    element.click()
-    return { status: "changed" }
-  }
-
-  if (action === "turnOn" && getElementState(element).checked === true) {
-    return { status: "noop", reason: "Switch is already on." }
-  }
-
-  if (action === "turnOff" && getElementState(element).checked === true) {
-    element.click()
-    return { status: "changed" }
-  }
-
-  if (action === "turnOff" && getElementState(element).checked === false) {
-    return { status: "noop", reason: "Switch is already off." }
+  if (normalizedAction === "uncheck") {
+    return applyCheckedPrimitive(element, false)
   }
 
   if (
@@ -314,21 +289,56 @@ export function applyPrimitiveAction(
       "toggle",
       "open",
       "close",
-      "confirm",
-      "cancel",
-      "select",
-      "switchTo",
-      "selectRow",
-      "openRow",
-      "next",
-      "previous",
-    ].includes(action)
+    ].includes(normalizedAction)
   ) {
     element.click()
     return { status: "changed" }
   }
 
-  return { status: "unsupported", reason: `Primitive action "${action}" is not supported by the DOM executor.` }
+  return { status: "unsupported", reason: `Primitive action "${normalizedAction}" is not supported by the DOM executor.` }
+}
+
+export function normalizeDomPrimitiveActions(
+  actions: ReadonlyArray<PrimitiveAction | string> | undefined
+): PrimitiveActionId[] | undefined {
+  return normalizePrimitiveActions(actions)
+}
+
+function applyCheckedPrimitive(element: HTMLElement, checked: boolean): ActionExecutionResult {
+  const current = readCheckedState(element)
+  if (current === checked) {
+    return {
+      status: "noop",
+      reason: checked ? "Control is already checked." : "Control is already unchecked.",
+    }
+  }
+
+  if (current === undefined) {
+    return {
+      status: "unsupported",
+      reason: "Primitive check/uncheck requires a checkbox, radio, switch, or aria-checked target.",
+    }
+  }
+
+  element.click()
+  const next = readCheckedState(element)
+  return next === checked
+    ? { status: "changed" }
+    : {
+        status: "unverified",
+        reason: "Checked state could not be verified after click.",
+      }
+}
+
+function readCheckedState(element: HTMLElement): boolean | undefined {
+  if (element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio")) {
+    return element.checked
+  }
+
+  const checked = element.getAttribute("aria-checked")
+  if (checked === "true") return true
+  if (checked === "false") return false
+  return undefined
 }
 
 function findScrollTarget(element: HTMLElement): HTMLElement {

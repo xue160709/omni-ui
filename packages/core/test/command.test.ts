@@ -68,6 +68,22 @@ describe("command envelope", () => {
     expect(command.decisionBinding.canonical).toContain('"actionIdOrPrimitive":"todo.complete"')
   })
 
+  it("normalizes legacy primitive aliases before creating the decision binding", () => {
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "primitive",
+      primitiveAction: "turnOn",
+      source,
+      targetId: "settings.bluetooth",
+      anchor,
+      createdAt: 200,
+    })
+
+    expect(command.primitiveAction).toBe("check")
+    expect(command.decisionBinding.canonical).toContain('"actionIdOrPrimitive":"check"')
+  })
+
   it("rejects non-serializable command params", () => {
     expect(() =>
       cloneSerializableCommandParams({

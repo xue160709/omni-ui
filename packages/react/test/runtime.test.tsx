@@ -15,16 +15,35 @@ import {
   useInteractionNavigationHistory,
   useInteractionRoutes,
   useInteractionSnapshot,
+  useVoiceAdapter,
   useSubmitUtterance,
   type ActionContext,
   type ActionPayload,
+  type ActionPostconditionContext,
   type LocalInteractionRule,
   type ResolvedInteraction,
+  type VoiceAdapter,
+  type VoiceInput,
 } from "../src"
 
 afterEach(() => {
   cleanup()
 })
+
+function createMemoryVoiceAdapter(): VoiceAdapter & { emit(input: VoiceInput): void } {
+  const listeners = new Set<(input: VoiceInput) => void>()
+  return {
+    start: () => undefined,
+    stop: () => undefined,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    emit: (input) => {
+      listeners.forEach((listener) => listener(input))
+    },
+  }
+}
 
 function TaskHarness() {
   const [completed, setCompleted] = React.useState(false)
@@ -137,6 +156,405 @@ function DynamicTaskHarness() {
             </label>
           </MultimodalGroup>
         ))}
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function VoiceNBestHarness() {
+  const [completed, setCompleted] = React.useState(false)
+  const api = useInteractionApi()
+
+  const actions = React.useMemo(
+    () => ({
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        modelCallable: true,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+        availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
+      },
+    }),
+    []
+  )
+
+  useInteractionActions({
+    namespace: "task",
+    actions,
+    execute: (action: ActionPayload) => {
+      if (action.type === "task.complete" && action.taskId === "task_1") {
+        setCompleted(true)
+      }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          void api.submitVoice({
+            kind: "final",
+            text: "完成瓶身",
+            nBest: [
+              { text: "完成评审方案", confidence: 0.96 },
+              { text: "完成屏审方案", confidence: 0.72 },
+            ],
+            confidence: 0.42,
+            receivedAt: Date.now(),
+          })
+        }
+      >
+        voice nbest
+      </button>
+      <div data-testid="nbest-completed">{String(completed)}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+          state={{ completed }}
+        >
+          评审方案
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function VoiceAdapterHarness() {
+  const adapter = React.useMemo(() => createMemoryVoiceAdapter(), [])
+  const [completed, setCompleted] = React.useState(false)
+  const [turnStatus, setTurnStatus] = React.useState("none")
+
+  useVoiceAdapter(adapter, {
+    onTurn: (turn) => setTurnStatus(`${turn.input.kind}:${turn.status}`),
+    onError: (error) => setTurnStatus(error instanceof Error ? error.message : "error"),
+  })
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+        availableWhen: ({ target }: ActionContext) => target.state?.completed === false,
+      },
+    },
+    execute: (action: ActionPayload) => {
+      if (action.type === "task.complete" && action.taskId === "task_1") {
+        setCompleted(true)
+        return { status: "changed" }
+      }
+      return { status: "noop", reason: "No matching task." }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          adapter.emit({
+            kind: "partial",
+            text: "完成评审",
+            confidence: 0.8,
+            sessionId: "voice-session-1",
+            receivedAt: Date.now(),
+          })
+        }
+      >
+        adapter partial
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          adapter.emit({
+            kind: "final",
+            text: "完成评审方案",
+            confidence: 0.96,
+            sessionId: "voice-session-1",
+            receivedAt: Date.now(),
+          })
+        }
+      >
+        adapter final
+      </button>
+      <div data-testid="voice-adapter-status">{turnStatus}</div>
+      <div data-testid="voice-adapter-completed">{String(completed)}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+          state={{ completed }}
+        >
+          <span>评审方案</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function PartialVoicePreviewHarness() {
+  const api = useInteractionApi()
+  const [summary, setSummary] = React.useState("")
+  const [executed, setExecuted] = React.useState(0)
+
+  const actions = React.useMemo(
+    () => ({
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+      },
+    }),
+    []
+  )
+
+  useInteractionActions({
+    namespace: "task",
+    actions,
+    execute: () => {
+      setExecuted((value) => value + 1)
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const first = await api.resolveVoice({
+            kind: "partial",
+            text: "完成评审",
+            sessionId: "asr-session-1",
+            confidence: 0.62,
+            receivedAt: Date.now(),
+          })
+          const second = await api.resolveVoice({
+            kind: "partial",
+            text: "完成评审方案",
+            sessionId: "asr-session-1",
+            confidence: 0.86,
+            receivedAt: Date.now() + 10,
+          })
+          const feedback =
+            document
+              .querySelector<HTMLElement>("[data-testid='partial-target']")
+              ?.dataset.mmFeedback ?? "none"
+          setSummary(
+            `${first.id === second.id}:${second.status}:${Boolean(second.decision)}:${second.revision > first.revision}:${feedback}`
+          )
+        }}
+      >
+        voice partial
+      </button>
+      <div data-testid="partial-summary">{summary}</div>
+      <div data-testid="partial-executed">{executed}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+          state={{ completed: false }}
+          data-testid="partial-target"
+        >
+          评审方案
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function AtomicBatchHarness() {
+  const api = useInteractionApi()
+  const [executed, setExecuted] = React.useState(0)
+  const [result, setResult] = React.useState("")
+
+  const actions = React.useMemo(
+    () => ({
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+      },
+    }),
+    []
+  )
+
+  useInteractionActions({
+    namespace: "task",
+    actions,
+    execute: () => {
+      setExecuted((value) => value + 1)
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const snapshot = api.getSnapshot()
+          const dispatched = await api.dispatchBatchResolutions(
+            [
+              {
+                status: "resolved",
+                utterance: "全部完成",
+                targetId: "task.item.task_1",
+                actionId: "task.complete",
+                confidence: 0.91,
+              },
+              {
+                status: "resolved",
+                utterance: "全部完成",
+                targetId: "task.item.task_2",
+                actionId: "task.complete",
+                confidence: 0.91,
+              },
+            ],
+            {
+              baseStateVersion: snapshot.stateVersion,
+              batchMode: "atomic",
+            }
+          )
+          setResult(
+            `${dispatched.batch.ok}:${dispatched.batch.status}:${dispatched.batch.items[0]?.error?.code}`
+          )
+        }}
+      >
+        atomic batch
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          const snapshot = api.getSnapshot()
+          const dispatched = await api.dispatchBatchResolutions(
+            [
+              {
+                status: "resolved",
+                utterance: "全部完成",
+                targetId: "task.item.task_1",
+                actionId: "task.complete",
+                confidence: 0.91,
+              },
+              {
+                status: "resolved",
+                utterance: "全部完成",
+                targetId: "task.item.task_2",
+                actionId: "task.complete",
+                confidence: 0.91,
+              },
+            ],
+            {
+              baseStateVersion: snapshot.stateVersion,
+              batchMode: "atomic",
+              batchTransaction: {
+                canHandle: () => true,
+                executeAtomic: async (commands) => ({
+                  ok: true,
+                  status: "committed",
+                  batchId: "batch_supported",
+                  turnId: commands[0]?.turnId ?? "turn_supported",
+                  items: commands.map((command) => ({
+                    ok: true,
+                    status: "committed",
+                    commandId: command.commandId,
+                    turnId: command.turnId,
+                    targetId: command.targetId,
+                    actionId: command.kind === "domain" ? command.actionId : undefined,
+                    execution: { status: "changed" },
+                  })),
+                }),
+              },
+            }
+          )
+          setResult(`supported:${dispatched.batch.ok}:${dispatched.batch.status}`)
+        }}
+      >
+        atomic batch supported
+      </button>
+      <div data-testid="atomic-result">{result}</div>
+      <div data-testid="atomic-executed">{executed}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+        >
+          评审方案
+        </MultimodalGroup>
+        <MultimodalGroup
+          id="task.item.task_2"
+          role="list_item"
+          label="整理需求"
+          entity={{ type: "task", id: "task_2" }}
+        >
+          整理需求
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function PostconditionWaitHarness() {
+  const [completed, setCompleted] = React.useState(false)
+  const [result, setResult] = React.useState("")
+  const submitUtterance = useSubmitUtterance()
+
+  const actions = React.useMemo(
+    () => ({
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object" as const,
+        paramsFrom: ({ target }: ActionContext) => ({ taskId: target.entity?.id }),
+        verificationTimeoutMs: 100,
+        postcondition: ({ targetAfter }: ActionPostconditionContext) =>
+          targetAfter?.state?.completed === true,
+      },
+    }),
+    []
+  )
+
+  useInteractionActions({
+    namespace: "task",
+    actions,
+    execute: () => {
+      window.setTimeout(() => setCompleted(true), 0)
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const submitted = await submitUtterance("完成第一个")
+          setResult(`${submitted.ok}:${submitted.dispatch?.status}`)
+        }}
+      >
+        postcondition wait
+      </button>
+      <div data-testid="postcondition-result">{result}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
+          state={{ completed }}
+        >
+          评审方案
+        </MultimodalGroup>
       </MultimodalGroup>
     </>
   )
@@ -768,6 +1186,90 @@ function ModelActionPolicyHarness() {
   )
 }
 
+function ModelHypothesesHarness() {
+  const assistant = useInteractionAssistant({
+    modelActionPolicy: {
+      mode: "allowlist",
+      actionIds: ["task.complete"],
+      allowDomainActions: true,
+      allowPrimitiveActions: false,
+    },
+  })
+  const [reply, setReply] = React.useState("")
+  const [executed, setExecuted] = React.useState("none")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        modelCallable: true,
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: (action) => {
+      setExecuted(String(action.taskId))
+      return { status: "changed" }
+    },
+  })
+
+  const submit = async (targetText: string) => {
+    const result = await assistant.trySubmitModelReply(
+      JSON.stringify({
+        type: "interaction_hypotheses",
+        hypotheses: [
+          {
+            intent: "task.complete",
+            actionHint: "task.complete",
+            targetReference: { kind: "label", text: targetText },
+            confidence: 0.96,
+          },
+        ],
+      }),
+      `完成${targetText}`
+    )
+    setReply(`${result.handled}:${result.result?.executed}:${result.reply?.content ?? ""}`)
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => void submit("评审方案")}>
+        model hypothesis complete
+      </button>
+      <button type="button" onClick={() => void submit("复盘")}>
+        model hypothesis ambiguous
+      </button>
+      <div data-testid="model-hypothesis-reply">{reply}</div>
+      <div data-testid="model-hypothesis-executed">{executed}</div>
+      <MultimodalGroup
+        id="task.item.task_1"
+        role="list_item"
+        label="评审方案"
+        entity={{ type: "task", id: "task_1" }}
+      >
+        <span>评审方案</span>
+      </MultimodalGroup>
+      <MultimodalGroup
+        id="task.item.task_2"
+        role="list_item"
+        label="复盘"
+        entity={{ type: "task", id: "task_2" }}
+      >
+        <span>复盘</span>
+      </MultimodalGroup>
+      <MultimodalGroup
+        id="task.item.task_3"
+        role="list_item"
+        label="复盘"
+        entity={{ type: "task", id: "task_3" }}
+      >
+        <span>复盘</span>
+      </MultimodalGroup>
+    </>
+  )
+}
+
 function ModelRiskPolicyHarness() {
   const assistant = useInteractionAssistant({
     modelActionPolicy: {
@@ -986,6 +1488,7 @@ function DuplicateGroupHarness() {
 }
 
 function SameLabelClarificationHarness() {
+  const api = useInteractionApi()
   const submitUtterance = useSubmitUtterance()
   const [completed, setCompleted] = React.useState<Record<string, boolean>>({
     today: false,
@@ -1021,6 +1524,35 @@ function SameLabelClarificationHarness() {
         }}
       >
         voice same label
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          await submitUtterance("完成开会")
+          const clarificationTurnId = api.getActiveTurn()?.id
+          const clarified = await submitUtterance("第一个")
+          setResult(
+            `clarified:${clarified.dispatch?.turnId === clarificationTurnId}:${clarified.ok}:${clarified.dispatch?.status}`
+          )
+        }}
+      >
+        clarify first
+      </button>
+      <button
+        type="button"
+        onClick={async () => {
+          await submitUtterance("完成开会")
+          const clarificationTurnId = api.getActiveTurn()?.id
+          const turn = await api.submitVoice({
+            kind: "final",
+            text: "第一个",
+            confidence: 0.94,
+            receivedAt: Date.now(),
+          })
+          setResult(`voice-clarified:${turn.id === clarificationTurnId}:${turn.status}`)
+        }}
+      >
+        clarify voice first
       </button>
       <div data-testid="same-label-result">{result}</div>
       <div data-testid="same-label-state">{`${completed.today}:${completed.tomorrow}`}</div>
@@ -1190,6 +1722,107 @@ describe("MultimodalProvider", () => {
     await waitFor(() => {
       expect((screen.getByRole("checkbox", { name: "整理需求" }) as HTMLInputElement).checked).toBe(true)
       expect((screen.getByRole("checkbox", { name: "评审方案" }) as HTMLInputElement).checked).toBe(false)
+    })
+  })
+
+  it("uses final voice n-best alternatives when the primary transcript misses", async () => {
+    render(
+      <MultimodalProvider>
+        <VoiceNBestHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "voice nbest" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("nbest-completed").textContent).toBe("true")
+    })
+  })
+
+  it("adapts VoiceAdapter partial and final events into runtime voice turns", async () => {
+    render(
+      <MultimodalProvider>
+        <VoiceAdapterHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "adapter partial" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("voice-adapter-status").textContent).toBe("partial:ready")
+      expect(screen.getByTestId("voice-adapter-completed").textContent).toBe("false")
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: "adapter final" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("voice-adapter-status").textContent).toBe("final:committed")
+      expect(screen.getByTestId("voice-adapter-completed").textContent).toBe("true")
+    })
+  })
+
+  it("previews partial voice turns by session without executing commands", async () => {
+    render(
+      <MultimodalProvider>
+        <PartialVoicePreviewHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "voice partial" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("partial-summary").textContent).toBe(
+        "true:ready:true:true:voice-target"
+      )
+      expect(screen.getByTestId("partial-executed").textContent).toBe("0")
+    })
+  })
+
+  it("rejects atomic runtime batches without executing items when no transaction adapter is present", async () => {
+    render(
+      <MultimodalProvider>
+        <AtomicBatchHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "atomic batch" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("atomic-result").textContent).toBe(
+        "false:rejected:atomic_not_supported"
+      )
+      expect(screen.getByTestId("atomic-executed").textContent).toBe("0")
+    })
+  })
+
+  it("executes atomic runtime batches through a transaction adapter", async () => {
+    render(
+      <MultimodalProvider>
+        <AtomicBatchHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "atomic batch supported" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("atomic-result").textContent).toBe(
+        "supported:true:committed"
+      )
+      expect(screen.getByTestId("atomic-executed").textContent).toBe("0")
+    })
+  })
+
+  it("waits for postcondition verification against refreshed snapshots", async () => {
+    render(
+      <MultimodalProvider>
+        <PostconditionWaitHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "postcondition wait" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("postcondition-result").textContent).toBe("true:committed")
     })
   })
 
@@ -1560,6 +2193,40 @@ describe("MultimodalProvider", () => {
     })
   })
 
+  it("submits assistant semantic hypotheses through runtime fusion", async () => {
+    render(
+      <MultimodalProvider>
+        <ModelHypothesesHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "model hypothesis complete" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-hypothesis-reply").textContent).toBe(
+        "true:true:已执行：task.complete。"
+      )
+      expect(screen.getByTestId("model-hypothesis-executed").textContent).toBe("task_1")
+    })
+  })
+
+  it("keeps ambiguous assistant semantic hypotheses in clarification", async () => {
+    render(
+      <MultimodalProvider>
+        <ModelHypothesesHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "model hypothesis ambiguous" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("model-hypothesis-reply").textContent).toBe(
+        "true:false:存在多个相近候选，需要澄清"
+      )
+      expect(screen.getByTestId("model-hypothesis-executed").textContent).toBe("none")
+    })
+  })
+
   it("requires confirmation for risky LLM action replies by default", async () => {
     render(
       <MultimodalProvider>
@@ -1642,6 +2309,40 @@ describe("MultimodalProvider", () => {
         "needs_clarification:false"
       )
       expect(screen.getByTestId("same-label-state").textContent).toBe("false:false")
+    })
+  })
+
+  it("resolves clarification answers on the original turn", async () => {
+    render(
+      <MultimodalProvider>
+        <SameLabelClarificationHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "clarify first" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("same-label-result").textContent).toBe(
+        "clarified:true:true:committed"
+      )
+      expect(screen.getByTestId("same-label-state").textContent).toBe("true:false")
+    })
+  })
+
+  it("resolves final voice clarification answers on the original turn", async () => {
+    render(
+      <MultimodalProvider>
+        <SameLabelClarificationHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "clarify voice first" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("same-label-result").textContent).toBe(
+        "voice-clarified:true:committed"
+      )
+      expect(screen.getByTestId("same-label-state").textContent).toBe("true:false")
     })
   })
 

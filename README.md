@@ -139,6 +139,8 @@ The execution path now freezes each resolved request into a `CommandEnvelope` an
 
 The low-level API also exposes turn-level controls: `useInteractionApi()` includes `resolveVoice()`, `submitVoice()`, `getActiveTurn()`, `getTurn()`, `confirmTurn()`, and `cancelTurn()`. Confirmation dispatches the same frozen command instead of reparsing the previous model reply.
 
+ASR vendors can integrate through the `VoiceAdapter` seam and `useVoiceAdapter()`: adapters publish `partial` and `final` `VoiceInput` events, while the runtime keeps partials as previews and submits finals through the normal Turn/Dispatcher flow.
+
 ## App Manifest and Local Rules
 
 The runtime now keeps two context layers:
@@ -308,7 +310,7 @@ const conversation = useAssistantConversation({
 await conversation.submitMessage()
 ```
 
-`localFastPath` is app-owned JSON for commands that can skip the LLM, such as route changes or closing a dialog. `modelActionPolicy` is the separate gate for action JSON returned by the LLM. Both policies support exact values and prefix wildcards such as `navigation.*`; `localExecution` remains as a backwards-compatible alias for `localFastPath`.
+`localFastPath` is app-owned JSON for commands that can skip the LLM, such as route changes or closing a dialog. `modelActionPolicy` is the separate gate for model proposals. Prefer `interaction_hypotheses` replies so the model only supplies intent, target reference, slots, and confidence; the runtime then performs snapshot/fusion arbitration before dispatch. Legacy `interaction_action` JSON remains supported as a command proposal. Both policies support exact values and prefix wildcards such as `navigation.*`; `localExecution` remains as a backwards-compatible alias for `localFastPath`.
 
 Your `/api/chat` endpoint can call an OpenAI-compatible `/chat/completions` API, Anthropic Messages, or any provider that returns the assistant text. Browser code should send messages to your server, not provider API keys directly.
 

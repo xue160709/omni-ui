@@ -19,6 +19,7 @@ import {
   transitionTurn,
   mergeInteractionManifests,
   normalizeConfiguredRules,
+  normalizePrimitiveActions,
   resolveUtterance,
   resolveWithResolvers,
   ruleResolver,
@@ -213,6 +214,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   const snapshotRef = React.useRef<InteractionSnapshot>(emptySnapshot)
   const eventBufferRef = React.useRef(createInteractionEventBuffer())
   const resolverAbortRef = React.useRef<AbortController | undefined>(undefined)
+  const partialVoiceTurnIdsRef = React.useRef(new Map<string, string>())
+  const partialVoiceAbortRef = React.useRef(new Map<string, AbortController>())
   const commandCounter = React.useRef(0)
   const turnCounter = React.useRef(0)
   const explicitInvalidationVersionsRef = React.useRef<number[]>([])
@@ -489,7 +492,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           ...getElementState(node.element),
           ...(node.state ?? {}),
         },
-        primitiveActions: (node.actions ?? inferDomPrimitiveActions(node.role, node.element)) as InteractionObject["primitiveActions"],
+        primitiveActions: normalizePrimitiveActions(
+          node.actions ?? inferDomPrimitiveActions(node.role, node.element)
+        ),
       })
     })
 
@@ -614,6 +619,41 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       // 中文：解析总是基于提交瞬间的 snapshot，并记录 lastResolution 方便调试或 UI 展示。
       // English: Resolution uses the snapshot at submit time and stores lastResolution for debugging or UI display.
       const currentSnapshot = snapshotRef.current
+      const activeTurn = activeTurnIdRef.current
+        ? turnsRef.current.get(activeTurnIdRef.current)
+        : undefined
+      const clarificationResolution = resolveClarificationAnswer(
+        text,
+        activeTurn,
+        lastResolutionRef.current,
+        currentSnapshot
+      )
+      if (clarificationResolution && activeTurn) {
+        resolverAbortRef.current?.abort()
+        const resolvingTurn = transitionTurn(activeTurn, {
+          type: "transition",
+          status: "resolving",
+        })
+        publishTurn(resolvingTurn)
+        const resolution = stampResolutionProvenance(clarificationResolution, currentSnapshot, {
+          turnId: activeTurn.id,
+          modality: "text",
+          anchor: activeTurn.anchor,
+        })
+        const resolvedTurn = transitionTurn(resolvingTurn, {
+          type: "transition",
+          status: "ready",
+        })
+        publishTurn(resolvedTurn)
+        onTrace?.(completeInteractionTrace(createInteractionTrace(resolvedTurn), {}))
+        lastResolutionRef.current = resolution
+        setLastResolution(resolution)
+        onResolution?.(resolution)
+        return {
+          snapshot: currentSnapshot,
+          resolution,
+        }
+      }
       resolverAbortRef.current?.abort()
       const abortController = new AbortController()
       resolverAbortRef.current = abortController
@@ -716,7 +756,56 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       })
 
       const currentSnapshot = snapshotRef.current
-      const turnId = `turn_${++turnCounter.current}`
+      if (input.kind === "final") {
+        const activeTurn = activeTurnIdRef.current
+          ? turnsRef.current.get(activeTurnIdRef.current)
+          : undefined
+        const clarificationResolution = resolveClarificationAnswer(
+          input.text,
+          activeTurn,
+          lastResolutionRef.current,
+          currentSnapshot
+        )
+        if (clarificationResolution && activeTurn) {
+          if (input.sessionId) {
+            const sessionKey = voiceSessionKey(input)
+            partialVoiceAbortRef.current.get(sessionKey)?.abort()
+            partialVoiceAbortRef.current.delete(sessionKey)
+            partialVoiceTurnIdsRef.current.delete(sessionKey)
+          }
+          resolverAbortRef.current?.abort()
+          const resolvingTurn = transitionTurn(activeTurn, {
+            type: "transition",
+            status: "resolving",
+          })
+          publishTurn(resolvingTurn)
+          const resolution = stampResolutionProvenance(clarificationResolution, currentSnapshot, {
+            turnId: activeTurn.id,
+            modality: "voice",
+            anchor: activeTurn.anchor,
+          })
+          const resolvedTurn = transitionTurn(resolvingTurn, {
+            type: "transition",
+            status: "ready",
+          })
+          publishTurn(resolvedTurn)
+          lastResolutionRef.current = resolution
+          setLastResolution(resolution)
+          onResolution?.(resolution)
+          onTrace?.(completeInteractionTrace(createInteractionTrace(resolvedTurn), {}))
+          return resolvedTurn
+        }
+      }
+      const partialSessionKey =
+        input.kind === "partial" ? voiceSessionKey(input) : undefined
+      const turnId =
+        partialSessionKey
+          ? getPartialVoiceTurnId(
+              partialSessionKey,
+              partialVoiceTurnIdsRef.current,
+              () => `partial_${++turnCounter.current}`
+            )
+          : `turn_${++turnCounter.current}`
       const createdTurn = createInteractionTurn({
         id: turnId,
         source: "voice",
@@ -726,8 +815,44 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       })
 
       if (input.kind === "partial") {
-        publishTurn(createdTurn, { active: false })
-        return createdTurn
+        const previewAbortController = new AbortController()
+        if (partialSessionKey) {
+          partialVoiceAbortRef.current.get(partialSessionKey)?.abort()
+          partialVoiceAbortRef.current.set(partialSessionKey, previewAbortController)
+        }
+        const preview = await resolvePartialVoicePreview(input, currentSnapshot, {
+          localResolvers,
+          signal: previewAbortController.signal,
+          turnId,
+        })
+        if (previewAbortController.signal.aborted) {
+          const superseded = transitionTurn(createdTurn, {
+            type: "transition",
+            status: "superseded",
+          })
+          publishTurn(superseded, { active: false })
+          return superseded
+        }
+        const previewTurn = createPartialVoicePreviewTurn(
+          createdTurn,
+          stampResolutionProvenance(preview, currentSnapshot, {
+            turnId,
+            modality: "voice",
+          }),
+          turnsRef.current.get(turnId)
+        )
+        publishTurn(previewTurn, { active: false })
+        if (preview.status === "resolved" && preview.targetId) {
+          applyFeedback(preview.targetId, "voice-target")
+        }
+        return previewTurn
+      }
+
+      if (input.sessionId) {
+        const sessionKey = voiceSessionKey(input)
+        partialVoiceAbortRef.current.get(sessionKey)?.abort()
+        partialVoiceAbortRef.current.delete(sessionKey)
+        partialVoiceTurnIdsRef.current.delete(sessionKey)
       }
 
       resolverAbortRef.current?.abort()
@@ -739,7 +864,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       })
       publishTurn(resolvingTurn)
 
-      const resolved = await resolveCandidate(input.text, currentSnapshot, {
+      const resolved = await resolveVoiceCandidate(input, currentSnapshot, {
         localResolvers,
         resolvers,
         resolverMode,
@@ -798,6 +923,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       onClarification,
       onResolution,
       onTrace,
+      applyFeedback,
       publishTurn,
       recordEvent,
       resolverMode,
@@ -1059,6 +1185,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             candidate: resolution,
             utterance: resolution.utterance,
             confirmation: createLegacyConfirmationGrant(command, options.confirmedActionId),
+            getSnapshot,
           })
           if (
             dispatchResult.validation &&
@@ -1186,6 +1313,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       applyFeedback,
       bumpVersion,
       ensureTurnForResolution,
+      getSnapshot,
       publishDispatchResultTurn,
       publishPendingConfirmationTurn,
     ]
@@ -1312,7 +1440,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       const batch = buildBatchCommandEnvelope({
         batchId: `batch_${++commandCounter.current}`,
         turnId: commands[0]?.turnId ?? `batch_turn_${Date.now()}`,
-        mode: "best_effort",
+        mode: options.batchMode ?? "best_effort",
         commands,
       })
       const dispatchSnapshot = options.forceConfirmation
@@ -1325,6 +1453,8 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           )
         : currentSnapshot
       const batchResult = await dispatchBatchCommands(dispatchSnapshot, batch, {
+        transaction: options.batchTransaction,
+        getSnapshot,
         executePrimitive: (primitiveCommand): ActionExecutionResult => {
           const element = elementByObjectId.current.get(primitiveCommand.targetId)
           if (!element) {
@@ -1386,7 +1516,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         results,
       }
     },
-    [applyFeedback, bumpVersion, ensureTurnForResolution, publishDispatchResultTurn]
+    [applyFeedback, bumpVersion, ensureTurnForResolution, getSnapshot, publishDispatchResultTurn]
   )
 
   const confirmTurn = React.useCallback(
@@ -1428,6 +1558,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       applyFeedback(command.targetId, "voice-press")
       let dispatchResult = await dispatchCommand(currentSnapshot, command, {
         confirmation,
+        getSnapshot,
         executePrimitive:
           command.kind === "primitive"
             ? (primitiveCommand): ActionExecutionResult => {
@@ -1463,6 +1594,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           command,
           {
             confirmation,
+            getSnapshot,
             executePrimitive:
               command.kind === "primitive"
                 ? (primitiveCommand): ActionExecutionResult => {
@@ -1494,7 +1626,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       publishDispatchResultTurn(turnId, dispatchResult)
       return dispatchResult
     },
-    [applyFeedback, bumpVersion, publishDispatchResultTurn, publishTurn]
+    [applyFeedback, bumpVersion, getSnapshot, publishDispatchResultTurn, publishTurn]
   )
 
   const submitVoice = React.useCallback(
@@ -2279,6 +2411,7 @@ function stampResolutionProvenance(
   options: {
     turnId: string
     modality: CommandSource["modality"]
+    anchor?: ResolutionProvenance["anchor"]
   }
 ): ResolvedInteraction {
   const resolverIds = [resolution.resolverId].filter((id): id is string => Boolean(id))
@@ -2286,7 +2419,7 @@ function stampResolutionProvenance(
     ...resolution,
     provenance: {
       turnId: options.turnId,
-      anchor: createSnapshotAnchor(snapshot),
+      anchor: options.anchor ?? createSnapshotAnchor(snapshot),
       source: {
         modality: options.modality,
         resolverIds,
@@ -2401,6 +2534,126 @@ function dispatchRuntimeError(result: DispatchResult) {
   }
 }
 
+function resolveClarificationAnswer(
+  answer: string,
+  activeTurn: InteractionTurn | undefined,
+  pendingResolution: ResolvedInteraction | undefined,
+  snapshot: InteractionSnapshot
+): ResolvedInteraction | undefined {
+  if (activeTurn?.status !== "needs_clarification") return undefined
+  if (pendingResolution?.status !== "needs_clarification") return undefined
+  const targetCandidates = pendingResolution.targetCandidates ?? []
+  if (!targetCandidates.length) return undefined
+
+  const targetId =
+    targetCandidates[parseClarificationOrdinal(answer) - 1]?.id ??
+    findClarificationCandidateByLabel(answer, targetCandidates, snapshot)
+  if (!targetId) return undefined
+
+  const target = snapshot.visibleObjects.find((object) => object.id === targetId)
+  if (!target) return undefined
+  const action = chooseClarifiedAction(target, pendingResolution.intent)
+  if (!action) return undefined
+  const candidate = targetCandidates.find((item) => item.id === targetId)
+
+  return {
+    status: "resolved",
+    utterance: pendingResolution.utterance,
+    intent: pendingResolution.intent,
+    targetId,
+    ...action,
+    params: pendingResolution.params,
+    confidence: Math.max(pendingResolution.confidence, candidate?.confidence ?? 0),
+    reason: `clarification:${answer.trim()}`,
+    resolverId: pendingResolution.resolverId ?? "clarification",
+  }
+}
+
+function parseClarificationOrdinal(answer: string): number {
+  const text = answer.trim()
+  const digit = text.match(/第?\s*(\d+)\s*(个|项|条|行)?/)
+  if (digit) return Number(digit[1])
+  const words: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+  }
+  const word = text.match(/第?\s*([一二两三四五])\s*(个|项|条|行)?/)
+  return word ? words[word[1]] ?? 0 : 0
+}
+
+function findClarificationCandidateByLabel(
+  answer: string,
+  candidates: Array<{ id: string }>,
+  snapshot: InteractionSnapshot
+): string | undefined {
+  const query = normalizeClarificationText(answer)
+  if (!query) return undefined
+  return candidates.find((candidate) => {
+    const object = snapshot.visibleObjects.find((item) => item.id === candidate.id)
+    if (!object) return false
+    return [object.label, ...(object.aliases ?? [])]
+      .filter((value): value is string => typeof value === "string")
+      .some((value) => {
+        const label = normalizeClarificationText(value)
+        return label === query || label.includes(query) || query.includes(label)
+      })
+  })?.id
+}
+
+function chooseClarifiedAction(
+  target: InteractionObject,
+  intent: string | undefined
+): Pick<ResolvedInteraction, "actionId" | "primitiveAction"> | undefined {
+  const actions = target.actions ?? []
+  const primitives = target.primitiveActions ?? []
+  const domain = (suffixes: string[]) =>
+    actions.find((action) =>
+      suffixes.some((suffix) =>
+        suffix.startsWith(".")
+          ? action.endsWith(suffix)
+          : action === suffix || action.endsWith(`.${suffix}`)
+      )
+    )
+  const primitive = (candidates: NonNullable<ResolvedInteraction["primitiveAction"]>[]) =>
+    primitives.find((action) => candidates.includes(action))
+
+  if (intent === "complete") {
+    const actionId = domain([".complete", "complete"])
+    if (actionId) return { actionId }
+    const primitiveAction = primitive(["check", "toggle"])
+    if (primitiveAction) return { primitiveAction }
+  }
+  if (intent === "delete") {
+    const actionId = domain([".delete", "delete"])
+    if (actionId) return { actionId }
+  }
+  if (intent === "open" || intent === "navigate") {
+    const actionId = domain([".open", ".goto", ".navigate", "open", "goto", "navigate"])
+    if (actionId) return { actionId }
+    const primitiveAction = primitive(["press", "open"])
+    if (primitiveAction) return { primitiveAction }
+  }
+  if (intent === "select") {
+    const actionId = domain([".filter", ".select", ".goto", ".navigate", "goto", "navigate"])
+    if (actionId) return { actionId }
+    const primitiveAction = primitive(["press", "selectByLabel", "selectByIndex"])
+    if (primitiveAction) return { primitiveAction }
+  }
+
+  const actionId = actions[0]
+  if (actionId) return { actionId }
+  const primitiveAction = primitives[0]
+  return primitiveAction ? { primitiveAction } : undefined
+}
+
+function normalizeClarificationText(value: string): string {
+  return value.toLowerCase().replace(/[，。！？、,.!?:：；;\s"'“”‘’]/g, "")
+}
+
 function withForcedDomainConfirmation(
   snapshot: InteractionSnapshot,
   actionId: string
@@ -2488,13 +2741,22 @@ async function resolveCandidate(
     resolverMode: ResolverMode
     signal?: AbortSignal
     turnId?: string
+    voiceInput?: VoiceInput
+    recentEvents?: InteractionEvent[]
   }
 ): Promise<ResolvedInteraction> {
   // 中文：解析策略支持 rule-only、rule-first 和 llm-first；默认先用本地规则，置信度不足再走外部 resolver。
   // English: Resolution supports rule-only, rule-first, and llm-first; the default tries local rules before external resolvers.
   if (options.resolverMode !== "llm-first" && options.localResolvers?.length) {
     const localResult = await resolveWithResolvers(
-      { utterance, snapshot, signal: options.signal, turnId: options.turnId },
+      {
+        utterance,
+        snapshot,
+        signal: options.signal,
+        turnId: options.turnId,
+        voiceInput: options.voiceInput,
+        recentEvents: options.recentEvents,
+      },
       options.localResolvers,
       0.8
     )
@@ -2514,7 +2776,14 @@ async function resolveCandidate(
 
   if (options.resolverMode === "llm-first") {
     return resolveWithResolvers(
-      { utterance, snapshot: compactSnapshot, signal: options.signal, turnId: options.turnId },
+      {
+        utterance,
+        snapshot: compactSnapshot,
+        signal: options.signal,
+        turnId: options.turnId,
+        voiceInput: options.voiceInput,
+        recentEvents: options.recentEvents,
+      },
       [...externalResolvers, ...(options.localResolvers ?? []), ruleResolver],
       0.7
     )
@@ -2525,7 +2794,14 @@ async function resolveCandidate(
   }
 
   const resolverResult = await resolveWithResolvers(
-    { utterance, snapshot: compactSnapshot, signal: options.signal, turnId: options.turnId },
+    {
+      utterance,
+      snapshot: compactSnapshot,
+      signal: options.signal,
+      turnId: options.turnId,
+      voiceInput: options.voiceInput,
+      recentEvents: options.recentEvents,
+    },
     externalResolvers,
     0.7
   )
@@ -2535,6 +2811,221 @@ async function resolveCandidate(
   }
 
   return ruleResult
+}
+
+async function resolveVoiceCandidate(
+  input: VoiceInput,
+  snapshot: InteractionSnapshot,
+  options: {
+    localResolvers?: IntentResolver[]
+    resolvers?: IntentResolver[]
+    resolverMode: ResolverMode
+    signal?: AbortSignal
+    turnId?: string
+  }
+): Promise<ResolvedInteraction> {
+  const alternatives = getVoiceAlternatives(input)
+  let primaryResult: ResolvedInteraction | undefined
+  let bestResolved:
+    | {
+        resolution: ResolvedInteraction
+        score: number
+        transcript: string
+      }
+    | undefined
+  let bestClarification: ResolvedInteraction | undefined
+
+  for (const alternative of alternatives) {
+    if (options.signal?.aborted) {
+      return {
+        status: "unsupported",
+        utterance: input.text,
+        confidence: 0,
+        reason: "Resolver request was aborted.",
+      }
+    }
+
+    const resolution = await resolveCandidate(alternative.text, snapshot, {
+      ...options,
+      voiceInput: {
+        ...input,
+        text: alternative.text,
+        confidence: alternative.confidence ?? input.confidence,
+      },
+      recentEvents: snapshot.recentEvents,
+    })
+    if (!primaryResult) primaryResult = resolution
+
+    const asrConfidence = alternative.confidence ?? input.confidence ?? 1
+    const score = resolution.confidence * asrConfidence
+    if (resolution.status === "resolved" && (!bestResolved || score > bestResolved.score)) {
+      bestResolved = {
+        resolution,
+        score,
+        transcript: alternative.text,
+      }
+    }
+
+    if (resolution.status === "needs_clarification" && !bestClarification) {
+      bestClarification = resolution
+    }
+  }
+
+  if (bestResolved) {
+    return {
+      ...bestResolved.resolution,
+      utterance: input.text,
+      confidence: Math.min(1, bestResolved.score),
+      reason:
+        bestResolved.transcript === input.text
+          ? bestResolved.resolution.reason
+          : [
+              bestResolved.resolution.reason,
+              `asr_alternative:${bestResolved.transcript}`,
+            ]
+              .filter(Boolean)
+              .join(";"),
+    }
+  }
+
+  return bestClarification ?? primaryResult ?? {
+    status: "not_found",
+    utterance: input.text,
+    confidence: 0,
+    reason: "没有 resolver 能识别该语音表达",
+  }
+}
+
+async function resolvePartialVoicePreview(
+  input: VoiceInput,
+  snapshot: InteractionSnapshot,
+  options: {
+    localResolvers?: IntentResolver[]
+    signal?: AbortSignal
+    turnId?: string
+  }
+): Promise<ResolvedInteraction> {
+  return resolveCandidate(input.text, snapshot, {
+    localResolvers: options.localResolvers,
+    resolverMode: "rule-only",
+    signal: options.signal,
+    turnId: options.turnId,
+    voiceInput: input,
+    recentEvents: snapshot.recentEvents,
+  })
+}
+
+function createPartialVoicePreviewTurn(
+  createdTurn: InteractionTurn,
+  resolution: ResolvedInteraction,
+  previousTurn?: InteractionTurn
+): InteractionTurn {
+  const resolving = transitionTurn(createdTurn, {
+    type: "transition",
+    status: "resolving",
+    at: createdTurn.updatedAt,
+  })
+  const status =
+    resolution.status === "resolved"
+      ? "ready"
+      : resolution.status === "needs_clarification"
+        ? "needs_clarification"
+        : "rejected"
+  const next = transitionTurn(resolving, {
+    type: "transition",
+    status,
+    at: createdTurn.updatedAt,
+    candidates: previewCandidatesFromResolution(resolution),
+    decision:
+      resolution.status === "resolved" && resolution.targetId
+        ? {
+            targetId: resolution.targetId,
+            actionId: resolution.actionId,
+            primitiveAction: resolution.primitiveAction,
+            params: resolution.params ?? {},
+            score: resolution.confidence,
+            confidenceMargin: resolution.confidence,
+            evidence: [],
+          }
+        : undefined,
+    clarification:
+      status === "needs_clarification"
+        ? {
+            id: `clarification_${createdTurn.id}`,
+            prompt: resolution.reason ?? "需要进一步澄清",
+            createdAt: createdTurn.updatedAt,
+          }
+        : undefined,
+    error:
+      status === "rejected"
+        ? {
+            code: resolution.status,
+            message: resolution.reason ?? "Partial voice preview did not resolve.",
+          }
+        : undefined,
+  })
+
+  return {
+    ...next,
+    revision: (previousTurn?.revision ?? 0) + 1,
+  }
+}
+
+function previewCandidatesFromResolution(
+  resolution: ResolvedInteraction
+): InteractionTurn["candidates"] {
+  const candidates = resolution.targetCandidates?.length
+    ? resolution.targetCandidates.map((candidate) => ({
+        targetId: candidate.id,
+        score: candidate.confidence,
+      }))
+    : resolution.targetId
+      ? [{ targetId: resolution.targetId, score: resolution.confidence }]
+      : []
+
+  return candidates.map((candidate, index) => ({
+    id: `preview_${resolution.provenance?.turnId ?? "turn"}_${index + 1}`,
+    hypothesisId: resolution.resolverId ?? "preview",
+    targetId: candidate.targetId,
+    actionId: resolution.actionId,
+    primitiveAction: resolution.primitiveAction,
+    params: resolution.params ?? {},
+    score: candidate.score,
+    evidence: [],
+  }))
+}
+
+function getPartialVoiceTurnId(
+  sessionKey: string,
+  sessions: Map<string, string>,
+  createId: () => string
+): string {
+  const existing = sessions.get(sessionKey)
+  if (existing) return existing
+  const next = createId()
+  sessions.set(sessionKey, next)
+  return next
+}
+
+function voiceSessionKey(input: VoiceInput): string {
+  return input.sessionId ? `session:${input.sessionId}` : `partial:${input.startedAt ?? input.receivedAt}`
+}
+
+function getVoiceAlternatives(input: VoiceInput): Array<{ text: string; confidence?: number }> {
+  const seen = new Set<string>()
+  return [
+    { text: input.text, confidence: input.confidence },
+    ...(input.nBest ?? []),
+  ]
+    .map((alternative) => ({
+      text: alternative.text.trim(),
+      confidence: alternative.confidence,
+    }))
+    .filter((alternative) => {
+      if (!alternative.text || seen.has(alternative.text)) return false
+      seen.add(alternative.text)
+      return true
+    })
 }
 
 function stableStringify(value: unknown): string {

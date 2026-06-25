@@ -139,6 +139,8 @@ useInteractionActions({
 
 低层 API 也提供 turn 级能力：`useInteractionApi()` 现在包含 `resolveVoice()`、`submitVoice()`、`getActiveTurn()`、`getTurn()`、`confirmTurn()` 和 `cancelTurn()`。确认保存的是同一条不可变 command，而不是重新解析上一条模型回复。
 
+ASR 厂商可以通过 `VoiceAdapter` seam 和 `useVoiceAdapter()` 接入：adapter 发布 `partial` 与 `final` `VoiceInput` 事件，runtime 会把 partial 保持为预览，把 final 送入正常 Turn/Dispatcher 流程。
+
 ## App Manifest 和本地规则
 
 Runtime 维护两层上下文：
@@ -307,7 +309,7 @@ const conversation = useAssistantConversation({
 await conversation.submitMessage()
 ```
 
-`localFastPath` 是应用拥有的 JSON policy，用于可以跳过 LLM 的命令，例如路由跳转或关闭 dialog。`modelActionPolicy` 是 LLM 返回 action JSON 后的独立安全门。两者都支持精确值和 `navigation.*` 这类前缀通配；`localExecution` 仍作为 `localFastPath` 的向后兼容别名存在。
+`localFastPath` 是应用拥有的 JSON policy，用于可以跳过 LLM 的命令，例如路由跳转或关闭 dialog。`modelActionPolicy` 是模型 proposal 的独立安全门。推荐让模型返回 `interaction_hypotheses`，只提供 intent、target reference、slots 和 confidence；runtime 会再基于当前 snapshot/fusion 做本地裁决后才 dispatch。旧式 `interaction_action` JSON 仍作为 command proposal 兼容。两者都支持精确值和 `navigation.*` 这类前缀通配；`localExecution` 仍作为 `localFastPath` 的向后兼容别名存在。
 
 你的 `/api/chat` endpoint 可以调用 OpenAI-compatible `/chat/completions` API、Anthropic Messages 或任何会返回 assistant text 的 provider。浏览器代码应该请求你的服务端，不要直接携带 provider API keys。
 

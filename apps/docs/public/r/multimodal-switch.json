@@ -2,7 +2,7 @@
   "name": "multimodal-switch",
   "type": "registry:component",
   "title": "Multimodal Switch",
-  "description": "shadcn Switch wrapper that registers turnOn/turnOff semantics.",
+  "description": "shadcn Switch wrapper that registers canonical check/uncheck/toggle semantics.",
   "dependencies": [
     "@omni-ui/react"
   ],
@@ -15,7 +15,7 @@
       "path": "registry/new-york/switch.tsx",
       "type": "registry:component",
       "target": "components/multimodal/switch.tsx",
-      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Switch as ShadcnSwitch } from \"@/components/ui/switch\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalSwitchProps = React.ComponentProps<typeof ShadcnSwitch> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Switch 使用 turnOn/turnOff/toggle 语义，比普通按钮更准确地表达开关状态。\n// English: Switch uses turnOn, turnOff, and toggle semantics to express switch state more precisely than a generic button.\nexport const MultimodalSwitch = React.forwardRef<\n  React.ElementRef<typeof ShadcnSwitch>,\n  MultimodalSwitchProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnSwitch>>({\n    id: interactionId,\n    role: \"switch\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"turnOn\", \"turnOff\", \"toggle\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnSwitch ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalSwitch.displayName = \"MultimodalSwitch\"\n"
+      "content": "\"use client\"\n\nimport * as React from \"react\"\nimport { Switch as ShadcnSwitch } from \"@/components/ui/switch\"\nimport { useInteractionNode, type InteractionHint } from \"@omni-ui/react\"\nimport { composeRefs } from \"./utils\"\n\ntype MultimodalSwitchProps = React.ComponentProps<typeof ShadcnSwitch> & {\n  interactionId?: string\n  interactionLabel?: string\n  interactionHint?: InteractionHint\n}\n\n// 中文：Switch 使用 check/uncheck/toggle 语义，比普通按钮更准确地表达开关状态。\n// English: Switch uses check, uncheck, and toggle semantics to express switch state more precisely than a generic button.\nexport const MultimodalSwitch = React.forwardRef<\n  React.ElementRef<typeof ShadcnSwitch>,\n  MultimodalSwitchProps\n>(({ interactionId, interactionLabel, interactionHint, ...props }, ref) => {\n  const mmRef = useInteractionNode<React.ElementRef<typeof ShadcnSwitch>>({\n    id: interactionId,\n    role: \"switch\",\n    label: interactionLabel,\n    labelFrom: \"aria\",\n    actions: [\"check\", \"uncheck\", \"toggle\"],\n    hint: interactionHint,\n  })\n\n  return <ShadcnSwitch ref={composeRefs(ref, mmRef)} {...props} />\n})\nMultimodalSwitch.displayName = \"MultimodalSwitch\"\n"
     }
   ]
 }
