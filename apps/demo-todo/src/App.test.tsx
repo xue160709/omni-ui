@@ -499,6 +499,55 @@ describe("mobile todo app", () => {
     })
   })
 
+  it("updates todo priority from an LLM action", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: [
+                  "<minimax:tool_call>",
+                  '<invoke name="todo.update">',
+                  '<parameter name="targetId">todo_1</parameter>',
+                  '<parameter name="priority">high</parameter>',
+                  "</invoke>",
+                  "</minimax:tool_call>",
+                ].join("\n"),
+              },
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    window.localStorage.setItem("siliconflow_api_key", "test-key")
+
+    render(<App />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Chatbot" }))
+    fireEvent.change(screen.getByLabelText("消息"), {
+      target: { value: "把买牛奶设为高优先级" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "发送" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("已执行：todo.update。")).not.toBeNull()
+    })
+
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem("todo_items") ?? "[]") as Array<{
+        id: string
+        priority: string
+      }>
+      expect(stored.find((todo) => todo.id === "todo_1")?.priority).toBe("high")
+    })
+  })
+
   it("executes natural completion phrasing from an LLM action reply", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

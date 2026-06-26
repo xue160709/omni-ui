@@ -84,6 +84,7 @@ type TodoAction =
       description?: string
       completed?: boolean
       due?: TodoDue
+      priority?: TodoPriority
     }
   | { type: "todo.clearCompleted" }
 
@@ -137,6 +138,8 @@ const todoUpdateParamsSchema: RuntimeSchema<Record<string, unknown>> = {
     if (typeof input.description === "string") data.description = input.description
     if (typeof input.completed === "boolean") data.completed = input.completed
     if (isTodoDue(input.due)) data.due = input.due
+    const priority = parseTodoPriorityValue(input.priority)
+    if (priority !== undefined) data.priority = priority
 
     return Object.keys(data).length > 1
       ? { success: true, data }
@@ -489,11 +492,12 @@ function AppRuntime() {
         const hasDescription = typeof todoAction.description === "string"
         const hasCompleted = typeof todoAction.completed === "boolean"
         const hasDue = isTodoDue(todoAction.due)
+        const hasPriority = isTodoPriority(todoAction.priority)
 
-        if (!hasTitle && !hasDescription && !hasCompleted && !hasDue) {
+        if (!hasTitle && !hasDescription && !hasCompleted && !hasDue && !hasPriority) {
           return {
             status: "rejected",
-            reason: "todo.update 需要至少提供 title、description、completed 或 due。",
+            reason: "todo.update 需要至少提供 title、description、completed、due 或 priority。",
             code: "invalid_params",
           }
         }
@@ -507,6 +511,7 @@ function AppRuntime() {
                   description: hasDescription ? todoAction.description! : todo.description,
                   completed: hasCompleted ? todoAction.completed! : todo.completed,
                   due: hasDue ? todoAction.due! : todo.due,
+                  priority: hasPriority ? todoAction.priority! : todo.priority,
                 }
               : todo
             )
@@ -619,6 +624,7 @@ function AppRuntime() {
           ])
           const completed = inferTodoCompletedParam(params, candidate?.utterance)
           const due = inferTodoDueParam(params, candidate?.utterance)
+          const priority = inferTodoPriorityParam(params, candidate?.utterance)
           const mappedParams: Record<string, unknown> = {
             todoId: target.entity?.id,
           }
@@ -627,6 +633,7 @@ function AppRuntime() {
           if (description !== undefined) mappedParams.description = description
           if (completed !== undefined) mappedParams.completed = completed
           if (due !== undefined) mappedParams.due = due
+          if (priority !== undefined) mappedParams.priority = priority
 
           return mappedParams
         },
@@ -702,6 +709,21 @@ function inferTodoDueParam(
   return parseTodoDueValue(utterance)
 }
 
+function inferTodoPriorityParam(
+  params: Record<string, unknown>,
+  utterance: string | undefined
+): TodoPriority | undefined {
+  const explicit = parseTodoPriorityValue(
+    params.priority ??
+      params.priorityLevel ??
+      params.importance ??
+      params.urgency
+  )
+  if (explicit !== undefined) return explicit
+
+  return parseTodoPriorityValue(utterance)
+}
+
 function parseTodoCompletedValue(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value
   if (typeof value !== "string") return undefined
@@ -714,6 +736,26 @@ function parseTodoCompletedValue(value: unknown): boolean | undefined {
   }
   if (/已完成|完成了|完成|做完|办完|搞定|好了|标记为完成|设为完成|设置成完成|done|complete|completed|true|checked/.test(text)) {
     return true
+  }
+
+  return undefined
+}
+
+function parseTodoPriorityValue(value: unknown): TodoPriority | undefined {
+  if (isTodoPriority(value)) return value
+  if (typeof value !== "string") return undefined
+
+  const text = value.trim().toLowerCase()
+  if (!text) return undefined
+
+  if (/高优先级|优先级高|最高优先级|紧急|重要|high|urgent|important|p0|p1/.test(text) || text === "高") {
+    return "high"
+  }
+  if (/中优先级|优先级中|普通优先级|中等|medium|normal|p2/.test(text) || text === "中") {
+    return "medium"
+  }
+  if (/低优先级|优先级低|低优|不急|low|p3|p4/.test(text) || text === "低") {
+    return "low"
   }
 
   return undefined
@@ -1755,7 +1797,7 @@ function FloatingChatbot(props: {
         "完成/已完成/完成了/标记完成是状态切换，请使用 todo.complete；未完成/取消完成/恢复是状态切换，请使用 todo.uncomplete；不要用 todo.update 表达完成状态。",
         "当用户说“全部”“所有”“每个”等批量请求时，请返回 interaction_actions JSON，并在 resolutions 中为每一个需要变化的 todo 逐项列出 action；例如把全部任务设为完成时，只对 state.completed 为 false 的 todo 返回 todo.complete。",
         "新增或修改待办日期时，params.due 只使用 今天、明天、本周；用户说“明天新增/明天帮我增加”时，todo.add 必须带 params.due=\"明天\"。",
-        "todo.update 用于修改标题、详情或日期，不要求用户先导航到详情页；更新详情时使用 params.description，更新日期时使用 params.due，保留标题时不要覆盖 title。",
+        "todo.update 用于修改标题、详情、日期或优先级，不要求用户先导航到详情页；更新详情时使用 params.description，更新日期时使用 params.due（今天、明天、本周），更新优先级时使用 params.priority（low、medium、high），保留标题时不要覆盖 title。",
         "如果用户要进入某个待办详情页，请使用 navigation.goto 指向对应 app.route.todo.*；如果用户要修改详情内容，请优先使用 todo.update 而不是只回复文字。",
         "用户说返回上一页、回上一页、后退时使用 navigation.back；用户说前进、下一页、去下一页时使用 navigation.forward。",
         "interaction_actions 示例：{\"type\":\"interaction_actions\",\"resolutions\":[{\"status\":\"resolved\",\"utterance\":\"把全部任务都设置成完成\",\"targetId\":\"todo_1\",\"actionId\":\"todo.complete\",\"confidence\":0.92},{\"status\":\"resolved\",\"utterance\":\"把全部任务都设置成完成\",\"targetId\":\"todo_2\",\"actionId\":\"todo.complete\",\"confidence\":0.92}],\"reply\":\"已将全部未完成任务标记为完成。\"}。",
