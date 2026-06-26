@@ -7,7 +7,7 @@ Server-side model keys should stay in route handlers or server actions. A server
 ```tsx
 "use client"
 
-import "@omni-ui/react/styles"
+import "@omni-ui/react/styles.css"
 import { MultimodalProvider } from "@omni-ui/react"
 
 export function Providers({ children }: { children: React.ReactNode }) {

@@ -51,8 +51,8 @@ Observed passing coverage:
 | DevTools are Turn/Trace based and support diagnostics/export. | Done | `packages/react/src/devtools.tsx` renders turns, candidates, evidence, phases, result status, diagnostics, and sanitized export. |
 | Snapshot/Trace/Event privacy boundary remains intact. | Done | Existing privacy redaction remains covered by core privacy tests; DevTools export is sanitized. |
 | README and five-minute tutorial are consumer-first and need no API key. | Done | `README.md`, `README_CN.md`, and `examples/react-vite-minimal` use local actions first; low-level docs now prefer Turn submission and move legacy dispatch into migration guidance. |
-| Example source is unambiguous. | Done | Todo demo is `apps/demo-todo`; registry/docs references were updated away from `apps/docs`. |
-| Package consumer CI, CSS export, peer dependencies, and guides exist. | Done | `npm run verify:package-consumer`, `@omni-ui/react/styles`, React 18/19 peer range, and guides under `docs/guides/`. |
+| Example source is unambiguous. | Done | Todo demo is `apps/demo-todo`; legacy docs-app references were updated. |
+| Package consumer CI, CSS export, peer dependencies, and guides exist. | Done | `npm run verify:package-consumer`, `@omni-ui/react/styles.css`, React 18/19 peer range, and guides under `docs/guides/`. |
 | Changesets/release/protocol docs exist. | Done | `.changeset/config.json`, `docs/release.md`, and `@omni-ui/core/protocol` with version negotiation and envelopes. |
 
 ## Notes

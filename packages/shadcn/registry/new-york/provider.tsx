@@ -34,4 +34,4 @@ export {
   type UseInteractionAssistantOptions,
   type UseInteractionRoutesOptions,
 } from "@omni-ui/react"
-import "@omni-ui/react/styles"
+import "@omni-ui/react/styles.css"

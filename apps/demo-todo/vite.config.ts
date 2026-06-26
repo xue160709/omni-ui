@@ -18,10 +18,6 @@ export default defineConfig(({ mode }) => {
       : {
           alias: [
             {
-              find: "@omni-ui/react/styles",
-              replacement: path.resolve(__dirname, "../../packages/react/src/styles.css"),
-            },
-            {
               find: "@omni-ui/react/styles.css",
               replacement: path.resolve(__dirname, "../../packages/react/src/styles.css"),
             },

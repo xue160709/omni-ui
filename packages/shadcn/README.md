@@ -8,7 +8,7 @@ The registry installs source files into `components/multimodal/*`. It does not r
 
 ## Install Registry Items
 
-During local development of this monorepo, start the docs app first:
+During local development of this monorepo, start the demo-todo app first:
 
 ```bash
 npm run dev
@@ -50,6 +50,12 @@ Starter recipes:
 Installed files are local source code. You can edit class names, markup, behavior, and theme usage directly.
 
 The registry intentionally relies on the consumer app's shadcn components, Tailwind setup, and CSS variables instead of shipping a separate design system.
+
+Registry source recipes import OmniUI base styles with:
+
+```ts
+import "@omni-ui/react/styles.css"
+```
 
 ## Maintainer Commands
 

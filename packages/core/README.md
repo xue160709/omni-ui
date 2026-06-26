@@ -67,4 +67,7 @@ Do not bundle provider API keys into browser code. Put LLM resolver helpers behi
 
 ## More Documentation
 
-See the integration guide at [`packages/教程.md`](../教程.md).
+- [Quick Start](../../docs/getting-started/quick-start.md)
+- [Concepts](../../docs/concepts/index.md)
+- [Server Resolver](../../docs/guides/server-resolver.md)
+- [Security and Model Keys](../../docs/architecture/security.md)

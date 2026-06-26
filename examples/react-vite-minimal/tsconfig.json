@@ -1,13 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "jsx": "react-jsx",
     "noEmit": true,
-    "paths": {
-      "@omni-ui/react": ["../../packages/react/src/index.ts"],
-      "@omni-ui/react/styles": ["../../packages/react/src/styles.css"],
-      "@omni-ui/core": ["../../packages/core/src/index.ts"]
-    }
+    "paths": {}
   },
   "include": ["src"]
 }

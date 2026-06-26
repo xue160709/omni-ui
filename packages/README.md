@@ -1,45 +1,67 @@
 # packages/
 
-这个目录包含 OmniUI 的三个 npm 包。
+This directory contains the publishable OmniUI packages.
 
-## 包列表
+## Package Responsibilities
 
-| 包 | 目录 | 说明 |
-| --- | --- | --- |
-| [`@omni-ui/react`](./react/) | `packages/react` | React 应用接入多模态能力的主包。Provider、页面/对象标记、route/action 注册、命令输入、assistant 都在这里。大多数 React 项目只需要这一个包。 |
-| [`@omni-ui/core`](./core/) | `packages/core` | 框架无关的原语层。包含类型、rule resolver、action 校验、LLM resolver helper、assistant prompt 工具。React 项目通常不需要手动安装，已作为 `@omni-ui/react` 的依赖自动引入。 |
-| [`@omni-ui/shadcn`](./shadcn/) | `packages/shadcn` | 可选的 shadcn registry 源码配方。把可编辑的 `components/multimodal/*` wrapper 和 starter recipe 安装到消费方项目里。不是 runtime 必需品。 |
+### `@omni-ui/react`
 
-三个包的依赖关系：
+Use this for most React apps. It includes React runtime primitives, hooks, `CommandInput`, page and entity registration, action executor binding, resolver configuration, and optional development helpers.
 
-```
-@omni-ui/react
-  └── @omni-ui/core   (runtime dependency, re-exports common APIs)
-
-@omni-ui/shadcn
-  └── @omni-ui/react  (peer dependency)
-```
-
-## 接入指南
-
-如果你是 **应用开发者**，想把 OmniUI 接入自己的项目，请看 [教程.md](./教程.md)。
-
-## 本地开发
-
-在 monorepo 根目录运行：
+Most React projects only install this package:
 
 ```bash
-# 安装所有依赖
-npm install
-
-# 启动 docs 开发服务器（registry 本地调试需要）
-npm run dev
-
-# 类型检查 + 测试 + runtime build + docs production build
-npm run verify
-
-# 仅 registry 相关测试
-npm run verify:registry
+npm install @omni-ui/react
 ```
 
-各包的测试和构建命令见各自目录下的 `package.json`。
+### `@omni-ui/core`
+
+Use this for framework-agnostic protocols, manifests, command envelopes, validation, policies, resolver adapters, testing helpers, or server-side integration.
+
+React apps usually do not install it directly because `@omni-ui/react` depends on it and re-exports the common APIs.
+
+### `@omni-ui/shadcn`
+
+This is optional. It provides shadcn/ui-compatible source components and registry recipes. It is not required for the OmniUI runtime.
+
+## Package Relationship
+
+```text
+@omni-ui/react
+  -> @omni-ui/core   (runtime dependency, common APIs re-exported)
+
+@omni-ui/shadcn
+  -> @omni-ui/react  (peer dependency for generated source recipes)
+```
+
+## Integration Guides
+
+- [Quick Start](../docs/getting-started/quick-start.md)
+- [Chinese Quick Start](../docs/getting-started/quick-start.zh-CN.md)
+- [Minimal React Vite example](../examples/react-vite-minimal/)
+- [Troubleshooting error codes](../docs/troubleshooting/error-codes.md)
+
+The old `packages/教程.md` file now only redirects to the maintained docs entry points.
+
+## Local Development
+
+Run these commands from the repository root:
+
+```bash
+npm install
+npm run dev
+npm run verify:release
+```
+
+`npm run dev` starts the `apps/demo-todo` development server, including local registry files under `apps/demo-todo/public/r`.
+
+Useful focused checks:
+
+```bash
+npm run verify
+npm run verify:registry
+npm run verify:examples
+npm run verify:package-consumer
+```
+
+Package-specific scripts live in each package `package.json`.

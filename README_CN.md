@@ -2,304 +2,89 @@
 
 [English](README.md) | [中文](README_CN.md)
 
-让现有 React 页面在不更换 UI 组件库、不替换业务状态的前提下，安全支持文本、语音和 AI 辅助操作。
+OmniUI 让已有 React 页面在不更换 UI 组件库、不接管业务状态的前提下，安全支持文本、语音和 AI 辅助命令。
 
-安装 runtime：
+OmniUI 不拥有你的业务状态。业务 action 和 executor 由应用自己拥有。模型不能直接调用业务代码，只能提出候选命令，再由本地校验、策略、确认和 executor 执行。
+
+## 状态
+
+当前状态：alpha。
+包版本：`0.1.0`。
+协议版本：`1.0`。
+
+在准备 GitHub Release 和 npm 发布前，变更记录统一放在 [Unreleased](CHANGELOG.md) 下。
+
+## 安装
+
+大多数 React 项目只需要：
 
 ```bash
 npm install @omni-ui/react
 ```
 
-React + shadcn/ui 用户可以选装 `@omni-ui/shadcn` 的可编辑 registry 组件。非 React runtime 和服务端 adapter 可基于 `@omni-ui/core` 构建。
+当前仓库仍处于 pre-release。如果你的 npm 环境还没有对应发布包，请先用 `npm run verify:package-consumer` 生成并验证本地 tarball。
+
+默认样式需要显式导入：
+
+```ts
+import "@omni-ui/react/styles.css"
+```
+
+`@omni-ui/react` 根入口不会自动导入 CSS。
+
+## 应该使用哪个包？
+
+- 大多数 React 应用：`@omni-ui/react`
+- 框架无关协议、校验、CommandEnvelope、resolver adapter 或服务端集成：`@omni-ui/core`
+- 可选的 shadcn/ui 源码组件和 registry recipe：`@omni-ui/shadcn`
+
+使用 OmniUI runtime 不需要 shadcn。React 应用通常也不需要手动安装 `@omni-ui/core`，因为它已经是 `@omni-ui/react` 的依赖，并由 React 包重新导出常用 API。
 
 ## 5 分钟本地命令
 
-第一次接入不需要模型 API Key、麦克风权限或 shadcn 依赖。
+首次接入不需要 LLM API Key、麦克风权限、shadcn 或 server resolver。
 
-```tsx
-import {
-  CommandInput,
-  MultimodalGroup,
-  MultimodalPage,
-  MultimodalProvider,
-  defineAction,
-  defineMultimodalConfig,
-  useActionExecutor,
-} from "@omni-ui/react"
+完整教程见 [中文 Quick Start](docs/getting-started/quick-start.zh-CN.md)，可构建示例见 [`examples/react-vite-minimal`](examples/react-vite-minimal/)。
 
-const completeTodo = defineAction({
-  id: "todo.complete",
-  title: "完成任务",
-  attachTo: { entityType: "todo" },
-  executeScope: "object",
-  risk: "low",
-  modelCallable: false,
-  paramsFrom: ({ target }) => ({ todoId: target.entity?.id }),
-})
-
-const config = defineMultimodalConfig({
-  rules: [
-    {
-      id: "todo.complete",
-      patterns: ["完成第{item}个任务", "完成{target}"],
-      target: "entity.todo.byLabelOrIndex",
-      actionId: "todo.complete",
-    },
-  ],
-})
-
-function App() {
-  return (
-    <MultimodalProvider config={config}>
-      <TodoPage />
-    </MultimodalProvider>
-  )
-}
-
-function TodoPage() {
-  const todos = useTodos()
-
-  useActionExecutor(completeTodo, async ({ todoId }) => {
-    await todoService.complete(todoId)
-    return { status: "changed" }
-  })
-
-  return (
-    <MultimodalPage id="page.todos" title="Todos" route="/todos">
-      <CommandInput placeholder="完成第一个任务" />
-      {todos.map((todo) => (
-        <MultimodalGroup
-          key={todo.id}
-          id={`todo.item.${todo.id}`}
-          role="list_item"
-          label={todo.title}
-          entity={{ type: "todo", id: todo.id }}
-        >
-          <TodoItem todo={todo} />
-        </MultimodalGroup>
-      ))}
-    </MultimodalPage>
-  )
-}
-```
-
-`todo.complete` 由应用拥有。OmniUI 不内置 Todo、CRM、inbox 或其他业务 action。应用需要注册自己的 domain actions，并通过 GUI 点击也使用的 reducer/service 执行。
-
-新的执行链路会把解析结果冻结为 `CommandEnvelope`，再统一经过 Dispatcher 校验。模型触发的写操作需要同时满足 runtime policy、`modelCallable: true`、参数 schema、scope、target/action attach、确认策略和当前 snapshot anchor。旧 executor 返回 `void` 会被视为 `unverified`；推荐 executor 显式返回 `{ status: "changed" }`、`noop`、`rejected` 或 `pending`，这样聊天和语音反馈不会把“已提交”误说成“已完成”。
-
-低层 API 也提供 turn 级能力：`useInteractionApi()` 现在包含 `resolveVoice()`、`submitVoice()`、`getActiveTurn()`、`getTurn()`、`confirmTurn()` 和 `cancelTurn()`。确认保存的是同一条不可变 command，而不是重新解析上一条模型回复。
-
-ASR 厂商可以通过 `VoiceAdapter` seam 和 `useVoiceAdapter()` 接入：adapter 发布 `partial` 与 `final` `VoiceInput` 事件，runtime 会把 partial 保持为预览，把 final 送入正常 Turn/Dispatcher 流程。
-
-## App Manifest 和本地规则
-
-Runtime 维护两层上下文：
-
-- 当前 Interaction Snapshot：实时页面、可见对象、状态、焦点和当前可执行 actions。
-- App Manifest：全局能力，例如已注册路由和不要求目标页面已挂载的 app-level commands。
-
-开发者不需要为 LLM 手写整张 app map。请在 app root 使用 route/action registration API，它们会自动合并进 manifest。
-
-```tsx
-useInteractionRoutes({
-  routes: [
-    { id: "app.route.home", label: "Home", route: { screen: "home" }, path: "/" },
-    { id: "app.route.settings", label: "Settings", route: { screen: "settings" }, path: "/settings" },
-  ],
-  execute: (route) => navigate(route),
-})
-```
-
-`useInteractionRoutes()` 会注册内置 `navigation.goto` action，把 route objects 暴露给本地解析，并把 route metadata 写入 LLM manifest context。
-
-应用可以在 JSON/TS 配置中添加确定性的本地规则：
-
-```ts
-import { defineMultimodalConfig } from "@omni-ui/react"
-
-export default defineMultimodalConfig({
-  rules: [
-    {
-      id: "navigation.goto",
-      patterns: ["打开{route}", "去{route}", "进入{route}"],
-      target: "route.byLabel",
-      actionId: "navigation.goto",
-    },
-    {
-      id: "issue.close",
-      patterns: ["关闭{issue}", "把{issue}关闭"],
-      target: "entity.issue.byLabelOrIndex",
-      actionId: "issue.close",
-    },
-  ],
-})
-```
-
-route 规则使用库提供的 `navigation.goto`。`issue.close` 仍然由应用通过 `useInteractionActions()` 实现。
-
-## 可选 shadcn Registry
-
-Runtime 接入不需要 registry。registry 是 source-code starter kit，适合想使用 shadcn 风格多模态组件和 recipes 的团队。生成后的 registry 文件会写入 `apps/demo-todo/public/r`。
-
-```bash
-npm run registry:build
-```
-
-本地开发时，registry items 可通过这些地址访问：
+核心路径是：
 
 ```text
-http://127.0.0.1:5173/r/index.json
-http://127.0.0.1:5173/r/multimodal-provider.json
+用户输入
+  -> Snapshot + Manifest
+  -> Resolver Chain
+  -> Validation / Policy / Confirmation
+  -> CommandEnvelope
+  -> Dispatcher
+  -> 应用自己的 Executor
+  -> Feedback / DevTools
 ```
 
-registry 会把 wrappers 安装到 `components/multimodal/*`，不会覆盖 `components/ui/*`。安装后的文件属于项目源码，开发者可以直接修改 class names、layout、behavior 和 theme usage。
+输入 `完成第一个任务` 时，本地 rule 会解析当前可见 Todo，校验 `todo.complete`，执行应用自己的 executor，并返回 `{ status: "changed" }`。
 
-docs app 运行时，可以用 shadcn CLI 安装本地 registry item：
+## 文档
+
+- [Quick Start](docs/getting-started/quick-start.md)
+- [中文 Quick Start](docs/getting-started/quick-start.zh-CN.md)
+- [概念说明](docs/concepts/index.md)
+- [DevTools](docs/guides/devtools.md)
+- [错误码](docs/troubleshooting/error-codes.md)
+- [安全与模型密钥](docs/architecture/security.md)
+- [Server Resolver](docs/guides/server-resolver.md)
+- [发布流程](docs/release.md)
+
+## 示例
+
+- [`examples/react-vite-minimal`](examples/react-vite-minimal/)：首条本地命令路径，不需要模型 key。
+- [`apps/demo-todo`](apps/demo-todo/)：更完整 demo、可选 registry 输出和 package-consumer 验证。
+
+## 本地开发
 
 ```bash
-npx shadcn@latest add http://127.0.0.1:5173/r/multimodal-provider.json
+npm install
+npm run dev
+npm run verify:release
 ```
 
-## Resolver 模型
+`npm run dev` 启动 `apps/demo-todo` 开发服务器。`npm run verify:release` 会运行类型检查、单测、构建、registry 验证、最小示例和 package tarball consumer 验证。
 
-默认情况下，runtime 使用内置 rule resolver。它离线运行，并基于当前 Interaction Snapshot 处理 visible-speak commands。
-
-`defineMultimodalConfig({ rules })` 中的配置化本地规则会先于外部 LLM resolvers 执行，因此应用特定的确定性命令可以留在本地。
-
-LLM 支持通过 `IntentResolver` 接口 opt-in。LLM 可以提出候选 action，但不能直接执行 action；本地 validation 仍然会强制检查 scope、state version、availability 和 confirmation policies。
-
-LLM prompt 会收到用户 utterance、精简 Interaction Snapshot、精简 App Manifest 和预期 JSON schema。它不会收到整个项目、源码或未注册页面。
-
-Provider helpers 从环境变量读取 API keys。设置 `OPENAI_API_KEY` + `OPENAI_MODEL` 或 `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`；可选 base URL 可以来自 `OPENAI_BASE_URL` 或 `ANTHROPIC_BASE_URL`。
-
-```ts
-// Server-only code. Do not bundle this file into the browser.
-import { createOpenAIResolver } from "@omni-ui/core"
-
-const resolver = createOpenAIResolver()
-```
-
-请只在服务端或可信 runtime 中使用这些 helpers。浏览器应用应把 API keys 留在服务端，并暴露一个小型 resolver endpoint。
-
-```ts
-const resolution = await resolver.resolve({ utterance, snapshot })
-```
-
-## 低层 Interaction API
-
-Runtime 不绑定任何特定对话 UI。任意输入入口都可以直接驱动正式 Turn 流程：
-
-```tsx
-import { useInteractionApi } from "@omni-ui/react"
-
-function MyInput() {
-  const interaction = useInteractionApi()
-
-  async function send(text: string) {
-    const snapshot = interaction.getSnapshot()
-    const resolved = await interaction.resolveText(text)
-    const turnId = resolved.resolution.provenance?.turnId
-
-    if (!turnId) return { snapshot, resolved, submitted: undefined }
-
-    const submitted = await interaction.submitTurn(turnId)
-    return { snapshot, resolved, submitted }
-  }
-}
-```
-
-- `getSnapshot()` 返回当前页面、可见对象、状态、焦点和已注册 actions。
-- `resolveText(text)` 创建或更新 `InteractionTurn`，解析 hypotheses/candidates，并返回带 Turn provenance 的兼容投影。
-- `submitTurn(turnId)` 校验并执行冻结的 Turn decision；非法提交会抛稳定 `OmniError`，例如 `OMNI_TURN_NOT_FOUND`、`OMNI_TURN_NOT_SUBMITTABLE`、`OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE` 或 `OMNI_TURN_TERMINAL`。
-- `trySubmitTurn(turnId)` 是非抛异常版本，适合希望显式处理 `{ ok, turn?, error? }` 的调用方。
-
-### 兼容 / 迁移
-
-- `submitUtterance(text)` 仍是一次性完成解析、校验和执行的便捷封装。
-- `dispatchResolution(resolution)` 仅用于兼容旧版 `ResolvedInteraction` 调用方，正式执行需要 command provenance。
-
-```tsx
-const turn = await interaction.resolveVoice(partialInput)
-
-const submitted = await interaction.trySubmitTurn(turn.id)
-if (!submitted.ok && submitted.error.code === "OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE") {
-  // 继续展示 preview，等待 ASR final 后再提交。
-}
-```
-
-## Assistant 和 Route Helpers
-
-应用可以先注册一次非 DOM route targets，然后让聊天或语音入口通过同一个已校验 dispatcher 执行导航：
-
-```tsx
-useInteractionRoutes({
-  routes: [
-    { id: "app.route.home", label: "Home", route: { screen: "home" }, aliases: ["main"] },
-    { id: "app.route.settings", label: "Settings", route: { screen: "settings" } },
-  ],
-  execute: (route) => navigate(route),
-})
-```
-
-`useAssistantConversation()` 封装常见 chatbot 路径：message state、确定性本地快路径、LLM fallback、高风险 action 确认和本地回复。这个 hook 不绑定 provider；传入任意 `callModel(messages)` 即可接 OpenAI-compatible APIs、Anthropic 或你自己的 gateway。
-
-```tsx
-const conversation = useAssistantConversation({
-  assistantOptions: {
-    localFastPath: {
-      mode: "allowlist",
-      actionIds: ["navigation.*"],
-      allowPrimitiveActions: false,
-    },
-    modelActionPolicy: {
-      mode: "allowlist",
-      actionIds: ["navigation.*", "todo.complete", "todo.update"],
-      allowPrimitiveActions: false,
-      requireConfirmationForRisk: ["medium", "high"],
-    },
-    localReply: {
-      actionReplies: {
-        "navigation.goto": ({ result }) => `Opened ${result.target?.label}.`,
-      },
-    },
-  },
-  callModel: async (messages) => {
-    const response = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ messages }),
-    })
-    const data = await response.json()
-    return data.content
-  },
-})
-
-await conversation.submitMessage()
-```
-
-`localFastPath` 是应用拥有的 JSON policy，用于可以跳过 LLM 的命令，例如路由跳转或关闭 dialog。`modelActionPolicy` 是模型 proposal 的独立安全门。推荐让模型返回 `interaction_hypotheses`，只提供 intent、target reference、slots 和 confidence；runtime 会再基于当前 snapshot/fusion 做本地裁决后才 dispatch。旧式 `interaction_action` JSON 仍作为 command proposal 兼容。两者都支持精确值和 `navigation.*` 这类前缀通配；`localExecution` 仍作为 `localFastPath` 的向后兼容别名存在。
-
-你的 `/api/chat` endpoint 可以调用 OpenAI-compatible `/chat/completions` API、Anthropic Messages 或任何会返回 assistant text 的 provider。浏览器代码应该请求你的服务端，不要直接携带 provider API keys。
-
-## 验证
-
-```bash
-npm run verify
-```
-
-验证命令会运行 typecheck、tests、runtime package builds 和 docs production build。
-
-Registry 验证是单独命令：
-
-```bash
-npm run verify:registry
-```
-
-## 版本路线图
-
-- `v0.1`：runtime-first visible-speak MVP。
-- `v0.2`：可选 shadcn registry recipes，包括 assistant panels、forms、data views 和 starter layouts。
-- `v0.3`：resolver plugins 和 opt-in LLM intent understanding。
-- `v0.4`：gaze、gesture、keyboard target hints 和 multimodal event fusion。
-
-`v0.2` 之后的路线图是方向性计划，可能会随着 API 稳定过程调整。
+贡献者说明见 [CONTRIBUTING.md](CONTRIBUTING.md) 和 [packages/README.md](packages/README.md)。

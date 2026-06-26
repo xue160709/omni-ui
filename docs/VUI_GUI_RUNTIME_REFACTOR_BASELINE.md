@@ -19,7 +19,7 @@ Observed baseline coverage:
 - `@omni-ui/core`: 5 test files, 24 tests passed.
 - `@omni-ui/react`: 1 test file, 19 tests passed.
 - `@omni-ui/shadcn`: 1 test file, 1 test passed.
-- `apps/docs`: 1 test file, 28 tests passed.
-- Runtime package builds and docs production build passed.
+- `apps/demo-todo`: 1 test file, 28 tests passed.
+- Runtime package builds and demo production build passed.
 
 Worktree note: `.DS_Store` and `.gitignore` already had local modifications before the refactor work in this thread.

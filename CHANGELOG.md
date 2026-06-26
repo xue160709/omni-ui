@@ -2,24 +2,24 @@
 
 ## Unreleased
 
-- Keep `submitTurn(turnId)` source-compatible while reporting invalid turn submissions with stable `OmniError` codes.
-- Add `trySubmitTurn(turnId)` for non-throwing turn submission handling.
-- Keep voice partial turns as non-submittable listening previews and record `focusout` as focus state instead of navigation.
-- Back React runtime turn storage with the core TurnStore and add per-turn resolver, preview, and dispatch cancellation guards.
+### Added
 
-## 0.3.0
+- Consumer-first README with alpha status, package responsibilities, and a five-minute local command path.
+- `docs/getting-started/` Quick Start entry points.
+- Standalone React Vite minimal example as the primary documentation reference.
+- Troubleshooting, DevTools, security, and release-process documentation entry points.
+- `verify:release` script and GitHub Actions CI workflow for release-oriented validation.
 
-- Add resolver plugin contracts and rule-first resolver pipeline.
-- Add opt-in LLM resolver support with safe candidate validation.
-- Add docs demo controls for rule and LLM resolver behavior.
+### Changed
 
-## 0.2.0
+- Clarified that most React apps install `@omni-ui/react` only.
+- Clarified that `@omni-ui/shadcn` is optional and not required for runtime integration.
+- Clarified package version, protocol version, and pre-release status.
+- Switched `@omni-ui/react` styles to an explicit CSS import strategy.
+- Kept package-consumer validation on package exports and tarball contents.
 
-- Expand shadcn registry wrappers beyond the initial controls.
-- Add shared wrapper utilities and consistent interaction props.
-- Improve Dialog, FormField, Card, ListItem, Select, Tabs, and Command semantics.
-- Add Snapshot DevTools filters.
+### Fixed
 
-## 0.1.0
-
-- Add runtime-first core, React provider, DOM/ARIA extraction, action registry, visible-speak resolver, feedback states, shadcn registry MVP, and docs demo.
+- Removed docs-app naming drift from contributor-facing instructions.
+- Moved the main tutorial out of `packages/` and linked the new Quick Start paths.
+- Aligned README, package READMEs, examples, and CSS import documentation.
