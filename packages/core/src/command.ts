@@ -17,6 +17,7 @@ export type SnapshotAnchor = {
   contextEpoch: number
   focusRevision: number
   capturedAt: number
+  objectStateFingerprints?: Record<string, Record<string, string>>
 }
 
 export type CommandSource = {
@@ -161,6 +162,7 @@ export function createSnapshotAnchor(
     contextEpoch: snapshot.contextEpoch,
     focusRevision: options.focusRevision ?? snapshot.focusRevision ?? 0,
     capturedAt: options.capturedAt ?? Date.now(),
+    objectStateFingerprints: createObjectStateFingerprints(snapshot.visibleObjects),
   }
 }
 
@@ -228,7 +230,7 @@ export function createDecisionBinding(input: {
   targetId: string
   actionIdOrPrimitive: string
   params: Record<string, unknown>
-    anchor: Pick<SnapshotAnchor, "stateVersion" | "contextHash" | "focusRevision">
+  anchor: Pick<SnapshotAnchor, "stateVersion" | "contextHash" | "focusRevision">
 }): DecisionBinding {
   const canonical = stableStringify({
     turnId: input.turnId,
@@ -236,12 +238,12 @@ export function createDecisionBinding(input: {
     targetId: input.targetId,
     actionIdOrPrimitive: input.actionIdOrPrimitive,
     params: input.params,
-      anchor: {
-        stateVersion: input.anchor.stateVersion,
-        contextHash: input.anchor.contextHash,
-        contextEpoch: "contextEpoch" in input.anchor ? input.anchor.contextEpoch : 0,
-        focusRevision: input.anchor.focusRevision,
-      },
+    anchor: {
+      stateVersion: input.anchor.stateVersion,
+      contextHash: input.anchor.contextHash,
+      contextEpoch: "contextEpoch" in input.anchor ? input.anchor.contextEpoch : 0,
+      focusRevision: input.anchor.focusRevision,
+    },
   })
 
   return {
@@ -353,6 +355,39 @@ function createContextHash(snapshot: InteractionSnapshot): string {
       focusObjectId: snapshot.focus?.objectId,
     })
   )
+}
+
+function createObjectStateFingerprints(
+  objects: InteractionObject[]
+): Record<string, Record<string, string>> {
+  return Object.fromEntries(
+    objects.map((object) => [
+      object.id,
+      Object.fromEntries(
+        Object.keys(object.state ?? {})
+          .sort()
+          .map((key) => [key, fingerprintInteractionStateKey(object, key)])
+      ),
+    ])
+  )
+}
+
+export function fingerprintInteractionStateKey(
+  object: InteractionObject,
+  key: string
+): string {
+  const state = object.state ?? {}
+  const exists = Object.prototype.hasOwnProperty.call(state, key)
+  try {
+    return fingerprint(stableStringify({ exists, value: exists ? state[key] : null }))
+  } catch {
+    return fingerprint(
+      JSON.stringify({
+        exists,
+        unserializable: exists ? Object.prototype.toString.call(state[key]) : null,
+      })
+    )
+  }
 }
 
 function cloneSerializableValue(

@@ -111,6 +111,197 @@ describe("dispatcher", () => {
     ).resolves.toEqual({ ok: true })
   })
 
+  it("does not let legacy state drift allowance override explicit strict stalePolicy", async () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+          stalePolicy: { mode: "strict" },
+          execute: vi.fn(),
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+        },
+      ],
+    })
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "domain",
+      actionId: "task.complete",
+      source,
+      targetId: "task.item.task_1",
+      anchor: anchorFor(snapshot),
+    })
+
+    await expect(
+      validateCommand(
+        {
+          ...snapshot,
+          stateVersion: 2,
+        },
+        command,
+        {
+          allowIrrelevantAnchorStateDrift: true,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "state_changed",
+    })
+  })
+
+  it("revalidates state drift when declared stateKeys are unchanged", async () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+          stalePolicy: { mode: "revalidate", stateKeys: ["status"] },
+          execute: vi.fn(),
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          state: { status: "open", updatedLabel: "旧标题" },
+        },
+      ],
+    })
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "domain",
+      actionId: "task.complete",
+      source,
+      targetId: "task.item.task_1",
+      anchor: anchorFor(snapshot),
+    })
+    const nextSnapshot = {
+      ...snapshot,
+      stateVersion: 2,
+      visibleObjects: snapshot.visibleObjects.map((object) =>
+        object.id === "task.item.task_1"
+          ? { ...object, state: { ...object.state, updatedLabel: "新标题" } }
+          : object
+      ),
+    }
+
+    await expect(validateCommand(nextSnapshot, command)).resolves.toEqual({ ok: true })
+  })
+
+  it("rejects revalidated state drift when declared stateKeys changed", async () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+          stalePolicy: { mode: "revalidate", stateKeys: ["status"] },
+          execute: vi.fn(),
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          state: { status: "open" },
+        },
+      ],
+    })
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "domain",
+      actionId: "task.complete",
+      source,
+      targetId: "task.item.task_1",
+      anchor: anchorFor(snapshot),
+    })
+    const nextSnapshot = {
+      ...snapshot,
+      stateVersion: 2,
+      visibleObjects: snapshot.visibleObjects.map((object) =>
+        object.id === "task.item.task_1"
+          ? { ...object, state: { ...object.state, status: "done" } }
+          : object
+      ),
+    }
+
+    await expect(validateCommand(nextSnapshot, command)).resolves.toMatchObject({
+      ok: false,
+      code: "state_changed",
+    })
+  })
+
+  it("rejects revalidated state drift when the context epoch changed", async () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      contextEpoch: 1,
+      actionSpecs: {
+        "task.complete": {
+          id: "task.complete",
+          attachTo: { entityType: "task" },
+          executeScope: "object",
+          stalePolicy: { mode: "revalidate", stateKeys: ["status"] },
+          execute: vi.fn(),
+        },
+      },
+      visibleObjects: [
+        {
+          id: "task.item.task_1",
+          type: "composite",
+          role: "list_item",
+          label: "评审方案",
+          entity: { type: "task", id: "task_1" },
+          state: { status: "open" },
+        },
+      ],
+    })
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "domain",
+      actionId: "task.complete",
+      source,
+      targetId: "task.item.task_1",
+      anchor: anchorFor(snapshot),
+    })
+
+    await expect(
+      validateCommand(
+        {
+          ...snapshot,
+          stateVersion: 2,
+          contextEpoch: 2,
+        },
+        command
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "context_changed",
+    })
+  })
+
   it("rejects domain commands when the target did not expose the action capability", async () => {
     const actionSpecs: Record<string, RegisteredActionSpec> = {
       "task.complete": {
@@ -228,6 +419,46 @@ describe("dispatcher", () => {
       primitiveAction: "press",
     })
     expect(executePrimitive).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps primitive commands strict even when legacy state drift is allowed", async () => {
+    const snapshot = createInteractionSnapshot({
+      stateVersion: 1,
+      visibleObjects: [
+        {
+          id: "dom.button.add",
+          type: "raw",
+          role: "button",
+          label: "添加",
+          primitiveActions: ["press"],
+        },
+      ],
+    })
+    const command = buildCommandEnvelope({
+      commandId: "command_1",
+      turnId: "turn_1",
+      kind: "primitive",
+      primitiveAction: "press",
+      source,
+      targetId: "dom.button.add",
+      anchor: anchorFor(snapshot),
+    })
+
+    await expect(
+      validateCommand(
+        {
+          ...snapshot,
+          stateVersion: 2,
+        },
+        command,
+        {
+          allowIrrelevantAnchorStateDrift: true,
+        }
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      code: "state_changed",
+    })
   })
 
   it("rejects stale command anchors before execution", async () => {

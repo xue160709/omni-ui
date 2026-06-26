@@ -36,7 +36,7 @@ describe("interaction turn store", () => {
     expect(store.getActive()?.id).toBe("turn_1")
 
     const resolving = store.apply("turn_1", 0, {
-      type: "transition",
+      type: "resolution.started",
       status: "resolving",
       at: 101,
       resolutionRevision: 1,
@@ -44,13 +44,13 @@ describe("interaction turn store", () => {
     expect(resolving).toMatchObject({ ok: true, turn: { revision: 1 } })
     expect(
       store.apply("turn_1", 0, {
-        type: "transition",
+        type: "resolution.completed",
         status: "ready",
       })
     ).toEqual({ ok: false, reason: "revision_conflict" })
 
     const rejected = store.apply("turn_1", 1, {
-      type: "transition",
+      type: "dispatch.completed",
       status: "rejected",
       at: 102,
     })
@@ -58,7 +58,7 @@ describe("interaction turn store", () => {
     expect(store.getActive()).toBeUndefined()
     expect(
       store.apply("turn_1", 2, {
-        type: "transition",
+        type: "resolution.started",
         status: "resolving",
       })
     ).toEqual({ ok: false, reason: "terminal_turn" })

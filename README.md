@@ -188,7 +188,7 @@ const resolution = await resolver.resolve({ utterance, snapshot })
 
 ## Low-level Interaction API
 
-The runtime is not tied to a specific dialog UI. Any input surface can call the API directly:
+The runtime is not tied to a specific dialog UI. Any input surface can drive the formal Turn flow directly:
 
 ```tsx
 import { useInteractionApi } from "@omni-ui/react"
@@ -199,18 +199,25 @@ function MyInput() {
   async function send(text: string) {
     const snapshot = interaction.getSnapshot()
     const resolved = await interaction.resolveText(text)
-    const submitted = await interaction.submitUtterance(text)
+    const turnId = resolved.resolution.provenance?.turnId
 
+    if (!turnId) return { snapshot, resolved, submitted: undefined }
+
+    const submitted = await interaction.submitTurn(turnId)
     return { snapshot, resolved, submitted }
   }
 }
 ```
 
 - `getSnapshot()` returns the current page, visible objects, state, focus, and registered actions.
-- `resolveText(text)` calls the rule/LLM resolver and returns the proposed target/action without executing it.
-- `submitUtterance(text)` resolves, validates, executes the matching domain or primitive action, and returns a structured result.
-- `submitTurn(turnId)` keeps returning `Promise<InteractionTurn>`, but invalid submissions now throw a stable `OmniError` such as `OMNI_TURN_NOT_FOUND`, `OMNI_TURN_NOT_SUBMITTABLE`, `OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE`, or `OMNI_TURN_TERMINAL`.
+- `resolveText(text)` creates or updates an `InteractionTurn`, resolves hypotheses/candidates, and returns a compatibility projection with Turn provenance.
+- `submitTurn(turnId)` validates and executes the frozen Turn decision; invalid submissions throw a stable `OmniError` such as `OMNI_TURN_NOT_FOUND`, `OMNI_TURN_NOT_SUBMITTABLE`, `OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE`, or `OMNI_TURN_TERMINAL`.
 - `trySubmitTurn(turnId)` is the non-throwing form for callers that prefer an explicit `{ ok, turn?, error? }` result.
+
+### Legacy / Migration
+
+- `submitUtterance(text)` remains a convenience wrapper that resolves, validates, and executes in one call.
+- `dispatchResolution(resolution)` is for compatibility with older `ResolvedInteraction` callers and requires command provenance for formal execution.
 
 ```tsx
 const turn = await interaction.resolveVoice(partialInput)

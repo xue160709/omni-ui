@@ -21,7 +21,11 @@ export type InteractionEventType =
   | "action.validation.started"
   | "action.validated"
   | "action.rejected"
+  | "action.confirmation.required"
+  | "action.conflict_locked"
   | "action.execution.started"
+  | "action.execution.completed"
+  | "action.execution.failed"
   | "action.committed"
   | "action.unverified"
   | "action.pending"
@@ -29,6 +33,7 @@ export type InteractionEventType =
   | "action.verification.started"
   | "action.verification.passed"
   | "action.verification.failed"
+  | "action.cancelled"
   | "action.failed"
 
 export type InteractionEventBufferOptions = {
@@ -121,6 +126,8 @@ class RingInteractionEventBuffer implements InteractionEventBuffer {
       target: event.target,
       targetHint: event.targetHint,
       action: event.action,
+      modelGenerated: event.modelGenerated,
+      resolverIds: event.resolverIds,
       snapshotId: event.snapshotId ?? "unknown",
       baseStateVersion: event.baseStateVersion ?? 0,
       timestamp,

@@ -1,5 +1,6 @@
 import { actionMatchesObject } from "./action-registry"
 import { confirmationGrantMatchesCommand } from "./confirmation"
+import { fingerprintInteractionStateKey } from "./command"
 import { normalizePrimitiveActions } from "./primitive"
 import { safeParseRuntimeSchema } from "./schema"
 import { validateCommandScope } from "./scope"
@@ -253,11 +254,6 @@ export async function validateCommand(
     "candidate" | "utterance" | "confirmation" | "allowIrrelevantAnchorStateDrift"
   > = {}
 ): Promise<ValidationResult> {
-  const anchorValidation = validateCommandAnchor(snapshot, command, {
-    allowIrrelevantStateDrift: options.allowIrrelevantAnchorStateDrift,
-  })
-  if (!anchorValidation.ok) return anchorValidation
-
   const target = snapshot.visibleObjects.find((object) => object.id === command.targetId)
   if (!target) {
     return {
@@ -271,6 +267,9 @@ export async function validateCommand(
   if (!enabledValidation.ok) return enabledValidation
 
   if (command.kind === "primitive") {
+    const anchorValidation = validateCommandAnchor(snapshot, command)
+    if (!anchorValidation.ok) return anchorValidation
+
     if (command.source.modelGenerated) {
       return {
         ok: false,
@@ -297,6 +296,13 @@ export async function validateCommand(
       reason: "当前页面没有注册该操作",
     }
   }
+
+  const anchorValidation = validateCommandAnchor(
+    snapshot,
+    command,
+    getDomainAnchorValidationOptions(spec, options)
+  )
+  if (!anchorValidation.ok) return anchorValidation
 
   if (command.source.modelGenerated && spec.modelCallable !== true) {
     return {
@@ -400,29 +406,37 @@ export async function validateCommand(
   return { ok: true }
 }
 
+function getDomainAnchorValidationOptions(
+  spec: RegisteredActionSpec,
+  options: Pick<DispatchCommandOptions, "allowIrrelevantAnchorStateDrift">
+): CommandAnchorValidationOptions {
+  if (spec.stalePolicy?.mode === "strict") {
+    return { allowIrrelevantStateDrift: false }
+  }
+  if (spec.stalePolicy?.mode === "revalidate") {
+    return {
+      allowIrrelevantStateDrift: true,
+      stateKeys: spec.stalePolicy.stateKeys,
+    }
+  }
+  return { allowIrrelevantStateDrift: options.allowIrrelevantAnchorStateDrift === true }
+}
+
+type CommandAnchorValidationOptions = {
+  allowIrrelevantStateDrift?: boolean
+  stateKeys?: string[]
+}
+
 export function validateCommandAnchor(
   snapshot: InteractionSnapshot,
   command: CommandEnvelope,
-  options: {
-    allowIrrelevantStateDrift?: boolean
-  } = {}
+  options: CommandAnchorValidationOptions = {}
 ): ValidationResult {
   if (!command.anchor) {
     return {
       ok: false,
       code: "missing_anchor",
       reason: "缺少原始 Snapshot anchor",
-    }
-  }
-
-  if (command.anchor.stateVersion !== snapshot.stateVersion) {
-    if (canAcceptIrrelevantStateDrift(snapshot, command, options)) {
-      return { ok: true }
-    }
-    return {
-      ok: false,
-      code: "state_changed",
-      reason: "界面状态已变化，请重新确认操作目标",
     }
   }
 
@@ -442,24 +456,57 @@ export function validateCommandAnchor(
     }
   }
 
+  if (command.anchor.stateVersion !== snapshot.stateVersion) {
+    if (canAcceptIrrelevantStateDrift(snapshot, command, options)) {
+      return { ok: true }
+    }
+    return {
+      ok: false,
+      code: "state_changed",
+      reason: "界面状态已变化，请重新确认操作目标",
+    }
+  }
+
   return { ok: true }
 }
 
 function canAcceptIrrelevantStateDrift(
   snapshot: InteractionSnapshot,
   command: CommandEnvelope,
-  options: {
-    allowIrrelevantStateDrift?: boolean
-  }
+  options: CommandAnchorValidationOptions
 ): boolean {
-  return (
+  if (
     options.allowIrrelevantStateDrift === true &&
     command.anchor.stateVersion < snapshot.stateVersion &&
     command.anchor.contextHash === snapshot.contextHash &&
     command.anchor.contextEpoch === snapshot.contextEpoch &&
-    command.anchor.focusRevision === snapshot.focusRevision &&
-    snapshot.visibleObjects.some((object) => object.id === command.targetId)
-  )
+    command.anchor.focusRevision === snapshot.focusRevision
+  ) {
+    const target = snapshot.visibleObjects.find((object) => object.id === command.targetId)
+    return target ? stateKeysMatchAnchor(target, command, options.stateKeys) : false
+  }
+  return false
+}
+
+function stateKeysMatchAnchor(
+  target: InteractionObject,
+  command: CommandEnvelope,
+  stateKeys: string[] | undefined
+): boolean {
+  if (!stateKeys?.length) return true
+  const anchorFingerprints = command.anchor.objectStateFingerprints
+  const targetFingerprints = anchorFingerprints?.[target.id]
+  if (!anchorFingerprints || !targetFingerprints) return false
+
+  for (const key of stateKeys) {
+    const previous =
+      targetFingerprints[key] ??
+      fingerprintInteractionStateKey({ ...target, state: {} }, key)
+    if (previous !== fingerprintInteractionStateKey(target, key)) {
+      return false
+    }
+  }
+  return true
 }
 
 export function buildCommandActionPayload(

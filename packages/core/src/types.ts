@@ -118,7 +118,16 @@ export type FocusInfo = {
 export type InteractionEvent = {
   id: string
   sequence?: number
-  modality: "gui" | "voice" | "gaze" | "gesture" | "touch" | "keyboard" | "remote"
+  modality:
+    | "gui"
+    | "voice"
+    | "assistant"
+    | "text"
+    | "gaze"
+    | "gesture"
+    | "touch"
+    | "keyboard"
+    | "remote"
   type: string
   turnId?: string
   commandId?: string
@@ -127,6 +136,8 @@ export type InteractionEvent = {
   target?: string
   targetHint?: string
   action?: string
+  modelGenerated?: boolean
+  resolverIds?: string[]
   snapshotId: string
   baseStateVersion: number
   timestamp: number

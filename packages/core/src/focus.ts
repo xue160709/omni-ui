@@ -8,7 +8,7 @@ import type {
 
 export type FocusTarget = {
   objectId: string
-  source: "gui" | "voice" | "programmatic"
+  source: FocusInfo["source"]
   confidence: number
   timestamp: number
   expiresAt?: number
@@ -174,7 +174,7 @@ export function reduceFocusEvent(
 
   if (event.type === "action.committed" && event.target) {
     next = setSemanticFocus(next, event.target, {
-      source: "programmatic",
+      source: focusSourceFromEventModality(event.modality),
       timestamp: event.timestamp,
       ttlMs: options.semanticTtlMs ?? 15_000,
     })
@@ -250,6 +250,15 @@ export function pruneUnifiedFocus(
   return withRevisionIfChanged(focus, next)
 }
 
+function focusSourceFromEventModality(
+  modality: InteractionEvent["modality"]
+): FocusTarget["source"] {
+  if (modality === "text") return "keyboard"
+  if (modality === "touch") return "gui"
+  if (modality === "remote") return "programmatic"
+  return modality
+}
+
 export function projectLegacyFocus(focus: UnifiedFocus): FocusInfo | undefined {
   const target = focus.inputFocus ?? focus.semanticFocus
   if (!target) return undefined
@@ -278,9 +287,11 @@ function focusEquivalent(a: UnifiedFocus, b: UnifiedFocus): boolean {
     a.activeContext?.id === b.activeContext?.id &&
     a.activeContext?.type === b.activeContext?.type &&
     a.inputFocus?.objectId === b.inputFocus?.objectId &&
+    a.inputFocus?.source === b.inputFocus?.source &&
     a.semanticFocus?.objectId === b.semanticFocus?.objectId &&
+    a.semanticFocus?.source === b.semanticFocus?.source &&
     a.selectedObjectIds.join("\0") === b.selectedObjectIds.join("\0") &&
-    a.recentTargets.map((target) => target.objectId).join("\0") ===
-      b.recentTargets.map((target) => target.objectId).join("\0")
+    a.recentTargets.map((target) => `${target.objectId}:${target.source}`).join("\0") ===
+      b.recentTargets.map((target) => `${target.objectId}:${target.source}`).join("\0")
   )
 }

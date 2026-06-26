@@ -107,8 +107,8 @@ export type RankedInteractionCandidate = {
 }
 
 export type InteractionDecision = {
-  candidateId?: string
-  hypothesisId?: string
+  candidateId: string
+  hypothesisId: string
   targetId: string
   actionId?: string
   primitiveAction?: PrimitiveAction
@@ -116,18 +116,18 @@ export type InteractionDecision = {
   score: number
   confidenceMargin: number
   evidence: FusionEvidence[]
-  contextEpoch?: number
-  decidedAt?: number
+  contextEpoch: number
+  decidedAt: number
 }
 
 export type ClarificationRequest = {
   id: string
-  turnId?: string
-  resolutionRevision?: number
-  contextEpoch?: number
+  turnId: string
+  resolutionRevision: number
+  contextEpoch: number
   prompt: string
   kind?: "target" | "action" | "slot" | "context"
-  candidateIds?: string[]
+  candidateIds: string[]
   candidates?: RankedInteractionCandidate[]
   missingSlots?: string[]
   createdAt: number
@@ -209,9 +209,7 @@ export type CreateInteractionTurnInput = {
   expiresAt?: number
 }
 
-export type TurnEvent = {
-  type: "transition"
-  status: InteractionTurnStatus
+type TurnEventPayload = {
   at?: number
   input?: InteractionTurn["input"]
   inputRevision?: number
@@ -229,6 +227,28 @@ export type TurnEvent = {
   error?: RuntimeError
 }
 
+export type TurnEvent =
+  | (TurnEventPayload & { type: "voice.partial"; status: "listening" })
+  | (TurnEventPayload & { type: "voice.final"; status: "resolving" })
+  | (TurnEventPayload & { type: "resolution.started"; status: "resolving" })
+  | (TurnEventPayload & { type: "resolution.completed"; status: "ready" })
+  | (TurnEventPayload & { type: "resolution.failed"; status: "rejected" | "failed" })
+  | (TurnEventPayload & { type: "clarification.requested"; status: "needs_clarification" })
+  | (TurnEventPayload & { type: "clarification.answered"; status: "resolving" | "ready" })
+  | (TurnEventPayload & { type: "confirmation.requested"; status: "awaiting_confirmation" })
+  | (TurnEventPayload & { type: "confirmation.granted"; status: "ready" })
+  | (TurnEventPayload & {
+      type: "dispatch.phase"
+      status: "validating" | "executing" | "verifying"
+    })
+  | (TurnEventPayload & {
+      type: "dispatch.completed"
+      status: "committed" | "unverified" | "pending" | "noop" | "rejected" | "failed" | "cancelled"
+    })
+  | (TurnEventPayload & { type: "turn.cancelled"; status: "cancelled" })
+  | (TurnEventPayload & { type: "turn.superseded"; status: "superseded" })
+  | (TurnEventPayload & { type: "turn.expired"; status: "expired" })
+
 const allowedTransitions: Record<InteractionTurnStatus, readonly InteractionTurnStatus[]> = {
   created: ["listening", "resolving", "cancelled"],
   listening: ["listening", "resolving", "cancelled", "superseded", "expired"],
@@ -244,7 +264,7 @@ const allowedTransitions: Record<InteractionTurnStatus, readonly InteractionTurn
   needs_clarification: ["resolving", "cancelled", "superseded", "expired"],
   awaiting_confirmation: ["ready", "cancelled", "superseded", "expired"],
   ready: ["awaiting_confirmation", "validating", "superseded", "cancelled"],
-  validating: ["executing", "rejected", "failed", "cancelled"],
+  validating: ["awaiting_confirmation", "executing", "rejected", "failed", "cancelled"],
   executing: ["verifying", "committed", "pending", "noop", "failed", "cancelled"],
   verifying: ["committed", "unverified", "pending", "noop", "failed", "cancelled"],
   committed: [],
@@ -293,7 +313,7 @@ export function canTransitionTurn(
 }
 
 export function transitionTurn(turn: InteractionTurn, event: TurnEvent): InteractionTurn {
-  if (!canTransitionTurn(turn.status, event.status)) {
+  if (!canTransitionTurn(turn.status, event.status) && !canAppendSameStatusPhase(turn, event)) {
     throw new Error(`Illegal turn transition: ${turn.status} -> ${event.status}`)
   }
 
@@ -325,6 +345,10 @@ export function transitionTurn(turn: InteractionTurn, event: TurnEvent): Interac
   next.phaseHistory = appendTurnPhase(turn, event, next)
 
   return next
+}
+
+function canAppendSameStatusPhase(turn: InteractionTurn, event: TurnEvent): boolean {
+  return Boolean(event.dispatchPhase && turn.status === event.status)
 }
 
 export function isTerminalTurnStatus(status: InteractionTurnStatus): boolean {

@@ -187,7 +187,7 @@ const resolution = await resolver.resolve({ utterance, snapshot })
 
 ## 低层 Interaction API
 
-Runtime 不绑定任何特定对话 UI。任意输入入口都可以直接调用 API：
+Runtime 不绑定任何特定对话 UI。任意输入入口都可以直接驱动正式 Turn 流程：
 
 ```tsx
 import { useInteractionApi } from "@omni-ui/react"
@@ -198,18 +198,25 @@ function MyInput() {
   async function send(text: string) {
     const snapshot = interaction.getSnapshot()
     const resolved = await interaction.resolveText(text)
-    const submitted = await interaction.submitUtterance(text)
+    const turnId = resolved.resolution.provenance?.turnId
 
+    if (!turnId) return { snapshot, resolved, submitted: undefined }
+
+    const submitted = await interaction.submitTurn(turnId)
     return { snapshot, resolved, submitted }
   }
 }
 ```
 
 - `getSnapshot()` 返回当前页面、可见对象、状态、焦点和已注册 actions。
-- `resolveText(text)` 调用 rule/LLM resolver，返回拟执行的 target/action，但不执行。
-- `submitUtterance(text)` 解析、校验并执行匹配到的 domain 或 primitive action，然后返回结构化结果。
-- `submitTurn(turnId)` 保持 `Promise<InteractionTurn>` 返回签名，但非法提交会抛稳定 `OmniError`，例如 `OMNI_TURN_NOT_FOUND`、`OMNI_TURN_NOT_SUBMITTABLE`、`OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE` 或 `OMNI_TURN_TERMINAL`。
+- `resolveText(text)` 创建或更新 `InteractionTurn`，解析 hypotheses/candidates，并返回带 Turn provenance 的兼容投影。
+- `submitTurn(turnId)` 校验并执行冻结的 Turn decision；非法提交会抛稳定 `OmniError`，例如 `OMNI_TURN_NOT_FOUND`、`OMNI_TURN_NOT_SUBMITTABLE`、`OMNI_VOICE_PARTIAL_NOT_SUBMITTABLE` 或 `OMNI_TURN_TERMINAL`。
 - `trySubmitTurn(turnId)` 是非抛异常版本，适合希望显式处理 `{ ok, turn?, error? }` 的调用方。
+
+### 兼容 / 迁移
+
+- `submitUtterance(text)` 仍是一次性完成解析、校验和执行的便捷封装。
+- `dispatchResolution(resolution)` 仅用于兼容旧版 `ResolvedInteraction` 调用方，正式执行需要 command provenance。
 
 ```tsx
 const turn = await interaction.resolveVoice(partialInput)

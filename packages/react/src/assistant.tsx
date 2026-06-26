@@ -1,5 +1,6 @@
 import {
   createAssistantSnapshotContext,
+  createSnapshotAnchor,
   createInteractionAssistantSystemPrompt,
   createLocalInteractionReply,
   parseInteractionAssistantModelReply,
@@ -275,7 +276,10 @@ function prepareModelResolution(
       results: InteractionSubmitResult[]
     } {
   const snapshot = interaction.getSnapshot()
-  const resolution = normalizeModelResolutionTarget(parsedResolution, snapshot)
+  const resolution = stampModelResolutionProvenance(
+    normalizeModelResolutionTarget(parsedResolution, snapshot),
+    snapshot
+  )
   const modelPolicy = currentOptions.modelActionPolicy ?? defaultModelActionPolicy
   const policyValidation = validateResolvedInteractionPolicy(resolution, modelPolicy, {
     snapshot,
@@ -325,7 +329,10 @@ async function submitModelResolution(
   // 中文：模型给出的候选动作会重新按当前 snapshot 归一化并校验，防止 stale target 或越权 action。
   // English: Model-proposed actions are normalized and validated against the current snapshot to prevent stale targets or unauthorized actions.
   const snapshot = interaction.getSnapshot()
-  const resolution = normalizeModelResolutionTarget(parsedResolution, snapshot)
+  const resolution = stampModelResolutionProvenance(
+    normalizeModelResolutionTarget(parsedResolution, snapshot),
+    snapshot
+  )
   const modelPolicy = currentOptions.modelActionPolicy ?? defaultModelActionPolicy
   const policyValidation = validateResolvedInteractionPolicy(resolution, modelPolicy, {
     snapshot,
@@ -404,6 +411,28 @@ function normalizeModelResolutionTarget(
         targetId: target.id,
       }
     : resolution
+}
+
+function stampModelResolutionProvenance(
+  resolution: ResolvedInteraction,
+  snapshot: InteractionSnapshot
+): ResolvedInteraction {
+  if (resolution.provenance) return resolution
+
+  const resolverIds = [resolution.resolverId ?? "assistant-model"]
+  return {
+    ...resolution,
+    provenance: {
+      turnId: `assistant_${snapshot.snapshotId}_${Date.now()}`,
+      anchor: createSnapshotAnchor(snapshot),
+      source: {
+        modality: "assistant",
+        resolverIds,
+        modelGenerated: true,
+      },
+      resolvedAt: Date.now(),
+    },
+  }
 }
 
 function inferTargetFromAction(

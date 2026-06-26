@@ -49,8 +49,18 @@ export type ResolutionBundle = {
   fusion: FusionOutcome
   startedAt: number
   completedAt: number
-  fusionContext?: FusionContext
+  fusionSummary: FusionSummary
   legacyResolution?: ResolvedInteraction
+}
+
+export type FusionSummary = {
+  contextEpoch: number
+  eventWindow: {
+    start: number
+    end: number
+    eventIds: string[]
+  }
+  referenceAt: number
 }
 
 export type IntentResolverOutput =
@@ -77,12 +87,24 @@ export function adaptLegacyIntentResolver(resolver: IntentResolver): IntentResol
     id: resolver.id,
     async resolve(context) {
       const raw = await resolver.resolve(context)
-      const resolution = Array.isArray(raw)
-        ? [...raw].sort((a, b) => b.confidence - a.confidence)[0]
-        : raw
+      if (Array.isArray(raw)) {
+        return {
+          kind: "hypotheses",
+          resolverId: resolver.id,
+          hypotheses: raw.flatMap((resolution, index) =>
+            resolvedInteractionToHypotheses(
+              resolution,
+              resolution.resolverId ?? `${resolver.id}:${index + 1}`,
+              context.snapshot
+            )
+          ),
+        }
+      }
+
+      const resolution = raw
       return {
         kind: "legacy_resolution",
-        resolverId: resolver.id,
+        resolverId: resolution.resolverId ?? resolver.id,
         resolution,
       }
     },
@@ -105,9 +127,22 @@ export async function resolveInteractionTurn(input: {
   const resolverIds: string[] = []
   const hypotheses: SemanticIntentHypothesis[] = []
   let legacyResolution: ResolvedInteraction | undefined
+  const fusionContext = buildFusionContext({
+    turnId: input.turn.id,
+    resolutionRevision: input.turn.resolutionRevision,
+    anchor: input.turn.anchor,
+    snapshot: input.snapshot,
+    input: input.turn.input,
+    now: startedAt,
+  })
 
-  for (const resolver of input.resolvers) {
+  for (const resolver of orderResolvers(input.resolvers, input.mode)) {
     if (input.signal?.aborted) throw new Error("Resolution was aborted.")
+    if (shouldSkipResolver(resolver, input.mode)) continue
+    if (shouldShortCircuitResolverGroup(resolver, input.mode, fusionContext, hypotheses)) {
+      break
+    }
+
     const output = await resolver.resolve({
       utterance: input.turn.input.text,
       snapshot: input.snapshot,
@@ -122,20 +157,13 @@ export async function resolveInteractionTurn(input: {
     } else {
       legacyResolution = output.resolution
       hypotheses.push(
-        ...resolvedInteractionToHypotheses(output.resolution, output.resolverId)
+        ...resolvedInteractionToHypotheses(output.resolution, output.resolverId, input.snapshot)
       )
     }
   }
 
-  const fusionContext = buildFusionContext({
-    turnId: input.turn.id,
-    resolutionRevision: input.turn.resolutionRevision,
-    anchor: input.turn.anchor,
-    snapshot: input.snapshot,
-    input: input.turn.input,
-    now: startedAt,
-  })
-  const ranked = rankInteractionCandidates(input.snapshot, mergeDuplicateHypotheses(hypotheses))
+  const mergedHypotheses = mergeDuplicateHypotheses(hypotheses)
+  const ranked = rankInteractionCandidates(fusionContext, mergedHypotheses)
   const fusion = toFusionOutcome(ranked)
   const completedAt = Date.now()
 
@@ -144,18 +172,34 @@ export async function resolveInteractionTurn(input: {
     resolutionRevision: input.turn.resolutionRevision,
     anchor: input.turn.anchor,
     resolverIds,
-    hypotheses: mergeDuplicateHypotheses(hypotheses),
+    hypotheses: mergedHypotheses,
     fusion,
     startedAt,
     completedAt,
-    fusionContext,
-    legacyResolution: legacyResolution ?? legacyResolvedInteractionFromBundle(input.turn, fusion),
+    fusionSummary: summarizeFusionContext(fusionContext),
+    legacyResolution:
+      legacyResolution ?? legacyResolvedInteractionFromBundle(input.turn, fusion, mergedHypotheses),
+  }
+}
+
+function summarizeFusionContext(context: FusionContext): FusionSummary {
+  const eventTimestamps = context.events.map((event) => event.timestamp)
+  const referenceAt = context.utterance.endedAt ?? context.utterance.finalAt
+  return {
+    contextEpoch: context.contextEpoch,
+    eventWindow: {
+      start: eventTimestamps.length > 0 ? Math.min(...eventTimestamps) : referenceAt,
+      end: eventTimestamps.length > 0 ? Math.max(...eventTimestamps) : referenceAt,
+      eventIds: context.events.map((event) => event.id),
+    },
+    referenceAt,
   }
 }
 
 export function legacyResolvedInteractionFromBundle(
   turn: InteractionTurn,
-  fusion: FusionOutcome
+  fusion: FusionOutcome,
+  hypotheses: SemanticIntentHypothesis[] = turn.hypotheses
 ): ResolvedInteraction {
   if (fusion.status !== "ready") {
     return {
@@ -174,7 +218,7 @@ export function legacyResolvedInteractionFromBundle(
   return {
     status: "resolved",
     utterance: turn.input.text,
-    intent: turn.hypotheses.find((item) => item.id === fusion.decision.hypothesisId)?.intent,
+    intent: hypotheses.find((item) => item.id === fusion.decision.hypothesisId)?.intent,
     targetId: fusion.decision.targetId,
     actionId: fusion.decision.actionId,
     primitiveAction: fusion.decision.primitiveAction,
@@ -213,7 +257,8 @@ function normalizeHypotheses(
 
 function resolvedInteractionToHypotheses(
   resolution: ResolvedInteraction,
-  resolverId: string
+  resolverId: string,
+  snapshot?: InteractionSnapshot
 ): SemanticIntentHypothesis[] {
   if (resolution.status !== "resolved" && resolution.status !== "needs_clarification") {
     return []
@@ -223,6 +268,7 @@ function resolvedInteractionToHypotheses(
     resolution.targetCandidates?.map((candidate) => ({
       targetReference: { kind: "explicit_id", objectId: candidate.id } satisfies TargetReference,
       confidence: candidate.confidence,
+      actionHint: inferLegacyActionHint(resolution, candidate.id, snapshot),
     })) ??
     (resolution.targetId
       ? [
@@ -232,12 +278,14 @@ function resolvedInteractionToHypotheses(
               objectId: resolution.targetId,
             } satisfies TargetReference,
             confidence: resolution.confidence,
+            actionHint: inferLegacyActionHint(resolution, resolution.targetId, snapshot),
           },
         ]
       : [
           {
             targetReference: { kind: "unspecified" } satisfies TargetReference,
             confidence: resolution.confidence,
+            actionHint: resolution.actionId ?? resolution.primitiveAction,
           },
         ])
 
@@ -246,7 +294,7 @@ function resolvedInteractionToHypotheses(
     resolverId,
     source: isModelResolverId(resolverId) ? "llm" : "rule",
     intent: resolution.intent ?? resolution.actionId ?? resolution.primitiveAction ?? "unknown",
-    actionHint: resolution.actionId ?? resolution.primitiveAction,
+    actionHint: reference.actionHint,
     targetReference: reference.targetReference,
     slots: resolution.params ?? {},
     confidence: clamp01(reference.confidence),
@@ -269,6 +317,100 @@ function mergeDuplicateHypotheses(
     if (!existing || hypothesis.confidence > existing.confidence) byKey.set(key, hypothesis)
   }
   return [...byKey.values()]
+}
+
+function inferLegacyActionHint(
+  resolution: ResolvedInteraction,
+  targetId: string | undefined,
+  snapshot: InteractionSnapshot | undefined
+): string | undefined {
+  if (resolution.actionId || resolution.primitiveAction) {
+    return resolution.actionId ?? resolution.primitiveAction
+  }
+  if (!targetId || !snapshot || !resolution.intent) return undefined
+
+  const target = snapshot.visibleObjects.find((object) => object.id === targetId)
+  if (!target) return undefined
+  const actions = target.actions ?? []
+  const primitives = target.primitiveActions ?? []
+  const domain = (suffixes: string[]) =>
+    actions.find((action) =>
+      suffixes.some((suffix) =>
+        suffix.startsWith(".")
+          ? action.endsWith(suffix)
+          : action === suffix || action.endsWith(`.${suffix}`)
+      )
+    )
+  const primitive = (candidates: string[]) =>
+    primitives.find((action) => candidates.includes(action))
+
+  if (resolution.intent === "complete") {
+    return domain([".complete", "complete"]) ?? primitive(["check", "toggle"])
+  }
+  if (resolution.intent === "delete") {
+    return domain([".delete", "delete"])
+  }
+  if (resolution.intent === "open" || resolution.intent === "navigate") {
+    return domain([".open", ".goto", ".navigate", "open", "goto", "navigate"]) ??
+      primitive(["press", "open"])
+  }
+  if (resolution.intent === "select") {
+    return domain([".filter", ".select", ".goto", ".navigate", "goto", "navigate"]) ??
+      primitive(["press", "selectByLabel", "selectByIndex"])
+  }
+
+  return undefined
+}
+
+function orderResolvers(
+  resolvers: IntentResolverV2[],
+  mode: ResolverMode = "rule-first"
+): IntentResolverV2[] {
+  if (mode === "llm-first") {
+    return [...resolvers].sort((left, right) => modelSort(right) - modelSort(left))
+  }
+  if (mode === "rule-first" || mode === "rule-only") {
+    return [...resolvers].sort((left, right) => modelSort(left) - modelSort(right))
+  }
+  return resolvers
+}
+
+function shouldSkipResolver(
+  resolver: IntentResolverV2,
+  mode: ResolverMode = "rule-first"
+): boolean {
+  return mode === "rule-only" && isModelResolverId(resolver.id)
+}
+
+function shouldShortCircuitResolverGroup(
+  resolver: IntentResolverV2,
+  mode: ResolverMode = "rule-first",
+  fusionContext: FusionContext,
+  hypotheses: SemanticIntentHypothesis[]
+): boolean {
+  if (!hypotheses.length) return false
+  const modelResolver = isModelResolverId(resolver.id)
+  if (mode === "rule-first" && modelResolver) {
+    return hasReadyFusion(fusionContext, hypotheses)
+  }
+  if (mode === "llm-first" && !modelResolver) {
+    return hasReadyFusion(fusionContext, hypotheses)
+  }
+  return false
+}
+
+function hasReadyFusion(
+  fusionContext: FusionContext,
+  hypotheses: SemanticIntentHypothesis[]
+): boolean {
+  return rankInteractionCandidates(
+    fusionContext,
+    mergeDuplicateHypotheses(hypotheses)
+  ).status === "ready"
+}
+
+function modelSort(resolver: IntentResolverV2): number {
+  return isModelResolverId(resolver.id) ? 1 : 0
 }
 
 function isModelResolverId(id: string): boolean {

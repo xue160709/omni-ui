@@ -1044,6 +1044,29 @@ function ApiHarness() {
       >
         resolve api
       </button>
+      <button
+        type="button"
+        onClick={async () => {
+          const snapshot = api.getSnapshot()
+          const dispatched = await api.dispatchResolution(
+            {
+              status: "resolved",
+              utterance: "完成第一个",
+              targetId: "task.item.task_1",
+              actionId: "task.complete",
+              confidence: 0.9,
+            },
+            { baseStateVersion: snapshot.stateVersion }
+          )
+          const validationCode =
+            dispatched.validation && !dispatched.validation.ok
+              ? dispatched.validation.code
+              : "none"
+          setResult(`${dispatched.ok}:${validationCode}:${dispatched.error}`)
+        }}
+      >
+        legacy dispatch without provenance
+      </button>
       <div data-testid="api-result">{result}</div>
       <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
         <MultimodalGroup
@@ -1052,6 +1075,126 @@ function ApiHarness() {
           label="评审方案"
           entity={{ type: "task", id: "task_1" }}
           state={{ completed: false }}
+        >
+          <span>评审方案</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function FrozenDecisionParamsHarness() {
+  const api = useInteractionApi()
+  const [title, setTitle] = React.useState("评审方案")
+  const [executed, setExecuted] = React.useState("")
+  const [summary, setSummary] = React.useState("")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        paramsFrom: ({ target }) => ({
+          taskId: target.entity?.id,
+          title: target.state?.title,
+        }),
+      },
+    },
+    execute: (action) => {
+      setExecuted(`${action.taskId}:${action.title}`)
+      return { status: "changed" }
+    },
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const resolved = await api.resolveText("完成第一个")
+          const turnId = resolved.resolution.provenance?.turnId
+          const before = turnId
+            ? String(api.getTurn(turnId)?.decision?.params.title)
+            : "missing"
+
+          setTitle("整理需求")
+          api.invalidateSnapshot("target state changed after resolution")
+          await new Promise((resolve) => setTimeout(resolve, 0))
+
+          if (!turnId) {
+            setSummary("missing-turn")
+            return
+          }
+
+          const submitted = await api.submitTurn(turnId)
+          const after = String(api.getTurn(turnId)?.decision?.params.title)
+          const validationCode =
+            submitted.result?.validation && !submitted.result.validation.ok
+              ? submitted.result.validation.code
+              : "none"
+          setSummary(`${before}:${after}:${validationCode}:${executed}`)
+        }}
+      >
+        freeze decision params
+      </button>
+      <div data-testid="frozen-decision-summary">{summary}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label={title}
+          entity={{ type: "task", id: "task_1" }}
+          state={{ title }}
+        >
+          <span>{title}</span>
+        </MultimodalGroup>
+      </MultimodalGroup>
+    </>
+  )
+}
+
+function PhaseHistoryHarness() {
+  const api = useInteractionApi()
+  const [summary, setSummary] = React.useState("")
+
+  useInteractionActions({
+    namespace: "task",
+    actions: {
+      "task.complete": {
+        attachTo: { entityType: "task" },
+        executeScope: "object",
+        paramsFrom: ({ target }) => ({ taskId: target.entity?.id }),
+      },
+    },
+    execute: () => ({ status: "changed" }),
+  })
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          const submitted = await api.submitUtterance("完成第一个")
+          const turn = submitted.dispatch?.turnId
+            ? api.getTurn(submitted.dispatch.turnId)
+            : undefined
+          setSummary(
+            turn?.phaseHistory
+              .map((phase) => `${phase.name}:${phase.state ?? phase.outcome}`)
+              .join("|") ?? "missing"
+          )
+        }}
+      >
+        phase history
+      </button>
+      <div data-testid="phase-history-summary">{summary}</div>
+      <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
+        <MultimodalGroup
+          id="task.item.task_1"
+          role="list_item"
+          label="评审方案"
+          entity={{ type: "task", id: "task_1" }}
         >
           <span>评审方案</span>
         </MultimodalGroup>
@@ -1919,6 +2062,7 @@ function DeicticFocusHarness() {
         voice this item
       </button>
       <div data-testid="deictic-focus">{snapshot.unifiedFocus.semanticFocus?.objectId ?? "none"}</div>
+      <div data-testid="deictic-focus-source">{snapshot.unifiedFocus.semanticFocus?.source ?? "none"}</div>
       <div data-testid="deictic-state">{`${completed.today}:${completed.tomorrow}`}</div>
       <MultimodalGroup id="task.list" role="list" label="任务列表" indexBy="visible_order">
         <MultimodalGroup
@@ -2252,8 +2396,14 @@ describe("MultimodalProvider", () => {
   })
 
   it("waits for postcondition verification against refreshed snapshots", async () => {
+    const lifecycleTypes: string[] = []
+
     render(
-      <MultimodalProvider>
+      <MultimodalProvider
+        onInteractionEvent={(event) => {
+          if (event.type.startsWith("action.")) lifecycleTypes.push(event.type)
+        }}
+      >
         <PostconditionWaitHarness />
       </MultimodalProvider>
     )
@@ -2263,6 +2413,13 @@ describe("MultimodalProvider", () => {
     await waitFor(() => {
       expect(screen.getByTestId("postcondition-result").textContent).toBe("true:committed")
     })
+    expect(lifecycleTypes).toEqual(
+      expect.arrayContaining([
+        "action.verification.started",
+        "action.verification.passed",
+        "action.committed",
+      ])
+    )
   })
 
   it("falls back to an opt-in LLM resolver after low-confidence rule resolution", async () => {
@@ -2459,6 +2616,78 @@ describe("MultimodalProvider", () => {
     await waitFor(() => {
       expect(screen.getByTestId("api-result").textContent).toMatch(/^true:domain-action:/)
     })
+
+    fireEvent.click(screen.getByRole("button", { name: "legacy dispatch without provenance" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("api-result").textContent).toBe(
+        "false:missing_provenance:OMNI_COMMAND_PROVENANCE_INVALID"
+      )
+    })
+  })
+
+  it("freezes decision params before submitTurn validates snapshot drift", async () => {
+    render(
+      <MultimodalProvider>
+        <FrozenDecisionParamsHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "freeze decision params" }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId("frozen-decision-summary").textContent).toBe(
+        "评审方案:评审方案:state_changed:"
+      )
+    })
+  })
+
+  it("records non-status-changing dispatcher phases in turn history", async () => {
+    const lifecycleEvents: Array<{
+      type: string
+      target?: string
+      commandId?: string
+      modelGenerated?: boolean
+    }> = []
+
+    render(
+      <MultimodalProvider
+        onInteractionEvent={(event) => {
+          if (event.type.startsWith("action.")) {
+            lifecycleEvents.push({
+              type: event.type,
+              target: event.target,
+              commandId: event.commandId,
+              modelGenerated: event.modelGenerated,
+            })
+          }
+        }}
+      >
+        <PhaseHistoryHarness />
+      </MultimodalProvider>
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "phase history" }))
+
+    await waitFor(() => {
+      const summary = screen.getByTestId("phase-history-summary").textContent ?? ""
+      expect(summary).toContain("validation:passed")
+      expect(summary).toContain("execution:completed")
+    })
+    expect(lifecycleEvents.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        "action.validation.started",
+        "action.validated",
+        "action.execution.started",
+        "action.execution.completed",
+        "action.committed",
+      ])
+    )
+    expect(lifecycleEvents.find((event) => event.type === "action.committed")).toMatchObject({
+      target: "task.item.task_1",
+      modelGenerated: false,
+    })
+    expect(lifecycleEvents.every((event) => Boolean(event.commandId))).toBe(true)
   })
 
   it("confirms a pending turn by dispatching the frozen command", async () => {
@@ -2786,8 +3015,11 @@ describe("MultimodalProvider", () => {
   })
 
   it("uses recent GUI semantic focus for deictic utterances", async () => {
+    const events: Array<{ type: string; modality: string }> = []
     render(
-      <MultimodalProvider>
+      <MultimodalProvider
+        onInteractionEvent={(event) => events.push({ type: event.type, modality: event.modality })}
+      >
         <DeicticFocusHarness />
       </MultimodalProvider>
     )
@@ -2802,6 +3034,8 @@ describe("MultimodalProvider", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("deictic-state").textContent).toBe("false:true")
+      expect(screen.getByTestId("deictic-focus-source").textContent).toBe("keyboard")
+      expect(events.filter((event) => event.type === "action.committed").at(-1)?.modality).toBe("text")
     })
   })
 

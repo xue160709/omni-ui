@@ -3,7 +3,6 @@ import {
   buildBatchCommandEnvelope,
   buildCommandEnvelope,
   buildCommandFromTurnDecision,
-  compactSnapshotForIntent,
   CommandConflictLock,
   createSnapshotAnchor,
   createConfiguredRuleResolver,
@@ -11,9 +10,9 @@ import {
   createInteractionEventBuffer,
   createInteractionTrace,
   createConfirmationGrant,
-  createOmniError,
   createInteractionTurn,
   createInteractionTurnStore,
+  adaptLegacyIntentResolver,
   dispatchCommand,
   dispatchBatchCommands,
   completeInteractionTrace,
@@ -24,10 +23,7 @@ import {
   mergeInteractionManifests,
   normalizeConfiguredRules,
   normalizePrimitiveActions,
-  omniErrorCodes,
-  resolveUtterance,
-  resolveWithResolvers,
-  ruleResolver,
+  resolveInteractionTurn,
   validateActionRequest,
   type CommandEnvelope,
   type CommandSource,
@@ -59,7 +55,6 @@ import {
   type ResolverMode,
   type IntentResolver,
   type InteractionEventInput,
-  type OmniError,
   type ResolvedInteraction,
   type UnifiedFocus,
   type VoiceInput,
@@ -67,7 +62,6 @@ import {
 import * as React from "react"
 import {
   extractDomNodes,
-  getElementLabel,
   getElementState,
   hintToAliases,
   isElementVisible,
@@ -76,128 +70,73 @@ import {
   executeDomPrimitiveAction,
   inferDomPrimitiveActions,
 } from "./primitive-executor"
-
-type RegisteredNode = {
-  id: string
-  ownerId?: string
-  role: string
-  label?: string
-  labelFrom?: "text" | "aria" | "none"
-  actions?: string[]
-  hint?: InteractionHint
-  state?: Record<string, unknown>
-  element: HTMLElement
-}
-
-// 中文：Group 表示业务边界，如列表、列表项、弹窗或表单字段，可把多个原始控件组织成一个语义对象。
-// English: A group represents a business boundary, such as a list, item, dialog, or form field, grouping raw controls semantically.
-type RegisteredGroup = {
-  id: string
-  ownerId?: string
-  role: string
-  label?: string
-  aliases?: string[]
-  entity?: EntityRef
-  state?: Record<string, unknown>
-  indexBy?: "visible_order"
-  element: HTMLElement
-}
-
-type RegisteredPage = {
-  id: string
-  ownerId?: string
-  title: string
-  route?: string
-  state?: Record<string, unknown>
-}
-
-type RegisteredVirtualObject = InteractionObject & {
-  ownerId?: string
-}
-
-type ActionRegistration = {
-  namespace: string
-  ownerId?: string
-  actions: Record<string, DomainActionSpec>
-  execute?: ActionExecutor
-}
-
-type TurnRuntimeHandle = {
-  resolverAbort?: AbortController
-  previewAbort?: AbortController
-  dispatchAbort?: AbortController
-  resolverGeneration: number
-  previewGeneration: number
-  dispatchGeneration: number
-}
-
-type RuntimeContextValue = {
-  snapshot: InteractionSnapshot
-  lastResolution?: ResolvedInteraction
-  getSnapshot: () => InteractionSnapshot
-  getActiveTurn: () => InteractionTurn | undefined
-  getTurn: (turnId: string) => InteractionTurn | undefined
-  resolveVoice: (input: VoiceInput) => Promise<InteractionTurn>
-  submitVoice: (input: VoiceInput) => Promise<InteractionTurn>
-  submitTurn: (turnId: string) => Promise<InteractionTurn>
-  trySubmitTurn: (turnId: string) => Promise<SubmitTurnResult>
-  confirmTurn: (turnId: string) => Promise<DispatchResult>
-  cancelTurn: (turnId: string, reason?: string) => void
-  resolveText: (text: string) => Promise<InteractionResolutionResult>
-  dispatchResolution: (
-    resolution: ResolvedInteraction,
-    options?: InteractionSubmitOptions
-  ) => Promise<InteractionSubmitResult>
-  dispatchBatchResolutions: (
-    resolutions: ResolvedInteraction[],
-    options?: InteractionSubmitOptions
-  ) => Promise<{ batch: BatchDispatchResult; results: InteractionSubmitResult[] }>
-  submitUtterance: (text: string, options?: InteractionSubmitOptions) => Promise<InteractionSubmitResult>
-  recordEvent: (event: InteractionEventInput) => void
-  setSemanticFocus: (objectId: string, options?: { ttlMs?: number; confidence?: number }) => void
-  invalidateSnapshot: (reason?: string) => void
-  registerNode: (node: RegisteredNode) => () => void
-  registerGroup: (group: RegisteredGroup) => () => void
-  registerObject: (object: RegisteredVirtualObject) => () => void
-  registerManifest: (id: string, manifest: AppInteractionManifest) => () => void
-  registerPage: (page: RegisteredPage) => () => void
-  registerActions: (registration: ActionRegistration) => () => void
-}
-
-// 中文：对外暴露的 API 只包含读取 snapshot、解析文本和提交执行，不暴露内部注册表。
-// English: The public API exposes snapshot reads, text resolution, and dispatch only, keeping internal registries private.
-export type InteractionApi = Pick<
+import {
+  canAcceptConfirmedCommandAfterIrrelevantStateDrift,
+  createLegacyConfirmationGrant,
+  createMissingProvenanceValidation,
+  dispatchLifecycleEventType,
+  dispatchLifecycleEventValue,
+  dispatchLifecycleTargetId,
+  dispatchRuntimeError,
+  focusSourceFromCommandSource,
+  isOmniError,
+  isTerminalTurnStatus,
+  normalizeSubmitTurnError,
+  resolveDispatchProvenance,
+  resolutionFromTurnDecision,
+  shouldRetryConfirmedCommandAfterIrrelevantStateDrift,
+  stampResolutionProvenance,
+  stripActionType,
+  toInteractionSubmitResult,
+  turnStatusForDispatchResult,
+  validateTurnSubmission,
+  withForcedDomainConfirmation,
+  type ResolutionProvenance,
+} from "./runtime-dispatch"
+import {
+  freezeDecisionParams,
+  legacyResolutionFromTurnBundle,
+  resolveCandidate,
+  resolveClarificationAnswer,
+  turnFromResolutionBundle,
+} from "./runtime-resolution"
+import {
+  buildGroupObjects,
+  canAcceptRegistration,
+  createRuntimeOwnerId,
+  findObjectIdForDomTarget,
+  isIgnoredRuntimeTarget,
+  isModalGroupActive,
+  isRegistrationOwner,
+  readInputEventValue,
+  resolveRegisteredNodeLabel,
+  shouldObserveMutation,
+  stableStringify,
+} from "./runtime-snapshot"
+import type {
+  ActionRegistration,
+  InteractionApi,
+  RegisteredGroup,
+  RegisteredNode,
+  RegisteredPage,
+  RegisteredVirtualObject,
   RuntimeContextValue,
-  | "snapshot"
-  | "lastResolution"
-  | "getSnapshot"
-  | "getActiveTurn"
-  | "getTurn"
-  | "resolveVoice"
-  | "submitVoice"
-  | "submitTurn"
-  | "trySubmitTurn"
-  | "confirmTurn"
-  | "cancelTurn"
-  | "resolveText"
-  | "dispatchResolution"
-  | "dispatchBatchResolutions"
-  | "submitUtterance"
-  | "recordEvent"
-  | "setSemanticFocus"
-  | "invalidateSnapshot"
->
+  SubmitTurnDispatchOptions,
+  SubmitTurnResult,
+  TurnRuntimeHandle,
+} from "./runtime-types"
+import {
+  createPartialVoiceListeningTurn,
+  createPartialVoicePreviewTurn,
+  decisionFromResolution,
+  getPartialVoiceTurnId,
+  previewCandidatesFromResolution,
+  resolvePartialVoicePreview,
+  resolveVoiceCandidate,
+  voiceSessionKey,
+} from "./runtime-voice"
 
-export type SubmitTurnResult =
-  | {
-      ok: true
-      turn: InteractionTurn
-    }
-  | {
-      ok: false
-      turn?: InteractionTurn
-      error: OmniError
-    }
+export type { InteractionApi, SubmitTurnResult } from "./runtime-types"
 
 const emptySnapshot: InteractionSnapshot = createInteractionSnapshot({
   stateVersion: 0,
@@ -331,6 +270,26 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       bumpVersion()
     },
     [bumpVersion]
+  )
+
+  const recordDispatchLifecycle = React.useCallback(
+    (command: CommandEnvelope, phaseOrResult: DispatchPhaseEvent | DispatchResult) => {
+      const type = dispatchLifecycleEventType(phaseOrResult)
+      if (!type) return
+      recordEvent({
+        modality: command.source.modality,
+        type,
+        target: dispatchLifecycleTargetId(command, phaseOrResult),
+        action: command.kind === "domain" ? command.actionId : command.primitiveAction,
+        turnId: command.turnId,
+        commandId: command.commandId,
+        contextEpoch: command.anchor.contextEpoch,
+        modelGenerated: command.source.modelGenerated,
+        resolverIds: command.source.resolverIds,
+        value: dispatchLifecycleEventValue(phaseOrResult),
+      })
+    },
+    [recordEvent]
   )
 
   React.useEffect(() => {
@@ -762,6 +721,51 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
     handle?.dispatchAbort?.abort()
   }, [])
 
+  const resolveRuntimeTurn = React.useCallback(
+    async (input: {
+      turn: InteractionTurn
+      snapshot: InteractionSnapshot
+      signal: AbortSignal
+    }) => {
+      const legacyResolver: IntentResolver = {
+        id: "react-runtime-legacy",
+        resolve: (context) => {
+          if (context.voiceInput) {
+            return resolveVoiceCandidate(context.voiceInput, context.snapshot, {
+              localResolvers,
+              resolvers,
+              resolverMode,
+              signal: context.signal,
+              turnId: context.turnId,
+            })
+          }
+
+          return resolveCandidate(context.utterance, context.snapshot, {
+            localResolvers,
+            resolvers,
+            resolverMode,
+            signal: context.signal,
+            turnId: context.turnId,
+          })
+        },
+      }
+      const bundle = await resolveInteractionTurn({
+        turn: input.turn,
+        snapshot: input.snapshot,
+        contextEpoch: input.snapshot.contextEpoch,
+        resolvers: [adaptLegacyIntentResolver(legacyResolver)],
+        mode: resolverMode,
+        signal: input.signal,
+      })
+
+      return {
+        turn: turnFromResolutionBundle(input.turn, bundle, input.snapshot),
+        bundle,
+      }
+    },
+    [localResolvers, resolverMode, resolvers]
+  )
+
   const resolveText = React.useCallback(
     async (text: string): Promise<InteractionResolutionResult> => {
       // 中文：解析总是基于提交瞬间的 snapshot，并记录 lastResolution 方便调试或 UI 展示。
@@ -771,12 +775,11 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       const clarificationResolution = resolveClarificationAnswer(
         text,
         activeTurn,
-        lastResolutionRef.current,
         currentSnapshot
       )
       if (clarificationResolution && activeTurn) {
         const resolvingTurn = transitionTurn(activeTurn, {
-          type: "transition",
+          type: "resolution.started",
           status: "resolving",
         })
         publishTurn(resolvingTurn)
@@ -785,20 +788,24 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           modality: "text",
           anchor: activeTurn.anchor,
         })
+        const decision = decisionFromResolution(resolution)
         const resolvedTurn = transitionTurn(resolvingTurn, {
-          type: "transition",
+          type: "resolution.completed",
           status: "ready",
           candidates: previewCandidatesFromResolution(resolution),
-          decision: decisionFromResolution(resolution),
+          decision: decision
+            ? freezeDecisionParams(resolvingTurn, decision, currentSnapshot)
+            : undefined,
         })
         publishTurn(resolvedTurn)
         onTrace?.(completeInteractionTrace(createInteractionTrace(resolvedTurn), {}))
-        lastResolutionRef.current = resolution
-        setLastResolution(resolution)
-        onResolution?.(resolution)
+        const readyResolution = resolutionFromTurnDecision(resolvedTurn) ?? resolution
+        lastResolutionRef.current = readyResolution
+        setLastResolution(readyResolution)
+        onResolution?.(readyResolution)
         return {
           snapshot: currentSnapshot,
-          resolution,
+          resolution: readyResolution,
         }
       }
       const turnId = `turn_${++turnCounter.current}`
@@ -813,19 +820,17 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         anchor: createSnapshotAnchor(currentSnapshot),
       })
       const resolvingTurn = transitionTurn(createdTurn, {
-        type: "transition",
+        type: "resolution.started",
         status: "resolving",
       })
       publishTurn(resolvingTurn)
       const resolverHandle = startTurnResolver(turnId, {
         abortOtherResolvers: true,
       })
-      const resolved = await resolveCandidate(text, currentSnapshot, {
-        localResolvers,
-        resolvers,
-        resolverMode,
+      const { turn: bundledTurn, bundle } = await resolveRuntimeTurn({
+        turn: resolvingTurn,
+        snapshot: currentSnapshot,
         signal: resolverHandle.abortController.signal,
-        turnId,
       })
       if (
         !canApplyTurnAsyncResult({
@@ -846,39 +851,10 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           },
         }
       }
-      const resolution = stampResolutionProvenance(resolved, currentSnapshot, {
-        turnId,
-        modality: "text",
-      })
-      const nextTurnStatus =
-        resolution.status === "resolved"
-          ? "ready"
-          : resolution.status === "needs_clarification"
-            ? "needs_clarification"
-            : "rejected"
-      const resolvedTurn = transitionTurn(resolvingTurn, {
-        type: "transition",
-        status: nextTurnStatus,
-        candidates: previewCandidatesFromResolution(resolution),
-        decision: decisionFromResolution(resolution),
-        clarification:
-          nextTurnStatus === "needs_clarification"
-            ? {
-                id: `clarification_${turnId}`,
-                prompt: resolution.reason ?? "需要进一步澄清",
-                createdAt: Date.now(),
-              }
-            : undefined,
-        error:
-          nextTurnStatus === "rejected"
-            ? {
-                code: resolution.status,
-                message: resolution.reason ?? "No interaction target was resolved.",
-              }
-            : undefined,
-      })
+      const resolvedTurn = bundledTurn
       publishTurn(resolvedTurn)
       onTrace?.(completeInteractionTrace(createInteractionTrace(resolvedTurn), {}))
+      const resolution = legacyResolutionFromTurnBundle(resolvedTurn, bundle)
       lastResolutionRef.current = resolution
       setLastResolution(resolution)
       onResolution?.(resolution)
@@ -899,6 +875,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       onResolution,
       onTrace,
       publishTurn,
+      resolveRuntimeTurn,
       resolverMode,
       resolvers,
       startTurnResolver,
@@ -921,7 +898,6 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         const clarificationResolution = resolveClarificationAnswer(
           input.text,
           activeTurn,
-          lastResolutionRef.current,
           currentSnapshot
         )
         if (clarificationResolution && activeTurn) {
@@ -934,7 +910,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             partialVoiceTurnIdsRef.current.delete(sessionKey)
           }
           const resolvingTurn = transitionTurn(activeTurn, {
-            type: "transition",
+            type: "resolution.started",
             status: "resolving",
           })
           publishTurn(resolvingTurn)
@@ -943,16 +919,20 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             modality: "voice",
             anchor: activeTurn.anchor,
           })
+          const decision = decisionFromResolution(resolution)
           const resolvedTurn = transitionTurn(resolvingTurn, {
-            type: "transition",
+            type: "resolution.completed",
             status: "ready",
             candidates: previewCandidatesFromResolution(resolution),
-            decision: decisionFromResolution(resolution),
+            decision: decision
+              ? freezeDecisionParams(resolvingTurn, decision, currentSnapshot)
+              : undefined,
           })
           publishTurn(resolvedTurn)
-          lastResolutionRef.current = resolution
-          setLastResolution(resolution)
-          onResolution?.(resolution)
+          const readyResolution = resolutionFromTurnDecision(resolvedTurn) ?? resolution
+          lastResolutionRef.current = readyResolution
+          setLastResolution(readyResolution)
+          onResolution?.(readyResolution)
           onTrace?.(completeInteractionTrace(createInteractionTrace(resolvedTurn), {}))
           return resolvedTurn
         }
@@ -1050,7 +1030,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       }
 
       const resolvingTurn = transitionTurn(createdTurn, {
-        type: "transition",
+        type: "resolution.started",
         status: "resolving",
       })
       publishTurn(resolvingTurn)
@@ -1058,12 +1038,10 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         abortOtherResolvers: true,
       })
 
-      const resolved = await resolveVoiceCandidate(input, currentSnapshot, {
-        localResolvers,
-        resolvers,
-        resolverMode,
+      const { turn: bundledTurn, bundle } = await resolveRuntimeTurn({
+        turn: resolvingTurn,
+        snapshot: currentSnapshot,
         signal: resolverHandle.abortController.signal,
-        turnId,
       })
 
       if (
@@ -1078,38 +1056,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         return turnStoreRef.current.get(turnId) ?? resolvingTurn
       }
 
-      const resolution = stampResolutionProvenance(resolved, currentSnapshot, {
-        turnId,
-        modality: "voice",
-      })
-      const nextTurnStatus =
-        resolution.status === "resolved"
-          ? "ready"
-          : resolution.status === "needs_clarification"
-            ? "needs_clarification"
-            : "rejected"
-      const resolvedTurn = transitionTurn(resolvingTurn, {
-        type: "transition",
-        status: nextTurnStatus,
-        candidates: previewCandidatesFromResolution(resolution),
-        decision: decisionFromResolution(resolution),
-        clarification:
-          nextTurnStatus === "needs_clarification"
-            ? {
-                id: `clarification_${turnId}`,
-                prompt: resolution.reason ?? "需要进一步澄清",
-                createdAt: Date.now(),
-              }
-            : undefined,
-        error:
-          nextTurnStatus === "rejected"
-            ? {
-                code: resolution.status,
-                message: resolution.reason ?? "No interaction target was resolved.",
-              }
-            : undefined,
-      })
+      const resolvedTurn = bundledTurn
       publishTurn(resolvedTurn)
+      const resolution = legacyResolutionFromTurnBundle(resolvedTurn, bundle)
       lastResolutionRef.current = resolution
       setLastResolution(resolution)
       onResolution?.(resolution)
@@ -1126,6 +1075,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       canApplyTurnAsyncResult,
       publishTurn,
       recordEvent,
+      resolveRuntimeTurn,
       resolverMode,
       resolvers,
       startTurnPreview,
@@ -1146,7 +1096,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       try {
         publishTurn(
           transitionTurn(turn, {
-            type: "transition",
+            type: "turn.cancelled",
             status: "cancelled",
             error: {
               code: "cancelled",
@@ -1163,27 +1113,28 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   )
 
   const publishDispatchResultTurn = React.useCallback(
-    (turnId: string, result: DispatchResult) => {
+    (turnId: string, result: DispatchResult, command?: CommandEnvelope) => {
       const turn = turnStoreRef.current.get(turnId)
       if (!turn || isTerminalTurnStatus(turn.status)) return
 
       try {
+        if (command) recordDispatchLifecycle(command, result)
         let next = turn
         if (next.status === "awaiting_confirmation") {
           next = transitionTurn(next, {
-            type: "transition",
+            type: "resolution.completed",
             status: "ready",
           })
         }
         if (next.status === "ready") {
           next = transitionTurn(next, {
-            type: "transition",
+            type: "dispatch.phase",
             status: "validating",
           })
         }
         if (result.status === "rejected") {
           next = transitionTurn(next, {
-            type: "transition",
+            type: "dispatch.completed",
             status: "rejected",
             result,
             error: dispatchRuntimeError(result),
@@ -1191,13 +1142,13 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         } else {
           if (next.status === "validating") {
             next = transitionTurn(next, {
-              type: "transition",
+              type: "dispatch.phase",
               status: "executing",
             })
           }
           if (result.status === "failed") {
             next = transitionTurn(next, {
-              type: "transition",
+              type: "dispatch.completed",
               status: "failed",
               result,
               error: dispatchRuntimeError(result),
@@ -1205,12 +1156,12 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           } else {
             if (next.status === "executing") {
               next = transitionTurn(next, {
-                type: "transition",
+                type: "dispatch.phase",
                 status: "verifying",
               })
             }
             next = transitionTurn(next, {
-              type: "transition",
+              type: "dispatch.completed",
               status: turnStatusForDispatchResult(result),
               result,
               error: result.ok ? undefined : dispatchRuntimeError(result),
@@ -1219,18 +1170,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         }
         publishTurn(next, { active: false })
         if (result.status === "committed" && result.targetId) {
-          recordEvent({
-            modality: result.actionId ? "voice" : "gui",
-            type: "action.committed",
-            target: result.targetId,
-            action: result.actionId ?? result.primitiveAction,
-            turnId,
-            commandId: result.commandId,
-            contextEpoch: snapshotRef.current.contextEpoch,
-          })
           setUnifiedFocus((current) =>
             setCoreSemanticFocus(current, result.targetId!, {
-              source: "programmatic",
+              source: focusSourceFromCommandSource(command?.source.modality ?? turn.source),
               confidence: 1,
             })
           )
@@ -1244,7 +1186,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         // Keep dispatch results available to callers even if a legacy turn state cannot transition.
       }
     },
-    [onTrace, publishTurn, recordEvent]
+    [onTrace, publishTurn, recordDispatchLifecycle]
   )
 
   const publishPendingConfirmationTurn = React.useCallback(
@@ -1252,39 +1194,30 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       const turn = turnStoreRef.current.get(turnId)
       if (!turn || isTerminalTurnStatus(turn.status)) return
 
-      try {
-        const next = transitionTurn(turn, {
-          type: "transition",
-          status: "awaiting_confirmation",
-          pendingCommand: command,
-          result,
-        })
-        publishTurn(next)
-      } catch {
-        publishTurn({
-          ...turn,
-          revision: turn.revision + 1,
-          status: "awaiting_confirmation",
-          pendingCommand: command,
-          result,
-          updatedAt: Date.now(),
-        })
-      }
+      recordDispatchLifecycle(command, result)
+      const next = transitionTurn(turn, {
+        type: "confirmation.requested",
+        status: "awaiting_confirmation",
+        pendingCommand: command,
+        result,
+      })
+      publishTurn(next)
     },
-    [publishTurn]
+    [publishTurn, recordDispatchLifecycle]
   )
 
   const publishDispatchPhaseTurn = React.useCallback(
-    (turnId: string, phase: DispatchPhaseEvent) => {
+    (turnId: string, phase: DispatchPhaseEvent, command?: CommandEnvelope) => {
       const turn = turnStoreRef.current.get(turnId)
       if (!turn || isTerminalTurnStatus(turn.status)) return
 
       try {
+        if (command) recordDispatchLifecycle(command, phase)
         let next = turn
         if (phase.phase === "validation" && phase.state === "started") {
           if (next.status === "awaiting_confirmation") {
             next = transitionTurn(next, {
-              type: "transition",
+              type: "resolution.completed",
               status: "ready",
               at: phase.at,
               dispatchPhase: phase,
@@ -1292,7 +1225,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           }
           if (next.status === "ready") {
             next = transitionTurn(next, {
-              type: "transition",
+              type: "dispatch.phase",
               status: "validating",
               at: phase.at,
               dispatchPhase: phase,
@@ -1301,7 +1234,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         } else if (phase.phase === "execution" && phase.state === "started") {
           if (next.status === "validating") {
             next = transitionTurn(next, {
-              type: "transition",
+              type: "dispatch.phase",
               status: "executing",
               at: phase.at,
               dispatchPhase: phase,
@@ -1310,8 +1243,23 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         } else if (phase.phase === "verification" && phase.state === "started") {
           if (next.status === "executing") {
             next = transitionTurn(next, {
-              type: "transition",
+              type: "dispatch.phase",
               status: "verifying",
+              at: phase.at,
+              dispatchPhase: phase,
+            })
+          }
+        }
+        if (next === turn) {
+          const phaseStatus = next.status
+          if (
+            phaseStatus === "validating" ||
+            phaseStatus === "executing" ||
+            phaseStatus === "verifying"
+          ) {
+            next = transitionTurn(next, {
+              type: "dispatch.phase",
+              status: phaseStatus,
               at: phase.at,
               dispatchPhase: phase,
             })
@@ -1322,7 +1270,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         // Phase events are best-effort mirrors of dispatcher state; final result remains authoritative.
       }
     },
-    [publishTurn]
+    [publishTurn, recordDispatchLifecycle]
   )
 
   const ensureTurnForResolution = React.useCallback(
@@ -1344,20 +1292,23 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         now: provenance.resolvedAt,
       })
       const resolving = transitionTurn(created, {
-        type: "transition",
+        type: "resolution.started",
         status: "resolving",
       })
-      const ready = transitionTurn(resolving, {
-        type: "transition",
-        status: resolution.status === "resolved" ? "ready" : "rejected",
-        error:
-          resolution.status === "resolved"
-            ? undefined
-            : {
+      const ready =
+        resolution.status === "resolved"
+          ? transitionTurn(resolving, {
+              type: "resolution.completed",
+              status: "ready",
+            })
+          : transitionTurn(resolving, {
+              type: "resolution.failed",
+              status: "rejected",
+              error: {
                 code: resolution.status,
                 message: resolution.reason ?? "No interaction target was resolved.",
               },
-      })
+            })
       publishTurn({
         ...ready,
         anchor: provenance.anchor,
@@ -1392,11 +1343,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       if (resolution.actionId) {
         const provenance = resolveDispatchProvenance(resolution, currentSnapshot, options)
         if (!provenance) {
-          const validation = {
-            ok: false as const,
-            code: "missing_anchor" as const,
-            reason: "缺少原始 Snapshot anchor",
-          }
+          const validation = createMissingProvenanceValidation()
           applyFeedback(resolution.targetId, "error")
           return {
             ...baseResult,
@@ -1473,7 +1420,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
                   allowAbortedSignal: true,
                 })
               ) {
-                publishDispatchPhaseTurn(provenance.turnId, phase)
+                publishDispatchPhaseTurn(provenance.turnId, phase, command)
               }
             },
           })
@@ -1500,7 +1447,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           ) {
             publishPendingConfirmationTurn(provenance.turnId, command, dispatchResult)
           } else {
-            publishDispatchResultTurn(provenance.turnId, dispatchResult)
+            publishDispatchResultTurn(provenance.turnId, dispatchResult, command)
           }
           if (!dispatchResult.ok) {
             applyFeedback(resolution.targetId, "error")
@@ -1544,11 +1491,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       if (resolution.primitiveAction) {
         const provenance = resolveDispatchProvenance(resolution, currentSnapshot, options)
         if (!provenance) {
-          const validation = {
-            ok: false as const,
-            code: "missing_anchor" as const,
-            reason: "缺少原始 Snapshot anchor",
-          }
+          const validation = createMissingProvenanceValidation()
           applyFeedback(resolution.targetId, "error")
           return {
             ...baseResult,
@@ -1589,7 +1532,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
                 allowAbortedSignal: true,
               })
             ) {
-              publishDispatchPhaseTurn(provenance.turnId, phase)
+              publishDispatchPhaseTurn(provenance.turnId, phase, command)
             }
           },
           executePrimitive: (primitiveCommand): ActionExecutionResult => {
@@ -1620,7 +1563,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
             target,
           })
         }
-        publishDispatchResultTurn(provenance.turnId, dispatchResult)
+        publishDispatchResultTurn(provenance.turnId, dispatchResult, command)
 
         if (dispatchResult.ok) {
           applyFeedback(resolution.targetId, "success")
@@ -1686,7 +1629,9 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
           continue
         }
 
-        const provenance = resolveDispatchProvenance(resolution, currentSnapshot, options)
+        const provenance = resolveDispatchProvenance(resolution, currentSnapshot, options, {
+          allowLegacyBaseStateVersion: true,
+        })
         if (!provenance) {
           const validation = {
             ok: false as const,
@@ -1835,7 +1780,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
               message: "Batch dispatcher did not return an item result.",
             },
           } satisfies DispatchResult)
-        publishDispatchResultTurn(entry.command.turnId, dispatchResult)
+        publishDispatchResultTurn(entry.command.turnId, dispatchResult, entry.command)
         if (dispatchResult.ok) applyFeedback(entry.command.targetId, "success")
         else applyFeedback(entry.command.targetId, "error")
         return toInteractionSubmitResult({
@@ -1886,7 +1831,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       try {
         publishTurn(
           transitionTurn(turn, {
-            type: "transition",
+            type: "resolution.completed",
             status: "ready",
             confirmation,
           })
@@ -1912,7 +1857,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
               allowAbortedSignal: true,
             })
           ) {
-            publishDispatchPhaseTurn(turnId, phase)
+            publishDispatchPhaseTurn(turnId, phase, command)
           }
         },
         allowIrrelevantAnchorStateDrift: canAcceptConfirmedCommandAfterIrrelevantStateDrift(
@@ -1955,7 +1900,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       } else {
         applyFeedback(command.targetId, "error")
       }
-      publishDispatchResultTurn(turnId, dispatchResult)
+      publishDispatchResultTurn(turnId, dispatchResult, command)
       return dispatchResult
     },
     [
@@ -1971,7 +1916,10 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
   )
 
   const submitTurn = React.useCallback(
-    async (turnId: string): Promise<InteractionTurn> => {
+    async (
+      turnId: string,
+      options: SubmitTurnDispatchOptions = {}
+    ): Promise<InteractionTurn> => {
       const turn = turnStoreRef.current.get(turnId)
       const validationError = validateTurnSubmission(turnId, turn)
       if (validationError) throw validationError
@@ -1980,35 +1928,30 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       }
 
       const currentSnapshot = snapshotRef.current
-      const commandTurn =
-        submittableTurn.decision.actionId
-          ? {
-              ...submittableTurn,
-              decision: {
-                ...submittableTurn.decision,
-                params: stripActionType(
-                  buildActionPayload(currentSnapshot, {
-                    actionId: submittableTurn.decision.actionId,
-                    targetId: submittableTurn.decision.targetId,
-                    baseStateVersion: submittableTurn.anchor.stateVersion,
-                    candidate: resolutionFromTurnDecision(submittableTurn),
-                    utterance: submittableTurn.input.text,
-                  })
-                ),
-              },
-            }
-          : submittableTurn
       const command = buildCommandFromTurnDecision({
         commandId: `command_${++commandCounter.current}`,
-        turn: commandTurn,
+        turn: submittableTurn,
         snapshot: currentSnapshot,
       })
+
+      const candidate = resolutionFromTurnDecision(submittableTurn)
+      const dispatchSnapshot =
+        command.kind === "domain" && options.forceConfirmation
+          ? withForcedDomainConfirmation(currentSnapshot, command.actionId)
+          : currentSnapshot
+      const confirmation =
+        command.kind === "domain"
+          ? createLegacyConfirmationGrant(command, options.confirmedActionId) ??
+            submittableTurn.confirmation
+          : submittableTurn.confirmation
 
       applyFeedback(command.targetId, "voice-target")
       applyFeedback(command.targetId, "voice-press")
       const dispatchHandle = startTurnDispatch(turnId)
-      const dispatchResult = await dispatchCommand(currentSnapshot, command, {
-        confirmation: submittableTurn.confirmation,
+      const dispatchResult = await dispatchCommand(dispatchSnapshot, command, {
+        candidate,
+        utterance: submittableTurn.input.text,
+        confirmation,
         getSnapshot,
         conflictLock: conflictLockRef.current,
         signal: dispatchHandle.abortController.signal,
@@ -2021,7 +1964,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
               allowAbortedSignal: true,
             })
           ) {
-            publishDispatchPhaseTurn(turnId, phase)
+            publishDispatchPhaseTurn(turnId, phase, command)
           }
         },
         executePrimitive:
@@ -2061,7 +2004,7 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
       ) {
         publishPendingConfirmationTurn(turnId, command, dispatchResult)
       } else {
-        publishDispatchResultTurn(turnId, dispatchResult)
+        publishDispatchResultTurn(turnId, dispatchResult, command)
       }
 
       if (dispatchResult.ok) {
@@ -2131,12 +2074,64 @@ export function MultimodalProvider(props: MultimodalProviderProps) {
         }
       }
 
-      return dispatchResolution(resolution, {
-        ...options,
-        baseStateVersion: options.baseStateVersion ?? resolvedSnapshot.stateVersion,
-      })
+      const turnId = resolution.provenance?.turnId
+      const turn = turnId ? turnStoreRef.current.get(turnId) : undefined
+      if (resolution.status !== "resolved" || !turnId || !turn) {
+        return {
+          snapshot: resolvedSnapshot,
+          resolution,
+          ok: false,
+          executed: false,
+          error: resolution.reason ?? "No resolved interaction target.",
+        }
+      }
+
+      try {
+        const submittedTurn = await submitTurn(turnId, options)
+        const dispatchResult = submittedTurn.result
+        if (!dispatchResult) {
+          return {
+            snapshot: resolvedSnapshot,
+            resolution,
+            ok: false,
+            executed: false,
+            pendingCommand: submittedTurn.pendingCommand,
+            error: "Turn submission did not produce a dispatch result.",
+          }
+        }
+
+        return toInteractionSubmitResult({
+          baseResult: {
+            snapshot: resolvedSnapshot,
+            resolution,
+          },
+          dispatchResult,
+          pendingCommand: submittedTurn.pendingCommand,
+          execution: dispatchResult.primitiveAction ? "primitive-action" : "domain-action",
+          target: resolvedSnapshot.visibleObjects.find((object) => object.id === dispatchResult.targetId),
+          action:
+            resolution.actionId
+              ? ({
+                  type: resolution.actionId,
+                  ...(resolution.params ?? {}),
+                } as ActionPayload)
+              : undefined,
+        })
+      } catch (error) {
+        return {
+          snapshot: resolvedSnapshot,
+          resolution,
+          ok: false,
+          executed: false,
+          error: isOmniError(error)
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : "Turn submission failed.",
+        }
+      }
     },
-    [dispatchResolution, resolveText]
+    [resolveText, submitTurn]
   )
 
   const registerNode = React.useCallback(
@@ -2750,1042 +2745,4 @@ export function useSubmitUtterance(): (
   options?: InteractionSubmitOptions
 ) => Promise<InteractionSubmitResult> {
   return useMultimodalRuntime().submitUtterance
-}
-
-function resolveRegisteredNodeLabel(node: RegisteredNode): string | undefined {
-  if (node.label) return node.label
-  if (node.hint?.fallbackLabel) return node.hint.fallbackLabel
-  if (node.labelFrom === "none") return undefined
-  return getElementLabel(node.element)
-}
-
-function buildGroupObjects(
-  groups: Map<string, RegisteredGroup>,
-  rawObjects: InteractionObject[],
-  elementMap: Map<string, HTMLElement>
-): InteractionObject[] {
-  // 中文：列表容器会给子项推断可见序号，从而支持“第一个/第二项”等自然语言。
-  // English: List containers infer visible-order indexes for children, enabling phrases like "first item" or "second item".
-  const listGroups = Array.from(groups.values()).filter((group) => group.role === "list")
-
-  return Array.from(groups.values()).filter((group) => isElementVisible(group.element)).map((group) => {
-    const children = rawObjects
-      .filter((object) => {
-        const element = elementMap.get(object.id)
-        return element ? group.element.contains(element) : false
-      })
-      .map((object) => object.id)
-
-    const parentList = listGroups.find(
-      (list) => list.id !== group.id && list.element.contains(group.element)
-    )
-    const siblings = parentList
-      ? Array.from(groups.values())
-          .filter(
-            (candidate) =>
-              candidate.role === group.role &&
-              candidate.id !== parentList.id &&
-              parentList.element.contains(candidate.element)
-          )
-          .sort(compareElementOrder)
-      : []
-    const index =
-      parentList?.indexBy === "visible_order"
-        ? siblings.findIndex((item) => item.id === group.id) + 1
-        : undefined
-    const inferredState = inferGroupState(group, children, elementMap)
-    const primaryControl = inferPrimaryControl(children, elementMap)
-    const aliases = [...(group.aliases ?? [])]
-
-    if (index) {
-      aliases.push(`第 ${index} 个`, `第${index}个`, `第 ${index} 项`, `第${index}项`)
-    }
-
-    return {
-      id: group.id,
-      type: group.role === "list" ? "container" : "composite",
-      role: group.role,
-      label: group.label,
-      aliases,
-      entity: group.entity,
-      parent: parentList?.id,
-      children,
-      primaryControl,
-      indexBy: group.indexBy,
-      source: "registered_group",
-      state: {
-        ...(index ? { index } : {}),
-        ...inferredState,
-        ...(group.state ?? {}),
-      },
-    }
-  })
-}
-
-function compareElementOrder(a: RegisteredGroup, b: RegisteredGroup): number {
-  if (a.element === b.element) return 0
-
-  const position = a.element.compareDocumentPosition(b.element)
-  if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1
-  if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1
-  return 0
-}
-
-function isModalGroupActive(
-  object: InteractionObject,
-  groups: Map<string, RegisteredGroup>
-): boolean {
-  if (object.state?.open === true || object.state?.active === true) return true
-  if (object.state?.open === false || object.state?.active === false) return false
-
-  const group = groups.get(object.id)
-  if (!group) return false
-
-  const details = group.element.matches("details")
-    ? group.element
-    : group.element.querySelector("details")
-  if (details instanceof HTMLDetailsElement) return details.open
-
-  const dialog = group.element.matches("dialog")
-    ? group.element
-    : group.element.querySelector("dialog")
-  if (dialog instanceof HTMLDialogElement) return dialog.open
-
-  const roleDialog = group.element.matches("[role='dialog'], [role='alertdialog']")
-    ? group.element
-    : group.element.querySelector<HTMLElement>("[role='dialog'], [role='alertdialog']")
-  if (roleDialog) return isElementVisible(roleDialog)
-
-  return isElementVisible(group.element)
-}
-
-function inferGroupState(
-  group: RegisteredGroup,
-  children: string[],
-  elementMap: Map<string, HTMLElement>
-): Record<string, unknown> {
-  // 中文：Group 状态从子控件推断常见业务线索，例如列表项完成状态和表单字段消息。
-  // English: Group state infers common business cues from children, such as item completion and form field messages.
-  const state: Record<string, unknown> = {}
-  const checkbox = children
-    .map((childId) => elementMap.get(childId))
-    .find(
-      (element): element is HTMLInputElement =>
-        element instanceof HTMLInputElement && element.type === "checkbox"
-    )
-
-  if (group.role === "list_item" && checkbox) {
-    state.completed = checkbox.checked
-  }
-
-  if (group.entity) {
-    state[`${group.entity.type}Id`] = group.entity.id
-  }
-
-  if (group.role === "form_field") {
-    const control = children
-      .map((childId) => elementMap.get(childId))
-      .find((element): element is HTMLElement => Boolean(element && isFormControl(element)))
-    const message = children
-      .map((childId) => elementMap.get(childId))
-      .map((element) => element?.textContent?.replace(/\s+/g, " ").trim())
-      .find((text) => text && text !== group.label)
-
-    if (control) state.controlRole = control.dataset.mmRole ?? control.getAttribute("role") ?? control.tagName.toLowerCase()
-    if (message) state.message = message
-  }
-
-  return state
-}
-
-function inferPrimaryControl(
-  children: string[],
-  elementMap: Map<string, HTMLElement>
-): string | undefined {
-  return children.find((childId) => {
-    const element = elementMap.get(childId)
-    return element ? isFormControl(element) || isActionControl(element) : false
-  })
-}
-
-function isFormControl(element: HTMLElement): boolean {
-  return (
-    element instanceof HTMLInputElement ||
-    element instanceof HTMLTextAreaElement ||
-    element instanceof HTMLSelectElement ||
-    element.getAttribute("role") === "textbox" ||
-    element.getAttribute("role") === "radiogroup" ||
-    element.getAttribute("role") === "combobox" ||
-    element.getAttribute("role") === "slider"
-  )
-}
-
-function isActionControl(element: HTMLElement): boolean {
-  const role = element.dataset.mmRole ?? element.getAttribute("role")
-  return (
-    element instanceof HTMLButtonElement ||
-    [
-      "button",
-      "switch",
-      "checkbox",
-      "radio",
-      "tab",
-      "option",
-      "menuitem",
-      "menuitemcheckbox",
-      "menuitemradio",
-      "context_menu_trigger",
-      "resize_handle",
-      "scroll_area",
-      "row",
-    ].includes(role ?? "")
-  )
-}
-
-function shouldObserveMutation(mutation: MutationRecord): boolean {
-  if (isIgnoredRuntimeTarget(mutation.target)) return false
-
-  if (mutation.type !== "childList") return true
-
-  const changedNodes = [...mutation.addedNodes, ...mutation.removedNodes]
-  if (!changedNodes.length) return true
-
-  return changedNodes.some((node) => !isIgnoredRuntimeTarget(node))
-}
-
-function isIgnoredRuntimeTarget(target: EventTarget | Node | null): boolean {
-  if (!target) return false
-  const node = target instanceof Node ? target : undefined
-  const element =
-    node instanceof Element
-      ? node
-      : node?.parentElement
-
-  return Boolean(element?.closest("[data-mm-ignore='true']"))
-}
-
-function findObjectIdForDomTarget(
-  target: EventTarget | null,
-  elementMap: Map<string, HTMLElement>
-): string | undefined {
-  if (!(target instanceof Node)) return undefined
-
-  return Array.from(elementMap.entries())
-    .filter(([, element]) => element === target || element.contains(target))
-    .sort(([, a], [, b]) => {
-      if (a === b) return 0
-      if (a.contains(b)) return 1
-      if (b.contains(a)) return -1
-      return 0
-    })[0]?.[0]
-}
-
-function readInputEventValue(target: EventTarget | null): Record<string, unknown> | undefined {
-  if (
-    target instanceof HTMLInputElement ||
-    target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
-  ) {
-    return {
-      value: target.value,
-      inputType: target instanceof HTMLInputElement ? target.type : target.tagName.toLowerCase(),
-      required: "required" in target ? Boolean(target.required) : undefined,
-      invalid: "validity" in target ? !target.validity.valid : undefined,
-    }
-  }
-
-  return undefined
-}
-
-type ResolutionProvenance = NonNullable<ResolvedInteraction["provenance"]>
-
-function stampResolutionProvenance(
-  resolution: ResolvedInteraction,
-  snapshot: InteractionSnapshot,
-  options: {
-    turnId: string
-    modality: CommandSource["modality"]
-    anchor?: ResolutionProvenance["anchor"]
-  }
-): ResolvedInteraction {
-  const resolverIds = [resolution.resolverId].filter((id): id is string => Boolean(id))
-  return {
-    ...resolution,
-    provenance: {
-      turnId: options.turnId,
-      anchor: options.anchor ?? createSnapshotAnchor(snapshot),
-      source: {
-        modality: options.modality,
-        resolverIds,
-        modelGenerated: resolverIds.some(isModelResolverId),
-      },
-      resolvedAt: Date.now(),
-    },
-  }
-}
-
-function resolutionFromTurnDecision(turn: InteractionTurn): ResolvedInteraction | undefined {
-  if (turn.status !== "ready" || !turn.decision) return undefined
-  const resolverIds = turn.hypotheses.map((hypothesis) => hypothesis.resolverId)
-  return {
-    status: "resolved",
-    utterance: turn.input.text,
-    intent: turn.hypotheses.find((hypothesis) => hypothesis.id === turn.decision?.hypothesisId)?.intent,
-    targetId: turn.decision.targetId,
-    actionId: turn.decision.actionId,
-    primitiveAction: turn.decision.primitiveAction,
-    params: turn.decision.params,
-    confidence: turn.decision.score,
-    reason: "turn_decision",
-    resolverId: resolverIds[0] ?? "turn",
-    provenance: {
-      turnId: turn.id,
-      anchor: turn.anchor,
-      source: {
-        modality: turn.source,
-        resolverIds,
-        modelGenerated: turn.hypotheses.some((hypothesis) => hypothesis.source === "llm"),
-      },
-      resolvedAt: turn.decision.decidedAt ?? turn.updatedAt,
-    },
-  }
-}
-
-function resolveDispatchProvenance(
-  resolution: ResolvedInteraction,
-  snapshot: InteractionSnapshot,
-  options: InteractionSubmitOptions
-): ResolutionProvenance | undefined {
-  if (resolution.provenance) return resolution.provenance
-  if (typeof options.baseStateVersion !== "number") return undefined
-
-  const resolverIds = [resolution.resolverId ?? "legacy"].filter(Boolean)
-  const modelGenerated = resolverIds.some(isModelResolverId)
-  return {
-    turnId: `legacy_${options.baseStateVersion}_${resolution.targetId ?? "unknown"}`,
-    anchor: {
-      ...createSnapshotAnchor(snapshot),
-      stateVersion: options.baseStateVersion,
-    },
-    source: {
-      modality: modelGenerated ? "assistant" : "text",
-      resolverIds,
-      modelGenerated,
-    },
-    resolvedAt: Date.now(),
-  }
-}
-
-function createLegacyConfirmationGrant(
-  command: CommandEnvelope,
-  confirmedActionId: string | undefined
-): ConfirmationGrant | undefined {
-  if (command.kind !== "domain" || confirmedActionId !== command.actionId) return undefined
-
-  return createConfirmationGrant(command, {
-    confirmedBy: "text",
-  })
-}
-
-function stripActionType(action: ActionPayload): Record<string, unknown> {
-  const { type: _type, ...params } = action
-  return params
-}
-
-function toInteractionSubmitResult(input: {
-  baseResult: InteractionResolutionResult
-  dispatchResult: DispatchResult
-  pendingCommand?: CommandEnvelope
-  execution: NonNullable<InteractionSubmitResult["execution"]>
-  target?: InteractionObject
-  action?: ActionPayload
-}): InteractionSubmitResult {
-  const { baseResult, dispatchResult, pendingCommand, execution, target, action } = input
-  const executed = dispatchResult.ok && dispatchResult.status !== "rejected" && dispatchResult.status !== "failed"
-  const validation = dispatchResult.validation
-  const error =
-    dispatchResult.error?.message ??
-    (validation && !validation.ok ? validation.reason : undefined)
-
-  return {
-    ...baseResult,
-    ok: dispatchResult.ok,
-    executed,
-    pendingCommand,
-    dispatch: dispatchResult,
-    execution: executed ? execution : undefined,
-    target,
-    action,
-    validation,
-    error,
-  }
-}
-
-function isTerminalTurnStatus(status: InteractionTurn["status"]): boolean {
-  return [
-    "committed",
-    "unverified",
-    "pending",
-    "noop",
-    "rejected",
-    "failed",
-    "cancelled",
-    "superseded",
-    "expired",
-  ].includes(status)
-}
-
-function turnStatusForDispatchResult(result: DispatchResult): InteractionTurn["status"] {
-  if (result.status === "committed") return "committed"
-  if (result.status === "noop") return "noop"
-  if (result.status === "unverified") return "unverified"
-  if (result.status === "pending") return "pending"
-  if (result.status === "cancelled") return "cancelled"
-  if (result.status === "failed") return "failed"
-  return "rejected"
-}
-
-function dispatchRuntimeError(result: DispatchResult) {
-  return {
-    code:
-      result.error?.code ??
-      (result.validation && !result.validation.ok ? result.validation.code : undefined) ??
-      result.status,
-    message:
-      result.error?.message ??
-      (result.validation && !result.validation.ok ? result.validation.reason : undefined) ??
-      result.status,
-  }
-}
-
-function validateTurnSubmission(
-  turnId: string,
-  turn: InteractionTurn | undefined
-): OmniError | undefined {
-  if (!turn) {
-    return createTurnSubmissionError({
-      code: omniErrorCodes.turnNotFound,
-      message: `Interaction turn "${turnId}" was not found.`,
-      recoverable: false,
-      details: { turnId },
-    })
-  }
-
-  if (turn.source === "voice" && turn.input.kind !== "final") {
-    return createTurnSubmissionError({
-      code: omniErrorCodes.voicePartialNotSubmittable,
-      message: "Voice partial turns are previews and cannot be submitted.",
-      recoverable: true,
-      details: {
-        turnId,
-        status: turn.status,
-        inputKind: turn.input.kind,
-      },
-    })
-  }
-
-  if (isTerminalTurnStatus(turn.status)) {
-    return createTurnSubmissionError({
-      code: omniErrorCodes.turnTerminal,
-      message: `Interaction turn "${turnId}" is already terminal.`,
-      recoverable: false,
-      details: {
-        turnId,
-        status: turn.status,
-      },
-    })
-  }
-
-  if (turn.status !== "ready" || !turn.decision) {
-    return createTurnSubmissionError({
-      code: omniErrorCodes.turnNotSubmittable,
-      message: `Interaction turn "${turnId}" is not ready to submit.`,
-      recoverable: true,
-      details: {
-        turnId,
-        status: turn.status,
-        hasDecision: Boolean(turn.decision),
-      },
-    })
-  }
-
-  return undefined
-}
-
-function createTurnSubmissionError(input: {
-  code: string
-  message: string
-  recoverable: boolean
-  details?: Record<string, unknown>
-}): OmniError {
-  return createOmniError({
-    code: input.code,
-    message: input.message,
-    stage: "turn",
-    recoverable: input.recoverable,
-    details: input.details,
-  })
-}
-
-function normalizeSubmitTurnError(error: unknown, turnId: string): OmniError {
-  if (isOmniError(error)) return error
-
-  return createTurnSubmissionError({
-    code: omniErrorCodes.executionFailed,
-    message: error instanceof Error ? error.message : "Submit turn failed.",
-    recoverable: false,
-    details: { turnId },
-  })
-}
-
-function isOmniError(error: unknown): error is OmniError {
-  if (!error || typeof error !== "object") return false
-  const input = error as Partial<OmniError>
-  return (
-    typeof input.code === "string" &&
-    typeof input.message === "string" &&
-    typeof input.stage === "string" &&
-    typeof input.recoverable === "boolean"
-  )
-}
-
-function resolveClarificationAnswer(
-  answer: string,
-  activeTurn: InteractionTurn | undefined,
-  pendingResolution: ResolvedInteraction | undefined,
-  snapshot: InteractionSnapshot
-): ResolvedInteraction | undefined {
-  if (activeTurn?.status !== "needs_clarification") return undefined
-  if (pendingResolution?.status !== "needs_clarification") return undefined
-  const targetCandidates = pendingResolution.targetCandidates ?? []
-  if (!targetCandidates.length) return undefined
-
-  const targetId =
-    targetCandidates[parseClarificationOrdinal(answer) - 1]?.id ??
-    findClarificationCandidateByLabel(answer, targetCandidates, snapshot)
-  if (!targetId) return undefined
-
-  const target = snapshot.visibleObjects.find((object) => object.id === targetId)
-  if (!target) return undefined
-  const action = chooseClarifiedAction(target, pendingResolution.intent)
-  if (!action) return undefined
-  const candidate = targetCandidates.find((item) => item.id === targetId)
-
-  return {
-    status: "resolved",
-    utterance: pendingResolution.utterance,
-    intent: pendingResolution.intent,
-    targetId,
-    ...action,
-    params: pendingResolution.params,
-    confidence: Math.max(pendingResolution.confidence, candidate?.confidence ?? 0),
-    reason: `clarification:${answer.trim()}`,
-    resolverId: pendingResolution.resolverId ?? "clarification",
-  }
-}
-
-function parseClarificationOrdinal(answer: string): number {
-  const text = answer.trim()
-  const digit = text.match(/第?\s*(\d+)\s*(个|项|条|行)?/)
-  if (digit) return Number(digit[1])
-  const words: Record<string, number> = {
-    一: 1,
-    二: 2,
-    两: 2,
-    三: 3,
-    四: 4,
-    五: 5,
-  }
-  const word = text.match(/第?\s*([一二两三四五])\s*(个|项|条|行)?/)
-  return word ? words[word[1]] ?? 0 : 0
-}
-
-function findClarificationCandidateByLabel(
-  answer: string,
-  candidates: Array<{ id: string }>,
-  snapshot: InteractionSnapshot
-): string | undefined {
-  const query = normalizeClarificationText(answer)
-  if (!query) return undefined
-  return candidates.find((candidate) => {
-    const object = snapshot.visibleObjects.find((item) => item.id === candidate.id)
-    if (!object) return false
-    return [object.label, ...(object.aliases ?? [])]
-      .filter((value): value is string => typeof value === "string")
-      .some((value) => {
-        const label = normalizeClarificationText(value)
-        return label === query || label.includes(query) || query.includes(label)
-      })
-  })?.id
-}
-
-function chooseClarifiedAction(
-  target: InteractionObject,
-  intent: string | undefined
-): Pick<ResolvedInteraction, "actionId" | "primitiveAction"> | undefined {
-  const actions = target.actions ?? []
-  const primitives = target.primitiveActions ?? []
-  const domain = (suffixes: string[]) =>
-    actions.find((action) =>
-      suffixes.some((suffix) =>
-        suffix.startsWith(".")
-          ? action.endsWith(suffix)
-          : action === suffix || action.endsWith(`.${suffix}`)
-      )
-    )
-  const primitive = (candidates: NonNullable<ResolvedInteraction["primitiveAction"]>[]) =>
-    primitives.find((action) => candidates.includes(action))
-
-  if (intent === "complete") {
-    const actionId = domain([".complete", "complete"])
-    if (actionId) return { actionId }
-    const primitiveAction = primitive(["check", "toggle"])
-    if (primitiveAction) return { primitiveAction }
-  }
-  if (intent === "delete") {
-    const actionId = domain([".delete", "delete"])
-    if (actionId) return { actionId }
-  }
-  if (intent === "open" || intent === "navigate") {
-    const actionId = domain([".open", ".goto", ".navigate", "open", "goto", "navigate"])
-    if (actionId) return { actionId }
-    const primitiveAction = primitive(["press", "open"])
-    if (primitiveAction) return { primitiveAction }
-  }
-  if (intent === "select") {
-    const actionId = domain([".filter", ".select", ".goto", ".navigate", "goto", "navigate"])
-    if (actionId) return { actionId }
-    const primitiveAction = primitive(["press", "selectByLabel", "selectByIndex"])
-    if (primitiveAction) return { primitiveAction }
-  }
-
-  if (actions.length === 1) return { actionId: actions[0] }
-  if (primitives.length === 1) return { primitiveAction: primitives[0] }
-  return undefined
-}
-
-function normalizeClarificationText(value: string): string {
-  return value.toLowerCase().replace(/[，。！？、,.!?:：；;\s"'“”‘’]/g, "")
-}
-
-function withForcedDomainConfirmation(
-  snapshot: InteractionSnapshot,
-  actionId: string
-): InteractionSnapshot {
-  const spec = snapshot.actionSpecs[actionId]
-  if (!spec) return snapshot
-
-  return {
-    ...snapshot,
-    actionSpecs: {
-      ...snapshot.actionSpecs,
-      [actionId]: {
-        ...spec,
-        confirmation: {
-          ...spec.confirmation,
-          required: true,
-        },
-      },
-    },
-  }
-}
-
-function shouldRetryConfirmedCommandAfterIrrelevantStateDrift(
-  result: DispatchResult,
-  snapshot: InteractionSnapshot,
-  command: CommandEnvelope,
-  explicitInvalidationVersions: number[]
-): boolean {
-  if (!result.validation || result.validation.ok || result.validation.code !== "state_changed") {
-    return false
-  }
-  return canAcceptConfirmedCommandAfterIrrelevantStateDrift(
-    snapshot,
-    command,
-    explicitInvalidationVersions
-  )
-}
-
-function canAcceptConfirmedCommandAfterIrrelevantStateDrift(
-  snapshot: InteractionSnapshot,
-  command: CommandEnvelope,
-  explicitInvalidationVersions: number[]
-): boolean {
-  if (command.anchor.stateVersion >= snapshot.stateVersion) return false
-  if (command.anchor.contextHash !== snapshot.contextHash) return false
-  if (command.anchor.contextEpoch !== snapshot.contextEpoch) return false
-  if (command.anchor.focusRevision !== snapshot.focusRevision) return false
-  if (!snapshot.visibleObjects.some((object) => object.id === command.targetId)) return false
-
-  return !explicitInvalidationVersions.some(
-    (version) => version > command.anchor.stateVersion && version <= snapshot.stateVersion
-  )
-}
-
-function isModelResolverId(id: string): boolean {
-  return /llm|model|openai|anthropic|assistant/i.test(id)
-}
-
-function canAcceptRegistration<T extends { ownerId?: string }>(
-  existing: T | undefined,
-  next: T,
-  key: string,
-  onError?: (error: Error) => void
-): boolean {
-  if (!existing) return true
-  if (!existing.ownerId || !next.ownerId || existing.ownerId === next.ownerId) return true
-
-  onError?.(
-    new Error(
-      `Duplicate multimodal registration for ${key}: owner ${next.ownerId} attempted to replace ${existing.ownerId}.`
-    )
-  )
-  return false
-}
-
-function isRegistrationOwner<T extends { ownerId?: string }>(
-  current: T | undefined,
-  candidate: T
-): boolean {
-  if (!current) return false
-  if (current === candidate) return true
-  if (!current.ownerId || !candidate.ownerId) return current === candidate
-  return current.ownerId === candidate.ownerId
-}
-
-let runtimeOwnerCounter = 0
-
-function createRuntimeOwnerId(prefix: string): string {
-  runtimeOwnerCounter += 1
-  return `${prefix}_${runtimeOwnerCounter}`
-}
-
-async function resolveCandidate(
-  utterance: string,
-  snapshot: InteractionSnapshot,
-  options: {
-    localResolvers?: IntentResolver[]
-    resolvers?: IntentResolver[]
-    resolverMode: ResolverMode
-    signal?: AbortSignal
-    turnId?: string
-    voiceInput?: VoiceInput
-    recentEvents?: InteractionEvent[]
-  }
-): Promise<ResolvedInteraction> {
-  // 中文：解析策略支持 rule-only、rule-first 和 llm-first；默认先用本地规则，置信度不足再走外部 resolver。
-  // English: Resolution supports rule-only, rule-first, and llm-first; the default tries local rules before external resolvers.
-  if (options.resolverMode !== "llm-first" && options.localResolvers?.length) {
-    const localResult = await resolveWithResolvers(
-      {
-        utterance,
-        snapshot,
-        signal: options.signal,
-        turnId: options.turnId,
-        voiceInput: options.voiceInput,
-        recentEvents: options.recentEvents,
-      },
-      options.localResolvers,
-      0.8
-    )
-
-    if (localResult.status === "resolved" || localResult.status === "needs_clarification") {
-      return localResult
-    }
-  }
-
-  const ruleResult = resolveUtterance(utterance, snapshot)
-  if (options.resolverMode === "rule-only" || !options.resolvers?.length) {
-    return ruleResult
-  }
-
-  const compactSnapshot = compactSnapshotForIntent(snapshot)
-  const externalResolvers = options.resolvers
-
-  if (options.resolverMode === "llm-first") {
-    return resolveWithResolvers(
-      {
-        utterance,
-        snapshot: compactSnapshot,
-        signal: options.signal,
-        turnId: options.turnId,
-        voiceInput: options.voiceInput,
-        recentEvents: options.recentEvents,
-      },
-      [...externalResolvers, ...(options.localResolvers ?? []), ruleResolver],
-      0.7
-    )
-  }
-
-  if (ruleResult.status === "resolved" && ruleResult.confidence >= 0.8) {
-    return ruleResult
-  }
-
-  const resolverResult = await resolveWithResolvers(
-    {
-      utterance,
-      snapshot: compactSnapshot,
-      signal: options.signal,
-      turnId: options.turnId,
-      voiceInput: options.voiceInput,
-      recentEvents: options.recentEvents,
-    },
-    externalResolvers,
-    0.7
-  )
-
-  if (resolverResult.status === "resolved" || resolverResult.status === "needs_clarification") {
-    return resolverResult
-  }
-
-  return ruleResult
-}
-
-async function resolveVoiceCandidate(
-  input: VoiceInput,
-  snapshot: InteractionSnapshot,
-  options: {
-    localResolvers?: IntentResolver[]
-    resolvers?: IntentResolver[]
-    resolverMode: ResolverMode
-    signal?: AbortSignal
-    turnId?: string
-  }
-): Promise<ResolvedInteraction> {
-  const alternatives = getVoiceAlternatives(input)
-  let primaryResult: ResolvedInteraction | undefined
-  let bestResolved:
-    | {
-        resolution: ResolvedInteraction
-        score: number
-        transcript: string
-      }
-    | undefined
-  let bestClarification: ResolvedInteraction | undefined
-
-  for (const alternative of alternatives) {
-    if (options.signal?.aborted) {
-      return {
-        status: "unsupported",
-        utterance: input.text,
-        confidence: 0,
-        reason: "Resolver request was aborted.",
-      }
-    }
-
-    const resolution = await resolveCandidate(alternative.text, snapshot, {
-      ...options,
-      voiceInput: {
-        ...input,
-        text: alternative.text,
-        confidence: alternative.confidence ?? input.confidence,
-      },
-      recentEvents: snapshot.recentEvents,
-    })
-    if (!primaryResult) primaryResult = resolution
-
-    const asrConfidence = alternative.confidence ?? input.confidence ?? 1
-    const score = resolution.confidence * asrConfidence
-    if (resolution.status === "resolved" && (!bestResolved || score > bestResolved.score)) {
-      bestResolved = {
-        resolution,
-        score,
-        transcript: alternative.text,
-      }
-    }
-
-    if (resolution.status === "needs_clarification" && !bestClarification) {
-      bestClarification = resolution
-    }
-  }
-
-  if (bestResolved) {
-    return {
-      ...bestResolved.resolution,
-      utterance: input.text,
-      confidence: Math.min(1, bestResolved.score),
-      reason:
-        bestResolved.transcript === input.text
-          ? bestResolved.resolution.reason
-          : [
-              bestResolved.resolution.reason,
-              `asr_alternative:${bestResolved.transcript}`,
-            ]
-              .filter(Boolean)
-              .join(";"),
-    }
-  }
-
-  return bestClarification ?? primaryResult ?? {
-    status: "not_found",
-    utterance: input.text,
-    confidence: 0,
-    reason: "没有 resolver 能识别该语音表达",
-  }
-}
-
-async function resolvePartialVoicePreview(
-  input: VoiceInput,
-  snapshot: InteractionSnapshot,
-  options: {
-    localResolvers?: IntentResolver[]
-    signal?: AbortSignal
-    turnId?: string
-  }
-): Promise<ResolvedInteraction> {
-  return resolveCandidate(input.text, snapshot, {
-    localResolvers: options.localResolvers,
-    resolverMode: "rule-only",
-    signal: options.signal,
-    turnId: options.turnId,
-    voiceInput: input,
-    recentEvents: snapshot.recentEvents,
-  })
-}
-
-function createPartialVoicePreviewTurn(
-  createdTurn: InteractionTurn,
-  resolution: ResolvedInteraction,
-  previousTurn?: InteractionTurn
-): InteractionTurn {
-  const listening = transitionTurn(createdTurn, {
-    type: "transition",
-    status: "listening",
-    at: createdTurn.updatedAt,
-  })
-
-  return {
-    ...listening,
-    candidates: previewCandidatesFromResolution(resolution),
-    decision: undefined,
-    clarification: undefined,
-    error:
-      resolution.status === "resolved" || resolution.status === "needs_clarification"
-        ? undefined
-        : {
-            code: resolution.status,
-            message: resolution.reason ?? "Partial voice preview did not resolve.",
-          },
-    revision: (previousTurn?.revision ?? 0) + 1,
-    inputRevision: (previousTurn?.inputRevision ?? 0) + 1,
-    transcriptRevisions: [
-      ...(previousTurn?.transcriptRevisions ?? []),
-      createdTurn.input,
-    ].slice(-10) as VoiceInput[],
-  }
-}
-
-function createPartialVoiceListeningTurn(
-  createdTurn: InteractionTurn,
-  previousTurn?: InteractionTurn
-): InteractionTurn {
-  const listening = transitionTurn(createdTurn, {
-    type: "transition",
-    status: "listening",
-    at: createdTurn.updatedAt,
-  })
-
-  return {
-    ...listening,
-    decision: undefined,
-    clarification: undefined,
-    error: undefined,
-    revision: (previousTurn?.revision ?? 0) + 1,
-    inputRevision: (previousTurn?.inputRevision ?? 0) + 1,
-    transcriptRevisions: [
-      ...(previousTurn?.transcriptRevisions ?? []),
-      createdTurn.input,
-    ].slice(-10) as VoiceInput[],
-  }
-}
-
-function previewCandidatesFromResolution(
-  resolution: ResolvedInteraction
-): InteractionTurn["candidates"] {
-  const candidates = resolution.targetCandidates?.length
-    ? resolution.targetCandidates.map((candidate) => ({
-        targetId: candidate.id,
-        score: candidate.confidence,
-      }))
-    : resolution.targetId
-      ? [{ targetId: resolution.targetId, score: resolution.confidence }]
-      : []
-
-  return candidates.map((candidate, index) => ({
-    id: `preview_${resolution.provenance?.turnId ?? "turn"}_${index + 1}`,
-    hypothesisId: resolution.resolverId ?? "preview",
-    targetId: candidate.targetId,
-    actionId: resolution.actionId,
-    primitiveAction: resolution.primitiveAction,
-    params: resolution.params ?? {},
-    score: candidate.score,
-    evidence: [],
-  }))
-}
-
-function decisionFromResolution(resolution: ResolvedInteraction): InteractionTurn["decision"] {
-  if (resolution.status !== "resolved" || !resolution.targetId) return undefined
-  if (!resolution.actionId && !resolution.primitiveAction) return undefined
-
-  return {
-    candidateId: `candidate_${resolution.provenance?.turnId ?? "legacy"}_${resolution.targetId}`,
-    hypothesisId: resolution.resolverId ?? "legacy",
-    targetId: resolution.targetId,
-    actionId: resolution.actionId,
-    primitiveAction: resolution.primitiveAction,
-    params: resolution.params ?? {},
-    score: resolution.confidence,
-    confidenceMargin: resolution.confidence,
-    evidence: [],
-    contextEpoch: resolution.provenance?.anchor.contextEpoch ?? 0,
-    decidedAt: resolution.provenance?.resolvedAt ?? Date.now(),
-  }
-}
-
-function getPartialVoiceTurnId(
-  sessionKey: string,
-  sessions: Map<string, string>,
-  createId: () => string
-): string {
-  const existing = sessions.get(sessionKey)
-  if (existing) return existing
-  const next = createId()
-  sessions.set(sessionKey, next)
-  return next
-}
-
-function voiceSessionKey(input: VoiceInput): string {
-  return input.sessionId ? `session:${input.sessionId}` : `partial:${input.startedAt ?? input.receivedAt}`
-}
-
-function getVoiceAlternatives(input: VoiceInput): Array<{ text: string; confidence?: number }> {
-  const seen = new Set<string>()
-  return [
-    { text: input.text, confidence: input.confidence },
-    ...(input.nBest ?? []),
-  ]
-    .map((alternative) => ({
-      text: alternative.text.trim(),
-      confidence: alternative.confidence,
-    }))
-    .filter((alternative) => {
-      if (!alternative.text || seen.has(alternative.text)) return false
-      seen.add(alternative.text)
-      return true
-    })
-}
-
-function stableStringify(value: unknown): string {
-  return JSON.stringify(value, (_key, item) => {
-    if (typeof item === "function") return "[function]"
-    if (item && typeof item === "object" && !Array.isArray(item)) {
-      return Object.keys(item as Record<string, unknown>)
-        .sort()
-        .reduce<Record<string, unknown>>((acc, key) => {
-          acc[key] = (item as Record<string, unknown>)[key]
-          return acc
-        }, {})
-    }
-    return item
-  })
 }

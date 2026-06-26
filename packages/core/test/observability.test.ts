@@ -31,12 +31,12 @@ describe("interaction trace", () => {
       now: 100,
     })
     const resolving = transitionTurn(turn, {
-      type: "transition",
+      type: "resolution.started",
       status: "resolving",
       at: 101,
     })
     const rejected = transitionTurn(resolving, {
-      type: "transition",
+      type: "dispatch.completed",
       status: "rejected",
       at: 102,
       hypotheses: [

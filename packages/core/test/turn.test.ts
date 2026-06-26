@@ -52,21 +52,25 @@ describe("interaction turn", () => {
       now: 102,
     })
     const resolving = transitionTurn(turn, {
-      type: "transition",
+      type: "resolution.started",
       status: "resolving",
       at: 103,
     })
     const ready = transitionTurn(resolving, {
-      type: "transition",
+      type: "resolution.completed",
       status: "ready",
       at: 104,
       decision: {
+        candidateId: "candidate_1",
+        hypothesisId: "hypothesis_1",
         targetId: "todo_1",
         actionId: "todo.complete",
         params: {},
         score: 0.92,
         confidenceMargin: 0.2,
         evidence: [],
+        contextEpoch: 0,
+        decidedAt: 104,
       },
     })
 
@@ -89,7 +93,7 @@ describe("interaction turn", () => {
     expect(canTransitionTurn("created", "committed")).toBe(false)
     expect(() =>
       transitionTurn(turn, {
-        type: "transition",
+        type: "dispatch.completed",
         status: "committed",
       })
     ).toThrow(/Illegal turn transition/)

@@ -28,6 +28,7 @@ export type ResolutionBundleProtocolEnvelope = {
     | "resolverIds"
     | "hypotheses"
     | "fusion"
+    | "fusionSummary"
     | "startedAt"
     | "completedAt"
   >
@@ -86,6 +87,7 @@ export function serializeResolutionBundle(
       resolverIds: bundle.resolverIds,
       hypotheses: bundle.hypotheses,
       fusion: bundle.fusion,
+      fusionSummary: bundle.fusionSummary,
       startedAt: bundle.startedAt,
       completedAt: bundle.completedAt,
     },
